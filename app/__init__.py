@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 import atexit
 import signal
@@ -45,9 +46,14 @@ def _cleanup():
     _remove_lock()
 
 
+def _signal_handler(signum, frame):
+    _cleanup()
+    sys.exit(0)
+
+
 atexit.register(_cleanup)
-signal.signal(signal.SIGTERM, lambda s, f: _cleanup())
-signal.signal(signal.SIGINT, lambda s, f: _cleanup())
+signal.signal(signal.SIGTERM, _signal_handler)
+signal.signal(signal.SIGINT, _signal_handler)
 
 
 def init_resources(app):
