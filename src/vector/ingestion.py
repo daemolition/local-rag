@@ -15,7 +15,10 @@ from langchain_community.document_loaders import (
     DirectoryLoader,
     PyPDFLoader,
     CSVLoader,
-    UnstructuredExcelLoader
+    UnstructuredExcelLoader,
+    Docx2txtLoader,
+    UnstructuredWordDocumentLoader
+    
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
@@ -61,7 +64,9 @@ class DocumentIngestion:
             ".pdf": CustomPDFLoader,
             ".csv": CSVLoader,
             ".xlsx": UnstructuredExcelLoader,
-            ".xls": UnstructuredExcelLoader
+            ".xls": UnstructuredExcelLoader,
+            ".docx": UnstructuredWordDocumentLoader,
+            ".doc": UnstructuredWordDocumentLoader,
         }
         
         # Qdrant client
