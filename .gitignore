@@ -15,3 +15,4 @@ images/**
 files/**
 tools/poppler
 processed_files
+local_qdrant.db

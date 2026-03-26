@@ -8,6 +8,7 @@ from logging import getLogger
 import uuid
 import shutil
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Third party imports
 from langchain_community.document_loaders import (
@@ -163,6 +164,55 @@ class DocumentIngestion:
         return f"Kontext: {context}\n\nInhalt: {chunk_text}"
         
         
+    def _process_single_file(self, source, chunks, sparse_model):
+        """Worker-Funktion für einen einzelnen Thread"""
+        try:
+            filename = os.path.basename(source)
+            # Globaler Kontext
+            full_text_context = " ".join([c.page_content for c in chunks])[:2500]
+            
+            file_points = []
+            texts_to_embed = []
+            metadatas = []
+
+            for chunk in chunks:
+                # Hier passiert die "Magie" - Sichtbar machen
+                enriched_text = self._enrich_with_context(full_text_context, chunk.page_content)
+                
+                # Wenn es ein Bild war, markieren wir das im Log (optional)
+                if "[Bildbeschreibung:" in chunk.page_content:
+                    logger.info(f"🖼️  Bild-Kontext verarbeitet für: {filename}")
+
+                texts_to_embed.append(enriched_text)
+                meta = chunk.metadata.copy()
+                meta["filename"] = filename
+                metadatas.append(meta)
+
+            # Vektoren berechnen
+            dense_vectors = self.embeddings.embed_documents(texts_to_embed)
+            sparse_vectors = sparse_model.embed_documents(texts_to_embed)
+
+            for i in range(len(texts_to_embed)):
+                sv = sparse_vectors[i]
+                qdrant_sparse = models.SparseVector(
+                    indices=sv.indices if hasattr(sv, 'indices') else sv["indices"],
+                    values=sv.values if hasattr(sv, 'values') else sv["values"]
+                )
+
+                file_points.append(models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={"": dense_vectors[i], "langchain-sparse": qdrant_sparse},
+                    payload={
+                        "page_content": texts_to_embed[i],
+                        "original_content": chunks[i].page_content,
+                        **metadatas[i]
+                    }
+                ))
+            return file_points, chunks, source
+        except Exception as e:
+            logger.error(f"Fehler bei {source}: {e}")
+            return None
+        
     def chunk_documents(self):
         """Ingest Documents"""
         
@@ -192,91 +242,53 @@ class DocumentIngestion:
     
         return final_chunks
     
-        
+
     def ingest_documents(self):
-        """Native Ingestion ohne LangChain Wrapper"""
-        documents = self.chunk_documents()     
-        
+        """Parallele Ingestion mit korrektem Fortschrittsbalken"""
+        documents = self.chunk_documents()
         if not documents:
-            logger.info("Keine Dokumente gefunden. Abbruch.")
+            logger.info("Nichts zu tun.")
             return
 
+        # Gruppierung
         docs_by_source = {}
         for doc in documents:
             source = doc.metadata.get("source", "unknown")
-            if source not in docs_by_source:
-                docs_by_source[source] = []
-            docs_by_source[source].append(doc)
-            
-            
-        all_points = []
-       
-        # 1. Sparse Modell initialisieren
-        sparse_model = FastEmbedSparse(model_name="Qdrant/bm25")       
+            docs_by_source.setdefault(source, []).append(doc)
+
+        sparse_model = FastEmbedSparse(model_name="Qdrant/bm25")
         
-        # Progress bar
-        pbar = tqdm(docs_by_source.items(), desc="Ingestion Progress", unit="file") 
+        # Threads: Da das LLM remote ist, können wir locker 4-8 Threads nehmen
+        max_threads = 5 
         
-        logger.info(f"Verarbeite {len(docs_by_source)} Dateien...")
+        # Der Balken bleibt jetzt unten stehen
+        pbar = tqdm(total=len(docs_by_source), desc="Ingesting Files", unit="file")
 
-        for source, chunks in pbar:
-            logger.info(f"Reichere Datei an: {os.path.basename(source)}")
-            
-            # Globaler Kontext: Die ersten ~2500 Zeichen des Gesamtdokuments
-            full_text_context = " ".join([c.page_content for c in chunks])[:2500]
-            
-            texts_to_embed = []
-            metadatas_to_store = []
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            # Aufgaben verteilen
+            future_to_file = {
+                executor.submit(self._process_single_file, src, chks, sparse_model): src 
+                for src, chks in docs_by_source.items()
+            }
 
-            for chunk in chunks:
-                # Contextual Enrichment: Chunk in den Kontext setzen
-                enriched_text = self._enrich_with_context(full_text_context, chunk.page_content)
-                texts_to_embed.append(enriched_text)
-                
-                # Metadaten sicherstellen (Dateiname, Pfad, etc.)
-                meta = chunk.metadata.copy()
-                meta["filename"] = os.path.basename(source)
-                metadatas_to_store.append(meta)
+            for future in as_completed(future_to_file):
+                result = future.result()
+                if result:
+                    points, original_chunks, source_path = result
+                    
+                    # SEQUENTIELLER UPLOAD (Wichtig für lokale .db Datei)
+                    self.client.upsert(
+                        collection_name=self.collection_name,
+                        points=points
+                    )
+                    
+                    # Datei erst jetzt verschieben
+                    self._move_processed_files(original_chunks)
+                    
+                pbar.update(1) # Balken eins weiter schieben
 
-            # Vektoren berechnen
-            logger.info(f"Berechne Vektoren für {len(texts_to_embed)} Chunks...")
-            dense_vectors = self.embeddings.embed_documents(texts_to_embed)
-            sparse_vectors = sparse_model.embed_documents(texts_to_embed)
-
-            # Qdrant Points erstellen
-            for i in range(len(texts_to_embed)):
-                sv = sparse_vectors[i]
-                qdrant_sparse = models.SparseVector(
-                    indices=sv.indices if hasattr(sv, 'indices') else sv["indices"],
-                    values=sv.values if hasattr(sv, 'values') else sv["values"]
-                )
-
-                all_points.append(models.PointStruct(
-                    id=str(uuid.uuid4()),
-                    vector={
-                        "": dense_vectors[i],
-                        "langchain-sparse": qdrant_sparse
-                    },
-                    payload={
-                        "page_content": texts_to_embed[i], # Enriched Text in DB
-                        "original_content": chunks[i].page_content, # Backup des Originals
-                        **metadatas_to_store[i]
-                    }
-                ))
-
-            # 2. Sammel-Upload für bessere Performance
-            logger.info(f"Schreibe {len(all_points)} Punkte in Qdrant...")
-            self.client.upsert(
-                collection_name=self.collection_name,
-                points=all_points
-            )
-            
-            # Move it directly
-            self._move_processed_files(documents)
-            logger.info(f"Erfolgreich abgeshlossen und archiviert: {os.path.basename(source)}")                    
-
-        # 3. Aufräumen
+        pbar.close()
         self.client.close()
-        logger.info("Ingestion abgeschlossen.")
+        logger.info("Fertig! Alle Dateien sind im Archiv.")
         
         
