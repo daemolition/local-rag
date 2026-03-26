@@ -48,7 +48,7 @@ class VisionLLM:
         if not instruction:
             instruction = """
             ## Rolle: 
-            Du bist ein spezialisierter Analyst für Dienstvereinbarungen und Dienstanweisungen. Deine Aufgabe ist es, Tabellen und Prozessdiagramme in präzise, suchoptimierte Markdown-Beschreibungen zu übersetzen.
+            Du bist ein spezialisierter Analyst für unstructurierte Dokumente. Deine Aufgabe ist es, Tabellen und Prozessdiagramme in präzise, suchoptimierte Markdown-Beschreibungen zu übersetzen.
 
             ### Anweisungen:
 

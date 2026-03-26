@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Document RAG</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            flex-shrink: 0;
+        }
+        
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .header h1 svg {
+            width: 24px;
+            height: 24px;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .user-info a {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.2);
+            transition: all 0.2s ease;
+        }
+        
+        .user-info a:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .main-wrapper {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            padding: 1.5rem;
+            overflow: hidden;
+        }
+        
+        .chat-card {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+        }
+        
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .message {
+            max-width: 85%;
+            padding: 1rem 1.25rem;
+            border-radius: 16px;
+            line-height: 1.6;
+        }
+        
+        .message.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .message.assistant {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+        
+        .message p {
+            margin: 0 0 0.75rem 0;
+        }
+        
+        .message p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .message h1, .message h2, .message h3 {
+            margin: 1rem 0 0.5rem 0;
+            font-weight: 600;
+        }
+        
+        .message h1:first-child, .message h2:first-child, .message h3:first-child {
+            margin-top: 0;
+        }
+        
+        .message h1 { font-size: 1.5rem; }
+        .message h2 { font-size: 1.25rem; }
+        .message h3 { font-size: 1.1rem; }
+        
+        .message code {
+            background: rgba(102, 126, 234, 0.1);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        
+        .message.user code {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .message pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 10px;
+            overflow-x: auto;
+            margin: 0.75rem 0;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+        
+        .message pre code {
+            background: transparent;
+            padding: 0;
+            color: inherit;
+        }
+        
+        .message ul, .message ol {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+        }
+        
+        .message li {
+            margin: 0.25rem 0;
+        }
+        
+        .message table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 0.75rem 0;
+            font-size: 0.9rem;
+        }
+        
+        .message th, .message td {
+            border: 1px solid #e5e7eb;
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+        }
+        
+        .message th {
+            background: #f1f5f9;
+            font-weight: 600;
+        }
+        
+        .message blockquote {
+            border-left: 4px solid #667eea;
+            padding-left: 1rem;
+            margin: 0.75rem 0;
+            color: #64748b;
+            font-style: italic;
+        }
+        
+        .message a {
+            color: #667eea;
+            text-decoration: none;
+            border-bottom: 1px dotted #667eea;
+        }
+        
+        .message a:hover {
+            border-bottom-style: solid;
+        }
+        
+        .message hr {
+            border: none;
+            border-top: 1px solid #e5e7eb;
+            margin: 1rem 0;
+        }
+        
+        .loading-dots {
+            display: flex;
+            gap: 0.3rem;
+            padding: 0.5rem 0;
+        }
+        
+        .loading-dots span {
+            width: 10px;
+            height: 10px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+        
+        .input-container {
+            padding: 1rem 1.5rem 1.5rem;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+            flex-shrink: 0;
+        }
+        
+        .input-wrapper {
+            display: flex;
+            gap: 0.75rem;
+            background: #f8fafc;
+            border: 2px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 0.5rem;
+            transition: all 0.2s ease;
+        }
+        
+        .input-wrapper:focus-within {
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        }
+        
+        .input-form {
+            flex: 1;
+            display: flex;
+            gap: 0.75rem;
+        }
+        
+        .input-form input {
+            flex: 1;
+            padding: 0.75rem;
+            border: none;
+            background: transparent;
+            font-size: 1rem;
+            outline: none;
+        }
+        
+        .input-form input::placeholder {
+            color: #9ca3af;
+        }
+        
+        .input-form button {
+            padding: 0.75rem 1.75rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        
+        .input-form button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .input-form button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .tool-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            border: 1px solid #86efac;
+            border-radius: 20px;
+            padding: 0.4rem 0.8rem;
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: #166534;
+        }
+        
+        .tool-indicator svg {
+            width: 14px;
+            height: 14px;
+        }
+        
+        .error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            color: #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+            </svg>
+            Local Document RAG
+        </h1>
+        <div class="user-info">
+            <span>{{ username }}</span>
+            <a href="{{ url_for('main.logout') }}">Abmelden</a>
+        </div>
+    </header>
+    
+    <div class="main-wrapper">
+        <div class="chat-card">
+            <div class="messages-container" id="messagesContainer"></div>
+            
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <form class="input-form" id="chatForm">
+                        <input type="text" id="userInput" placeholder="Frag mich was zu deinen Dokumenten..." autocomplete="off">
+                        <button type="submit" id="sendBtn">Senden</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            highlight: function(code, lang) {
+                return code;
+            }
+        });
+        
+        const messagesContainer = document.getElementById('messagesContainer');
+        const chatForm = document.getElementById('chatForm');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        
+        function addMessage(role, content, isMarkdown = false) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            
+            if (isMarkdown && role === 'assistant') {
+                div.innerHTML = DOMPurify.sanitize(marked.parse(content));
+            } else {
+                div.textContent = content;
+            }
+            
+            messagesContainer.appendChild(div);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return div;
+        }
+        
+        function addLoadingMessage() {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div>';
+            messagesContainer.appendChild(div);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return div;
+        }
+        
+        function updateMarkdown(div, content) {
+            div.innerHTML = DOMPurify.sanitize(marked.parse(content));
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function addToolIndicator(messageDiv, toolName) {
+            const indicator = document.createElement('div');
+            indicator.className = 'tool-indicator';
+            indicator.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                </svg>
+                ${toolName}
+            `;
+            messageDiv.appendChild(indicator);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function sendMessage(message) {
+            const userMsgDiv = addMessage('user', message);
+            const assistantMsgDiv = addLoadingMessage();
+            
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            
+            let fullResponse = '';
+            let isFirstToken = true;
+            
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data.trim()) {
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    
+                                    if (parsed.token) {
+                                        if (isFirstToken) {
+                                            assistantMsgDiv.innerHTML = '';
+                                            isFirstToken = false;
+                                        }
+                                        fullResponse += parsed.token;
+                                        updateMarkdown(assistantMsgDiv, fullResponse);
+                                    }
+                                    
+                                    if (parsed.tool_start) {
+                                        addToolIndicator(assistantMsgDiv, parsed.tool_start);
+                                    }
+                                    
+                                    if (parsed.sources) {
+                                        fullResponse += parsed.sources;
+                                        updateMarkdown(assistantMsgDiv, fullResponse);
+                                    }
+                                    
+                                    if (parsed.done) {
+                                        console.log('Stream complete');
+                                    }
+                                    
+                                    if (parsed.error) {
+                                        assistantMsgDiv.innerHTML = `<div class="error">Fehler: ${parsed.error}</div>`;
+                                    }
+                                } catch (e) {
+                                    // Ignore parse errors
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                assistantMsgDiv.innerHTML = `<div class="error">Fehler: ${error.message}</div>`;
+            }
+            
+            if (!fullResponse && isFirstToken) {
+                assistantMsgDiv.innerHTML = '<div class="error">Keine Antwort erhalten. Bitte versuche es erneut.</div>';
+            }
+            
+            userInput.disabled = false;
+            sendBtn.disabled = false;
+            userInput.focus();
+        }
+        
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = userInput.value.trim();
+            if (message) {
+                userInput.value = '';
+                sendMessage(message);
+            }
+        });
+        
+        userInput.focus();
+    </script>
+</body>
+</html>
