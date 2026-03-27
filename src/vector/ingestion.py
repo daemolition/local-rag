@@ -28,6 +28,7 @@ from langchain_openai import OpenAIEmbeddings
 # Custom imports
 from src.components import CustomPDFLoader
 from src.llm.local_llm import VisionLLM
+from src.utils.phase_logger import phase_logger, Phase
 
 logger = getLogger(__name__)
 
@@ -175,6 +176,11 @@ class DocumentIngestion:
 
     def _enrich_with_context(self, full_document_text, chunk_text):
         """Enrich the chunks for contextual RAG"""
+        import time
+        
+        start_time = time.time()
+        
+        phase_logger.log_phase(Phase.CONTEXT_ENRICHMENT, f"Context-Anreicherung gestartet | Chunk-Text: {len(chunk_text)} Zeichen")
 
         prompt = f"""
             Hier ist ein kurzes Dokument-Segment: {chunk_text}
@@ -184,13 +190,22 @@ class DocumentIngestion:
 
         # Using the vision model
         context = self.model.generate(prompt)
+        
+        duration = time.time() - start_time
+        phase_logger.log_phase(Phase.CONTEXT_ENRICHMENT, f"Context angereichert | Result: {len(context)} Zeichen", duration=duration)
 
         return f"Kontext: {context}\n\nInhalt: {chunk_text}"
 
     def _process_single_file(self, source, chunks, sparse_model):
         """Worker-Funktion für einen einzelnen Thread"""
+        import time
+        from src.utils.phase_logger import Phase
+        
         try:
+            start_time = time.time()
             filename = os.path.basename(source)
+            phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename} | Chunks: {len(chunks)}")
+            
             # Globaler Kontext
             full_text_context = " ".join([c.page_content for c in chunks])[:2500]
 
@@ -207,6 +222,7 @@ class DocumentIngestion:
                 )
 
                 if "[Bildbeschreibung:" in chunk.page_content:
+                    phase_logger.log_phase(Phase.VISION_PROCESSING, f"Bild-Kontext extrahiert | Datei: {filename}")
                     logger.info(f"  Bild-Kontext verarbeitet für: {filename}")
 
                 texts_to_embed.append(enriched_text)
@@ -215,6 +231,7 @@ class DocumentIngestion:
                 metadatas.append(meta)
 
             # Vektoren berechnen
+            phase_logger.log_phase(Phase.RETRIEVAL, f"Embeddings berechnen | Datei: {filename} | Vektoren: {len(texts_to_embed)}")
             dense_vectors = self.embeddings.embed_documents(texts_to_embed)
             sparse_vectors = sparse_model.embed_documents(texts_to_embed)
 
@@ -239,6 +256,10 @@ class DocumentIngestion:
                         },
                     )
                 )
+            
+            duration = time.time() - start_time
+            phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei fertig: {filename} | Dauer: {duration:.2f}s")
+            
             return file_points, chunks, source
         except Exception as e:
             logger.error(f"Fehler bei {source}: {e}")
@@ -274,9 +295,12 @@ class DocumentIngestion:
 
     def ingest_documents(self):
         """Parallele Ingestion mit korrektem Fortschrittsbalken"""
+        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Dokument-Ingestion gestartet")
+        
         documents = self.chunk_documents()
         if not documents:
             logger.info("Nichts zu tun.")
+            phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Keine Dokumente gefunden", duration=0.0)
             return
 
         # Gruppierung
@@ -316,4 +340,5 @@ class DocumentIngestion:
 
         pbar.close()
         self._close_client()
+        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Dokument-Ingestion abgeschlossen")
         logger.info("Fertig! Alle Dateien sind im Archiv.")

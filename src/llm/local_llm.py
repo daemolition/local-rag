@@ -3,9 +3,11 @@ Local LLM with vision
 """
 # Standard library
 import os
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+from src.utils.phase_logger import phase_logger, Phase
 
 class VisionLLM:
     
@@ -44,6 +46,11 @@ class VisionLLM:
         
     def generate_image_message(self, image: str, instruction: str = None) -> HumanMessage:
         """Generiert die Message für den Call ans Visionmodell"""
+        import base64
+        
+        img_size_kb = len(image) * 3 / 4 / 1024
+        
+        phase_logger.log_phase(Phase.VISION_PROCESSING, f"Bild verarbeiten | Größe: {img_size_kb:.1f}KB")
         
         if not instruction:
             instruction = """
@@ -89,15 +96,25 @@ class VisionLLM:
         
     def generate(self, message: HumanMessage) -> str:
         """Generiert den Text"""
+        start_time = time.time()
+        phase_logger.log_phase(Phase.LLM_CALL, f"LLM-Call gestartet | Model: {self.model}")
+        
         result = self.llm.invoke([message])
+        
+        duration = time.time() - start_time
+        phase_logger.log_phase(Phase.LLM_CALL, f"LLM-Response erhalten | Model: {self.model}", duration=duration)
         
         return result.content
     
     
     def generate_stream(self, prompt: str):
-        # Sicherstellen, dass wir eine Liste von Messages schicken
         messages = [HumanMessage(content=prompt)]
         
-        # self.llm.stream liefert Chunks zurück
+        start_time = time.time()
+        phase_logger.log_phase(Phase.STREAMING, "LLM-Streaming gestartet")
+        
         for chunk in self.llm.stream(messages):
             yield chunk
+        
+        duration = time.time() - start_time
+        phase_logger.log_phase(Phase.STREAMING, "LLM-Streaming abgeschlossen", duration=duration)

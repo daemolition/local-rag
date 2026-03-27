@@ -7,6 +7,7 @@ import os
 import io
 import contextlib
 from logging import getLogger
+import time
 
 # Third party
 import pandas as pd
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from langchain_core.tools import create_retriever_tool
 from langchain_core.tools.structured import StructuredTool
+from src.utils.phase_logger import phase_logger, Phase
 
 logger = getLogger(__name__)
 
@@ -402,14 +404,23 @@ class CustomTools:
     
     def list_files(self) -> list[str]:
         """Listet alle xlsx/csv Dateien im Datenverzeichnis auf."""
+        start_time = time.time()
+        phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: list_files aufgerufen")
+        
         if not os.path.exists(self.DATA_DIR):
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: list_files | Fehler: Verzeichnis nicht gefunden", duration=0.0)
             return f"FEHLER: Datenverzeichnis '{self.DATA_DIR}' existiert nicht."
         
         files = os.listdir(self.DATA_DIR)
         data_files = [f for f in files if f.endswith(('.xlsx', '.csv'))]
         
         if not data_files:
+            duration = time.time() - start_time
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: list_files | Keine Dateien gefunden", duration=duration)
             return f"Keine Excel- oder CSV-Dateien im Verzeichnis '{self.DATA_DIR}' gefunden."
+        
+        duration = time.time() - start_time
+        phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: list_files | {len(data_files)} Dateien gefunden", duration=duration)
         
         return data_files
     
@@ -431,12 +442,17 @@ class CustomTools:
     
     def run_pandas(self, filename: str, code: str) -> str:
         """Führt Pandas-Code auf einem DataFrame aus."""
+        start_time = time.time()
+        phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Datei: {filename}")
+        
         try:
             df = self._get_dataframe(filename)
         except Exception as e:
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Fehler beim Laden: {filename}", duration=0.0)
             return f"FEHLER: Datei '{filename}' konnte nicht geladen werden: {e}"
         
         if df.empty:
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Datei leer: {filename}", duration=0.0)
             return f"Die Datei '{filename}' ist leer oder enthält keine Daten."
         
         # Guardrails / Security
@@ -449,6 +465,7 @@ class CustomTools:
         
         for word in forbidden_keywords:
             if word in code:
+                phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Sicherheitsverletzung: {word}", duration=0.0)
                 return f"FEHLER: '{word}' ist aus Sicherheitsgründen blockiert."
         
         # Exec globals
@@ -488,12 +505,19 @@ class CustomTools:
                 report.append(f"Ergebnis:\n{result}")
             
             if not report:
+                duration = time.time() - start_time
+                phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Kein Ergebnis zurückgegeben", duration=duration)
                 return "Code wurde ausgeführt, aber kein Ergebnis zurückgegeben.\nTipp: Weise das Ergebnis der Variable 'result' zu, z. B.: result = df['Spalte'].sum()"
+            
+            duration = time.time() - start_time
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Ergebnis zurückgegeben", duration=duration)
             
             return "\n\n".join(report)
             
         except Exception as e:
+            duration = time.time() - start_time
             logger.error(f"Pandas-Ausführung fehlgeschlagen: {type(e).__name__}: {e}")
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Fehler: {type(e).__name__}", duration=duration)
             return f"FEHLER bei der Ausführung: {type(e).__name__}: {e}\n\nKorrigiere den Code und versuche erneut."
     
     def _validate_summary_filename(self, filename: str) -> str:
@@ -621,7 +645,19 @@ class CustomTools:
     def get_tools(self) -> list:
         """Gibt alle verfügbaren Tools zurück."""
         
-        # Document Search Tool
+        # Document Search Tool mit Logging-Wrapper
+        def document_search_with_logging(query: str) -> str:
+            """Wrapper für document_search_tool mit Logging"""
+            start_time = time.time()
+            phase_logger.log_phase(Phase.RETRIEVAL, f"Vector-Search gestartet | Query: {query[:50]}...")
+            
+            result = self.retriever.invoke(query)
+            
+            duration = time.time() - start_time
+            phase_logger.log_phase(Phase.RETRIEVAL, f"Vector-Search abgeschlossen | Results: {len(result)} Treffer", duration=duration)
+            
+            return result
+        
         document_search_tool = create_retriever_tool(
             retriever=self.retriever,
             name="document_search_tool",

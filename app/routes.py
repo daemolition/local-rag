@@ -4,6 +4,7 @@ import queue
 import threading
 from flask import Blueprint, render_template, request, session, redirect, url_for, flash, Response, current_app
 from app import USERS
+from src.utils.phase_logger import phase_logger, Phase
 
 bp = Blueprint('main', __name__)
 
@@ -66,6 +67,8 @@ def chat():
         return Response('data: {"error": "Keine Nachricht"}\n\n',
                        mimetype='text/event-stream')
     
+    phase_logger.log_phase(Phase.USER_INPUT, f"User-Query: {user_message[:100]}...")
+    
     agent = current_app.extensions.get("agent")
     
     if not agent:
@@ -91,6 +94,8 @@ def chat():
         async def run_agent_async():
             nonlocal full_response
             try:
+                phase_logger.log_phase(Phase.AGENT_START, "Agent-Stream gestartet")
+                
                 async for event in agent.astream_events(input_data, version="v1"):
                     kind = event.get("event")
                     
@@ -102,17 +107,21 @@ def chat():
                     
                     elif kind == "on_tool_start":
                         tool_name = event.get("name", "unknown")
+                        phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool gestartet: {tool_name}")
                         result_queue.put(('tool_start', tool_name))
                     
                     elif kind == "on_tool_end":
                         tool_name = event.get("name", "unknown")
+                        phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool beendet: {tool_name}")
                         result_queue.put(('tool_end', tool_name))
                 
+                phase_logger.log_phase(Phase.AGENT_RESPONSE, f"Antwort gestreamt | Tokens: {len(full_response)}")
                 result_queue.put(('done', full_response))
                 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
+                phase_logger.log_phase(Phase.AGENT_RESPONSE, f"Fehler: {str(e)[:100]}", duration=0.0)
                 result_queue.put(('error', str(e)))
         
         def run_in_thread():
