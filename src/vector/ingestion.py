@@ -198,15 +198,16 @@ class DocumentIngestion:
             texts_to_embed = []
             metadatas = []
 
-            for chunk in chunks:
-                # Hier passiert die "Magie" - Sichtbar machen
+            total_chunks = len(chunks)
+            for i, chunk in enumerate(chunks, 1):
+                logger.info(f"  [{i}/{total_chunks}] Verarbeite Chunk für: {filename}")
+
                 enriched_text = self._enrich_with_context(
                     full_text_context, chunk.page_content
                 )
 
-                # Wenn es ein Bild war, markieren wir das im Log (optional)
                 if "[Bildbeschreibung:" in chunk.page_content:
-                    logger.info(f"🖼️  Bild-Kontext verarbeitet für: {filename}")
+                    logger.info(f"  Bild-Kontext verarbeitet für: {filename}")
 
                 texts_to_embed.append(enriched_text)
                 meta = chunk.metadata.copy()
