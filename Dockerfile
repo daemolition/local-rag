@@ -26,7 +26,7 @@ RUN pip install --upgrade pip setuptools wheel \
     && pip install uv \
     && uv pip install --system unstructured[pdf] \
     && uv pip install --system imagehash pillow \
-    && uv pip install --system --no-dev -e .
+    && uv pip install --system --no-deps -e .
 
 COPY . .
 
