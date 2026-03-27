@@ -21,9 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
+COPY requirements.txt ./
 
 RUN pip install --upgrade pip setuptools wheel \
     && pip install uv \
+    && uv pip install -r requirements.txt
     && uv pip install --system unstructured[pdf] \
     && uv pip install --system imagehash pillow \
     && uv pip install --system --no-deps -e .
