@@ -27,5 +27,7 @@ dependencies = [
     "sentence-transformers>=5.3.0",
     "tqdm>=4.67.3",
     "unstructured-pytesseract>=0.3.15",
-    "unstructured[pdf]>=0.21.5",
+    "unstructured[paddleocr,pdf]>=0.21.5",
+    "imagehash>=4.3.1",
+    "pillow>=11.0.0",
 ]

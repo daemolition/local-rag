@@ -10,6 +10,8 @@ import shutil
 # Third party
 from unstructured.partition.pdf import partition_pdf
 from langchain_core.documents import Document
+from PIL import Image
+import imagehash
 
 # Custom imports
 from src.llm.local_llm import VisionLLM
@@ -19,6 +21,47 @@ class PreprocessPDF:
     def __init__(self):
         """Initialisiert die Preprocess Pipeline"""
         self.model = VisionLLM()
+        self.duplicate_images = set()
+    
+    
+    def find_duplicate_images(self, images_dir: str, threshold: int = 5) -> set:
+        """
+        Findet ähnliche Bilder basierend auf phash (perceptual hash).
+        
+        Args:
+            images_dir (str): Verzeichnis mit den extrahierten Bildern
+            threshold (int): Hamming-Distanz-Schwelle (niedriger = strikter)
+            
+        Returns:
+            set: Menge der Duplikat-Pfade
+        """
+        hashes = {}
+        duplicates = set()
+        
+        if not os.path.exists(images_dir):
+            return duplicates
+        
+        image_files = sorted([
+            f for f in os.listdir(images_dir) 
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif'))
+        ])
+        
+        for img_file in image_files:
+            img_path = os.path.join(images_dir, img_file)
+            try:
+                img = Image.open(img_path)
+                h = imagehash.phash(img)
+                
+                for existing_path, existing_hash in hashes.items():
+                    if h - existing_hash < threshold:
+                        duplicates.add(img_path)
+                        break
+                else:
+                    hashes[img_path] = h
+            except Exception:
+                continue
+        
+        return duplicates
     
 
     def encode_image(self, image_path: str) -> base64:
@@ -54,7 +97,22 @@ class PreprocessPDF:
             # Das hier ist wichtig für deine Bilder/Grafiken:
             extract_images_in_pdf=True, 
             extract_image_block_output_dir=images_dir,
+            infer_table_structure=False,
+            pdf_image_dpi=150
         )
+        
+        # Duplikate/Logos filtern mit phash
+        self.duplicate_images = self.find_duplicate_images(images_dir)
+        
+        # Anzahl einzigartiger Bilder zählen (für Progress-Anzeige)
+        unique_image_count = sum(
+            1 for el in elements 
+            if el.category == 'Image' 
+            and getattr(el.metadata, "image_path", None)
+            and os.path.exists(getattr(el.metadata, "image_path", None))
+            and getattr(el.metadata, "image_path", None) not in self.duplicate_images
+        )
+        current_image = 0
         
         # Chunks Liste
         chunks = []
@@ -101,9 +159,15 @@ class PreprocessPDF:
             elif el.category == 'Image':
                 image_path = getattr(el.metadata, "image_path", None)
                 if image_path and os.path.exists(image_path):
+                    # Duplikat/Logo überspringen
+                    if image_path in self.duplicate_images:
+                        continue
+                    
+                    current_image += 1
+                    print(f"Verarbeite Bild {current_image}/{unique_image_count}")
+                    
                     b64image = self.encode_image(image_path)
                     message = self.model.generate_image_message(b64image)
-                    # Sicherstellen, dass wir nur den Text-Inhalt der Antwort nehmen
                     description = self.model.generate(message)
                     desc_text = description.content if hasattr(description, 'content') else str(description)
                     
