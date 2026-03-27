@@ -150,7 +150,8 @@ class DocumentIngestion:
         return DirectoryLoader(
             path="./files",
             glob=f"**/*{files_extensions}",
-            loader_cls=loader_cls
+            loader_cls=loader_cls,
+            recursive=True
         )
         
         
