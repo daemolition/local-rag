@@ -125,8 +125,22 @@ def init_resources(app):
     app.extensions["client"] = _qdrant_client
 
 
+def ensure_directories():
+    """Stellt sicher, dass alle benötigten Verzeichnisse existieren."""
+    directories = [
+        os.getenv("DATA_DIR", "./analytics"),
+        os.getenv("SUMMARIES_DIR", "./summaries"),
+        "./flask_session",
+    ]
+    for d in directories:
+        Path(d).mkdir(parents=True, exist_ok=True)
+        logger.info(f"Verzeichnis sichergestellt: {d}")
+
+
 def create_app():
     app = Flask(__name__)
+    
+    ensure_directories()
     
     app.config['SECRET_KEY'] = os.urandom(24)
     app.config['SESSION_TYPE'] = 'filesystem'
