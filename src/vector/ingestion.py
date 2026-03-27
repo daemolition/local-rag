@@ -69,24 +69,47 @@ class DocumentIngestion:
             ".doc": UnstructuredWordDocumentLoader,
         }
 
-        # Qdrant client
-        self.client = QdrantClient(
-            path="./local_qdrant.db", collection_name="local_rag"
-        )
+        # Qdrant client wird erst bei Bedarf geöffnet
+        self._client = None
 
         # Setup model
         self.model = VisionLLM()
 
-        # Setup the collection
+        # Setup the collection (öffnet Client temporär)
         self._setup_collection()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._close_client()
+        return False
+
+    def __del__(self):
+        self._close_client()
+
+    def _get_client(self):
+        """Öffnet Qdrant Client bei Bedarf (Windows-sicher)"""
+        if self._client is None:
+            self._client = QdrantClient(
+                path="./local_qdrant.db", collection_name="local_rag"
+            )
+        return self._client
+
+    def _close_client(self):
+        """Schließt den Client sauber (wichtig für Windows Locks)"""
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
     def _setup_collection(self):
         """Setting up the collection"""
+        client = self._get_client()
 
-        if not self.client.collection_exists(self.collection_name):
+        if not client.collection_exists(self.collection_name):
             logger.info(f"Erstelle Qdrant Collection: {self.collection_name}")
 
-            self.client.create_collection(
+            client.create_collection(
                 collection_name=self.collection_name,
                 # 1. Konfiguration für normale Embeddings (Dense)
                 vectors_config=models.VectorParams(
@@ -105,6 +128,8 @@ class DocumentIngestion:
             )
         else:
             logger.info(f"Qdrant Collection '{self.collection_name}' existiert bereits")
+
+        self._close_client()
 
     def _move_processed_files(self, documents):
         """Verschiebt verarbeitete Dateien in einen Archiv-Ordner (behält Unterordner-Struktur)"""
@@ -280,9 +305,8 @@ class DocumentIngestion:
                     points, original_chunks, source_path = result
 
                     # SEQUENTIELLER UPLOAD (Wichtig für lokale .db Datei)
-                    self.client.upsert(
-                        collection_name=self.collection_name, points=points
-                    )
+                    client = self._get_client()
+                    client.upsert(collection_name=self.collection_name, points=points)
 
                     # Datei erst jetzt verschieben
                     self._move_processed_files(original_chunks)
@@ -290,5 +314,5 @@ class DocumentIngestion:
                 pbar.update(1)  # Balken eins weiter schieben
 
         pbar.close()
-        self.client.close()
+        self._close_client()
         logger.info("Fertig! Alle Dateien sind im Archiv.")
