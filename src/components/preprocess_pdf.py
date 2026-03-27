@@ -109,6 +109,8 @@ class PreprocessPDF:
                 
         logger.error(f"Bild {current_image}/{unique_image_count} - Alle {self.max_retries} Versuche fehlgeschlagen: {image_path}")
         return {'error': f"LLM-Error nach {self.max_retries} Versuchen: {str(last_error)[:100]}"}
+    
+    def encode_image(self, image_path: str) -> base64:
         """
         Helferfunktion zum Encodieren des Bildes in Base64
         
