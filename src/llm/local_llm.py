@@ -29,19 +29,18 @@ class VisionLLM:
         self.temperature = os.getenv("TEMPERATURE", 0.1)
         self.top_p = os.getenv("TOP_P", 0.2)
         self.api_key = os.getenv("API_KEY", "loc-123")
-        self._llm = None
         
-        # Initialisiert das Model direkt mein Aufruf
-        self.llm = self.initialize_llm()
+        self.llm = self._initialize_llm(streaming=False)
+        self.llm_stream = self._initialize_llm(streaming=True)
         
     
-    def initialize_llm(self):
-        """Initialisiert das Vision Model"""
+    def _initialize_llm(self, streaming: bool = False):
+        """Initialisiert das LLM (streaming oder non-streaming)"""
         return ChatOpenAI(
             model=self.model,
             base_url=self.base_url,
             api_key=self.api_key,
-            streaming=True
+            streaming=streaming
         )
         
     def generate_image_message(self, image: str, instruction: str = None) -> HumanMessage:
@@ -95,7 +94,7 @@ class VisionLLM:
 
         
     def generate(self, message: HumanMessage) -> str:
-        """Generiert den Text"""
+        """Generiert den Text (ohne Streaming - für Bilder)"""
         start_time = time.time()
         phase_logger.log_phase(Phase.LLM_CALL, f"LLM-Call gestartet | Model: {self.model}")
         
@@ -108,12 +107,13 @@ class VisionLLM:
     
     
     def generate_stream(self, prompt: str):
+        """Generiert gestreamten Text (für Chat/Reden)"""
         messages = [HumanMessage(content=prompt)]
         
         start_time = time.time()
         phase_logger.log_phase(Phase.STREAMING, "LLM-Streaming gestartet")
         
-        for chunk in self.llm.stream(messages):
+        for chunk in self.llm_stream.stream(messages):
             yield chunk
         
         duration = time.time() - start_time

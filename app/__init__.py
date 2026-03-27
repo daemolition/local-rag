@@ -14,6 +14,7 @@ from qdrant_client import QdrantClient, models
 from src.llm.local_llm import VisionLLM
 from src.tools.custom_tools import CustomTools
 from src.agent.document_agent import DocumentAgent
+from src.utils.qdrant_client import get_qdrant_client
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +24,18 @@ USERS = {
 }
 
 _qdrant_client = None
-QDRANT_PATH = "./local_qdrant.db"
 
 
 def _remove_lock():
-    lock_file = Path(QDRANT_PATH) / ".lock"
-    if lock_file.exists():
-        try:
-            lock_file.unlink()
-            logger.debug("Qdrant lock file removed")
-        except Exception:
-            pass
+    qdrant_local = os.getenv("QDRANT_LOCAL", "true").lower() == "true"
+    if qdrant_local:
+        lock_file = Path("./local_qdrant.db") / ".lock"
+        if lock_file.exists():
+            try:
+                lock_file.unlink()
+                logger.debug("Qdrant lock file removed")
+            except Exception:
+                pass
 
 
 def _cleanup():
@@ -61,8 +63,8 @@ def init_resources(app):
     
     _remove_lock()
     
-    _qdrant_client = QdrantClient(path=QDRANT_PATH)
     collection_name = "local_rag"
+    _qdrant_client = get_qdrant_client(collection_name=collection_name)
     
     embedding_dim = int(os.getenv("EMBEDDING_DIMENSION", 384))
     

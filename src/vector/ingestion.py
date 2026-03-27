@@ -4,31 +4,31 @@ Document igenstion
 
 # Standard library
 import os
-from logging import getLogger
+import glob
 import uuid
 import shutil
+import time
+from pathlib import Path
+from logging import getLogger
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Third party imports
 from langchain_community.document_loaders import (
-    DirectoryLoader,
-    PyPDFLoader,
     CSVLoader,
     UnstructuredExcelLoader,
-    Docx2txtLoader,
     UnstructuredWordDocumentLoader,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
 from langchain_huggingface import HuggingFaceEmbeddings
-from qdrant_client import QdrantClient, models
+from qdrant_client import models
 from langchain_openai import OpenAIEmbeddings
 
 # Custom imports
 from src.components import CustomPDFLoader
 from src.llm.local_llm import VisionLLM
 from src.utils.phase_logger import phase_logger, Phase
+from src.utils.qdrant_client import get_qdrant_client
 
 logger = getLogger(__name__)
 
@@ -92,9 +92,7 @@ class DocumentIngestion:
     def _get_client(self):
         """Öffnet Qdrant Client bei Bedarf (Windows-sicher)"""
         if self._client is None:
-            self._client = QdrantClient(
-                path="./local_qdrant.db", collection_name="local_rag"
-            )
+            self._client = get_qdrant_client(collection_name=self.collection_name)
         return self._client
 
     def _close_client(self):
@@ -174,10 +172,8 @@ class DocumentIngestion:
             recursive=True,
         )
 
-    def _enrich_with_context(self, full_document_text, chunk_text):
+    def _enrich_with_context(self, full_document_text: str, chunk_text: str) -> str:
         """Enrich the chunks for contextual RAG"""
-        import time
-        
         start_time = time.time()
         
         phase_logger.log_phase(Phase.CONTEXT_ENRICHMENT, f"Context-Anreicherung gestartet | Chunk-Text: {len(chunk_text)} Zeichen")
@@ -188,7 +184,6 @@ class DocumentIngestion:
             {full_document_text[:2000]}
         """
 
-        # Using the vision model
         context = self.model.generate(prompt)
         
         duration = time.time() - start_time
@@ -196,149 +191,158 @@ class DocumentIngestion:
 
         return f"Kontext: {context}\n\nInhalt: {chunk_text}"
 
-    def _process_single_file(self, source, chunks, sparse_model):
-        """Worker-Funktion für einen einzelnen Thread"""
-        import time
-        from src.utils.phase_logger import Phase
+    def _process_file(self, file_path: str, sparse_model) -> bool:
+        """
+        Verarbeitet eine einzelne Datei komplett (sequentiell).
         
+        Args:
+            file_path: Pfad zur Datei
+            sparse_model: BM25 Sparse Embedding Model
+            
+        Returns:
+            bool: True wenn erfolgreich, False bei Fehler/leer
+        """
+        filename = os.path.basename(file_path)
+        extension = Path(file_path).suffix.lower()
+        
+        start_time = time.time()
+        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename}")
+        
+        # 1. Datei laden (PDF mit Bildern, andere ohne)
         try:
-            start_time = time.time()
-            filename = os.path.basename(source)
-            phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename} | Chunks: {len(chunks)}")
-            
-            # Globaler Kontext
-            full_text_context = " ".join([c.page_content for c in chunks])[:2500]
-
-            file_points = []
-            texts_to_embed = []
-            metadatas = []
-
-            total_chunks = len(chunks)
-            for i, chunk in enumerate(chunks, 1):
-                logger.info(f"  [{i}/{total_chunks}] Verarbeite Chunk für: {filename}")
-
-                enriched_text = self._enrich_with_context(
-                    full_text_context, chunk.page_content
-                )
-
-                if "[Bildbeschreibung:" in chunk.page_content:
-                    phase_logger.log_phase(Phase.VISION_PROCESSING, f"Bild-Kontext extrahiert | Datei: {filename}")
-                    logger.info(f"  Bild-Kontext verarbeitet für: {filename}")
-
-                texts_to_embed.append(enriched_text)
-                meta = chunk.metadata.copy()
-                meta["filename"] = filename
-                metadatas.append(meta)
-
-            # Vektoren berechnen
-            phase_logger.log_phase(Phase.RETRIEVAL, f"Embeddings berechnen | Datei: {filename} | Vektoren: {len(texts_to_embed)}")
-            dense_vectors = self.embeddings.embed_documents(texts_to_embed)
-            sparse_vectors = sparse_model.embed_documents(texts_to_embed)
-
-            for i in range(len(texts_to_embed)):
-                sv = sparse_vectors[i]
-                qdrant_sparse = models.SparseVector(
-                    indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
-                    values=sv.values if hasattr(sv, "values") else sv["values"],
-                )
-
-                file_points.append(
-                    models.PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector={
-                            "": dense_vectors[i],
-                            "langchain-sparse": qdrant_sparse,
-                        },
-                        payload={
-                            "page_content": texts_to_embed[i],
-                            "original_content": chunks[i].page_content,
-                            **metadatas[i],
-                        },
-                    )
-                )
-            
-            duration = time.time() - start_time
-            phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei fertig: {filename} | Dauer: {duration:.2f}s")
-            
-            return file_points, chunks, source
-        except Exception as e:
-            logger.error(f"Fehler bei {source}: {e}")
-            return None
-
-    def chunk_documents(self):
-        """Ingest Documents"""
-
-        # Splitting the texts
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000, chunk_overlap=200
-        )
-
-        # Final chunked documents
-        final_chunks = []
-
-        for extension, loader_cls in self.loaders.items():
-            loader = self._create_directory_loader(extension, loader_cls)
-            loaded_docs = loader.load()
-
-            if not loaded_docs:
-                continue
-
-            if extension == ".pdf":
-                # If PDF skip spillting
-                final_chunks.extend(loaded_docs)
+            if extension == '.pdf':
+                loader = CustomPDFLoader(file_path)
+                chunks = list(loader.lazy_load())
+            elif extension == '.csv':
+                loader = CSVLoader(file_path)
+                chunks = loader.load()
+            elif extension in ['.xlsx', '.xls']:
+                loader = UnstructuredExcelLoader(file_path)
+                chunks = loader.load()
+            elif extension in ['.docx', '.doc']:
+                loader = UnstructuredWordDocumentLoader(file_path)
+                chunks = loader.load()
             else:
-                # If not pdf split
-                split_docs = text_splitter.split_documents(loaded_docs)
-                final_chunks.extend(split_docs)
-
-        return final_chunks
+                logger.warning(f"Unbekannter Dateityp: {extension}")
+                return False
+        except Exception as e:
+            logger.error(f"Fehler beim Laden von {filename}: {e}")
+            return False
+        
+        if not chunks:
+            logger.info(f"Keine Chunks für {filename}")
+            return False
+        
+        # 2. Chunks splitten (nur bei Nicht-PDFs)
+        if extension != '.pdf':
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000, 
+                chunk_overlap=200
+            )
+            chunks = text_splitter.split_documents(chunks)
+        
+        # 3. Context anreichern
+        full_text_context = " ".join([c.page_content for c in chunks])[:2500]
+        
+        texts_to_embed = []
+        metadatas = []
+        
+        total_chunks = len(chunks)
+        for i, chunk in enumerate(chunks, 1):
+            logger.info(f"  [{i}/{total_chunks}] Context anreichern: {filename}")
+            
+            enriched_text = self._enrich_with_context(full_text_context, chunk.page_content)
+            
+            if "[Bild-BESCHREIBUNG:" in chunk.page_content or "[Bildbeschreibung:" in chunk.page_content:
+                phase_logger.log_phase(Phase.VISION_PROCESSING, f"Bild-Kontext extrahiert | Datei: {filename}")
+                logger.info(f"  Bild-Kontext verarbeitet für: {filename}")
+            
+            texts_to_embed.append(enriched_text)
+            meta = chunk.metadata.copy()
+            meta["filename"] = filename
+            metadatas.append(meta)
+        
+        # 4. Vektoren berechnen
+        phase_logger.log_phase(Phase.RETRIEVAL, f"Embeddings berechnen | Datei: {filename} | Vektoren: {len(texts_to_embed)}")
+        
+        dense_vectors = self.embeddings.embed_documents(texts_to_embed)
+        sparse_vectors = sparse_model.embed_documents(texts_to_embed)
+        
+        # 5. Upload Qdrant
+        points = []
+        for i in range(len(texts_to_embed)):
+            sv = sparse_vectors[i]
+            qdrant_sparse = models.SparseVector(
+                indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
+                values=sv.values if hasattr(sv, "values") else sv["values"],
+            )
+            
+            points.append(
+                models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={
+                        "": dense_vectors[i],
+                        "langchain-sparse": qdrant_sparse,
+                    },
+                    payload={
+                        "page_content": texts_to_embed[i],
+                        "original_content": chunks[i].page_content,
+                        **metadatas[i],
+                    },
+                )
+            )
+        
+        client = self._get_client()
+        client.upsert(collection_name=self.collection_name, points=points)
+        
+        # 6. Datei verschieben
+        self._move_processed_files(chunks)
+        
+        duration = time.time() - start_time
+        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei fertig: {filename} | Dauer: {duration:.2f}s")
+        
+        return True
 
     def ingest_documents(self):
-        """Parallele Ingestion mit korrektem Fortschrittsbalken"""
+        """Sequentielle Ingestion pro Datei"""
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Dokument-Ingestion gestartet")
         
-        documents = self.chunk_documents()
-        if not documents:
-            logger.info("Nichts zu tun.")
-            phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Keine Dokumente gefunden", duration=0.0)
+        # Dateien sammeln
+        all_files = []
+        for extension in self.loaders.keys():
+            pattern = os.path.join("./files", f"**/*{extension}")
+            files = glob.glob(pattern, recursive=True)
+            all_files.extend(files)
+        
+        if not all_files:
+            logger.info("Keine Dateien gefunden.")
+            phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Keine Dateien gefunden", duration=0.0)
             return
-
-        # Gruppierung
-        docs_by_source = {}
-        for doc in documents:
-            source = doc.metadata.get("source", "unknown")
-            docs_by_source.setdefault(source, []).append(doc)
-
+        
         sparse_model = FastEmbedSparse(model_name="Qdrant/bm25")
-
-        # Threads: Da das LLM remote ist, können wir locker 4-8 Threads nehmen
-        max_threads = 5
-
-        # Der Balken bleibt jetzt unten stehen
-        pbar = tqdm(total=len(docs_by_source), desc="Ingesting Files", unit="file")
-
-        with ThreadPoolExecutor(max_workers=max_threads) as executor:
-            # Aufgaben verteilen
-            future_to_file = {
-                executor.submit(self._process_single_file, src, chks, sparse_model): src
-                for src, chks in docs_by_source.items()
-            }
-
-            for future in as_completed(future_to_file):
-                result = future.result()
-                if result:
-                    points, original_chunks, source_path = result
-
-                    # SEQUENTIELLER UPLOAD (Wichtig für lokale .db Datei)
-                    client = self._get_client()
-                    client.upsert(collection_name=self.collection_name, points=points)
-
-                    # Datei erst jetzt verschieben
-                    self._move_processed_files(original_chunks)
-
-                pbar.update(1)  # Balken eins weiter schieben
-
-        pbar.close()
+        pbar = tqdm(all_files, desc="Processing Files", unit="file")
+        
+        success_count = 0
+        error_count = 0
+        
+        for file_path in pbar:
+            filename = os.path.basename(file_path)
+            pbar.set_description(f"Processing: {filename}")
+            
+            try:
+                success = self._process_file(file_path, sparse_model)
+                if success:
+                    success_count += 1
+                    pbar.write(f"✓ {filename} verarbeitet")
+                else:
+                    error_count += 1
+                    pbar.write(f"✗ {filename} fehlgeschlagen (keine Chunks)")
+            except Exception as e:
+                error_count += 1
+                logger.error(f"Fehler bei {filename}: {e}")
+                pbar.write(f"✗ {filename} fehlgeschlagen: {str(e)[:50]}")
+                continue
+        
         self._close_client()
-        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Dokument-Ingestion abgeschlossen")
-        logger.info("Fertig! Alle Dateien sind im Archiv.")
+        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Dokument-Ingestion abgeschlossen | Erfolgreich: {success_count} | Fehler: {error_count}")
+        logger.info(f"Fertig! {success_count} Dateien erfolgreich verarbeitet, {error_count} Fehler.")

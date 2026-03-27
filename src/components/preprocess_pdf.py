@@ -6,6 +6,8 @@ Custom preprocess
 import os
 import base64
 import shutil
+import time
+import logging
 
 # Third party
 from unstructured.partition.pdf import partition_pdf
@@ -16,12 +18,22 @@ import imagehash
 # Custom imports
 from src.llm.local_llm import VisionLLM
 
+logger = logging.getLogger(__name__)
+
 class PreprocessPDF:
     
-    def __init__(self):
-        """Initialisiert die Preprocess Pipeline"""
+    def __init__(self, max_retries: int = 3, retry_delay: float = 2.0):
+        """
+        Initialisiert die Preprocess Pipeline
+        
+        Args:
+            max_retries: Maximale Retry-Versuche für LLM-Calls (default: 3)
+            retry_delay: Wartezeit zwischen Retries in Sekunden (default: 2.0)
+        """
         self.model = VisionLLM()
         self.duplicate_images = set()
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
     
     
     def find_duplicate_images(self, images_dir: str, threshold: int = 5) -> set:
@@ -64,7 +76,39 @@ class PreprocessPDF:
         return duplicates
     
 
-    def encode_image(self, image_path: str) -> base64:
+    def process_image_with_retry(self, b64image: str, image_path: str, current_image: int, unique_image_count: int) -> dict:
+        """
+        Verarbeitet ein Bild mit Retry-Logik für LLM-Timeouts.
+        
+        Args:
+            b64image: Base64-kodiertes Bild
+            image_path: Pfad zum Bild (für Logging)
+            current_image: Aktuelle Bild-Nummer
+            unique_image_count: Gesamtzahl der einzigartigen Bilder
+            
+        Returns:
+            dict: {'image': description_text} oder {'error': error_message}
+        """
+        message = self.model.generate_image_message(b64image)
+        
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < self.max_retries:
+            try:
+                description = self.model.generate(message)
+                desc_text = description.content if hasattr(description, 'content') else str(description)
+                return {'image': desc_text}
+            except Exception as e:
+                retry_count += 1
+                last_error = e
+                logger.warning(f"Bild {current_image}/{unique_image_count} - Versuch {retry_count}/{self.max_retries} fehlgeschlagen: {str(e)[:100]}")
+                
+                if retry_count < self.max_retries:
+                    time.sleep(self.retry_delay * retry_count)  # Exponentielles Backoff
+                
+        logger.error(f"Bild {current_image}/{unique_image_count} - Alle {self.max_retries} Versuche fehlgeschlagen: {image_path}")
+        return {'error': f"LLM-Error nach {self.max_retries} Versuchen: {str(last_error)[:100]}"}
         """
         Helferfunktion zum Encodieren des Bildes in Base64
         
@@ -164,14 +208,17 @@ class PreprocessPDF:
                         continue
                     
                     current_image += 1
-                    print(f"Verarbeite Bild {current_image}/{unique_image_count}")
+                    print(f"Verarbeite Bild {current_image}/{unique_image_count}", flush=True)
                     
                     b64image = self.encode_image(image_path)
-                    message = self.model.generate_image_message(b64image)
-                    description = self.model.generate(message)
-                    desc_text = description.content if hasattr(description, 'content') else str(description)
+                    result = self.process_image_with_retry(b64image, image_path, current_image, unique_image_count)
                     
-                    current_chunk['content'].append({'image': desc_text})
+                    if 'image' in result:
+                        current_chunk['content'].append({'image': result['image']})
+                    elif 'error' in result:
+                        logger.error(f"Bild übersprungen: {result['error']}")
+                        # Optional: Fehler-Platzhalter hinzufügen
+                        # current_chunk['content'].append({'error': result['error']})
             else:
                 if el.text.strip():
                     current_chunk['content'].append(el.text)

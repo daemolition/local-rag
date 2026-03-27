@@ -11,6 +11,9 @@ from langchain_qdrant import QdrantVectorStore, RetrievalMode, FastEmbedSparse
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpointEmbeddings
 from qdrant_client import QdrantClient
 
+# Custom imports
+from src.utils.qdrant_client import get_qdrant_client
+
 logger = getLogger(__name__)
 
 class DocumentRetriever:
@@ -43,15 +46,12 @@ class DocumentRetriever:
         # Sparse Embeddings
         self.sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
         
-        # Collectoin Settings
+        # Collection Settings
         self.collection_name = "local_rag"
         self.dimenions = "1024"        
         
         # Qdrant client
-        self.client = QdrantClient(
-            path="./local_qdrant.db",
-            collection_name="local_rag"
-        )
+        self.client = get_qdrant_client(collection_name=self.collection_name)
         
     def retriever(self):
         """Retriever for the documents"""

@@ -15,6 +15,12 @@ def get_session_id():
     return session.get('user', 'anonymous')
 
 
+@bp.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint for Docker"""
+    return {'status': 'healthy'}, 200
+
+
 @bp.route('/', methods=['GET'])
 def index():
     if 'user' not in session:
