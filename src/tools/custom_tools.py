@@ -53,6 +53,46 @@ class RunPandasInput(BaseModel):
     )
 
 
+class ListSummariesInput(BaseModel):
+    """Input model for list_summaries tool."""
+    pass
+
+
+class ReadSummaryInput(BaseModel):
+    """Input model for read_summary tool."""
+    filename: str = Field(
+        description="Name der Markdown-Datei aus der Liste (z. B. 'analysis_2024.md')"
+    )
+
+
+class WriteSummaryInput(BaseModel):
+    """Input model for write_summary tool."""
+    filename: str = Field(
+        description="Name für die neue Markdown-Datei (z. B. 'sales_summary.md')"
+    )
+    content: str = Field(
+        description="Der Markdown-Inhalt, der in die Datei geschrieben werden soll"
+    )
+
+
+class EditSummaryInput(BaseModel):
+    """Input model for edit_summary tool."""
+    filename: str = Field(
+        description="Name der existierenden Markdown-Datei (z. B. 'analysis.md')"
+    )
+    content: str = Field(
+        description="Der zusätzliche Inhalt, der hinzugefügt oder eingefügt werden soll"
+    )
+    mode: str = Field(
+        default="append",
+        description="""Bearbeitungsmodus:
+        - 'append': Fügt Inhalt am Ende der Datei hinzu
+        - 'prepend': Fügt Inhalt am Anfang der Datei hinzu
+        - 'replace': Ersetzt den gesamten Inhalt der Datei
+        """
+    )
+
+
 # === Tool Descriptions ===
 
 DOCUMENT_SEARCH_DESCRIPTION = """
@@ -195,15 +235,154 @@ Folgende Befehle sind aus Sicherheitsgründen BLOCKIERT:
 Ein String mit dem Analyseergebnis oder einer Fehlermeldung bei Problemen.
 """
 
+LIST_SUMMARIES_DESCRIPTION = """
+### Tool Name:
+list_summaries
+
+### Tool Description:
+Listet alle verfügbaren Markdown-Analysen im summaries-Verzeichnis auf.
+Dies ist der erste Schritt, um zu verstehen, welche gespeicherten Analysen bereits existieren.
+
+### Wann dieses Tool verwenden:
+1. Wenn der Nutzer wissen möchte, welche Analysen bereits gespeichert wurden.
+2. Vor dem Lesen oder Bearbeiten einer Analyse, um den korrekten Dateinamen zu ermitteln.
+3. Um den Fortschritt einer Analyse zu überprüfen (weitere Teile hinzugefügt?).
+
+### Workflow:
+1. Rufe `list_summaries` auf, um alle verfügbaren Analysen zu sehen.
+2. Wähle eine relevante Analyse basierend auf dem Dateinamen.
+3. Nutze `read_summary`, um den Inhalt zu lesen.
+4. Nutze `edit_summary`, um die Analyse zu erweitern.
+
+### Input:
+Keine Parameter erforderlich.
+
+### Output:
+Eine Liste von Dateinamen als Strings (z. B. ["analysis_2024.md", "sales_overview.md"]).
+"""
+
+READ_SUMMARY_DESCRIPTION = """
+### Tool Name:
+read_summary
+
+### Tool Description:
+Liest den vollständigen Inhalt einer gespeicherten Markdown-Analyse aus dem summaries-Verzeichnis.
+
+### Wann dieses Tool verwenden:
+1. Um eine existierende Analyse zu überprüfen.
+2. Um eine Analyse als Grundlage für eine neue Analyse zu nutzen.
+3. Um den aktuellen Stand einer fortlaufenden Analyse zu sehen.
+4. Wenn der Nutzer nach dem Inhalt einer spezifischen Analyse fragt.
+
+### Workflow:
+1. Liste Analysen mit `list_summaries` auf.
+2. Wähle die gewünschte Datei.
+3. Rufe `read_summary` mit dem Dateinamen auf.
+4. Analysiere den Inhalt und fahre fort.
+
+### Input:
+- filename: Name der Markdown-Datei (z. B. "analysis_2024.md")
+
+### Output:
+Der vollständige Inhalt der Markdown-Datei als String.
+
+### WICHTIG:
+- Nur Dateien mit .md Endung erlaubt.
+- Pfad-Traversal (../ etc.) ist blockiert.
+"""
+
+WRITE_SUMMARY_DESCRIPTION = """
+### Tool Name:
+write_summary
+
+### Tool Description:
+Erstellt eine neue Markdown-Analyse-Datei im summaries-Verzeichnis oder überschreibt eine existierende.
+
+### Wann dieses Tool verwenden:
+1. Um eine neue Analyse zu starten und zu speichern.
+2. Um wichtige Erkenntnisse aus einer Dokumentenanalyse zu persistieren.
+3. Um Teilergebnisse zu speichern, die später zu einem Gesamtbild kombiniert werden.
+4. Um eine Analyse als Vorlage für zukünftige Analysen zu erstellen.
+
+### Workflow:
+1. Führe Analysen durch (document_search, run_pandas, etc.).
+2. Strukturiere die Ergebnisse als Markdown.
+3. Speichere die Analyse mit `write_summary`.
+4. Erweitere später mit `edit_summary` bei Bedarf.
+
+### Input:
+- filename: Name der neuen Datei (z. B. "quarterly_report.md")
+- content: Der Markdown-Inhalt der Datei
+
+### Markdown-Struktur empfohlen:
+```markdown
+# Analyse: [Titel]
+
+## Zusammenfassung
+[Kurze Zusammenfassung]
+
+## Hauptergebnisse
+- Ergebnis 1
+- Ergebnis 2
+
+## Details
+[Ausführliche Analyse]
+
+## Quellen
+- Dokument A
+- Tabelle B
+```
+
+### Output:
+Bestätigung, dass die Datei erstellt wurde, oder eine Fehlermeldung.
+"""
+
+EDIT_SUMMARY_DESCRIPTION = """
+### Tool Name:
+edit_summary
+
+### Tool Description:
+Bearbeitet eine existierende Markdown-Analyse-Datei, um neue Erkenntnisse hinzuzufügen oder den Inhalt zu aktualisieren.
+
+### Wann dieses Tool verwenden:
+1. Um eine existierende Analyse zu erweitern (append).
+2. Um neue Erkenntnisse am Anfang hinzuzufügen (prepend).
+3. Um eine Analyse komplett zu aktualisieren (replace).
+4. Um mehrere Teilergebnisse zu einem Gesamtbild zusammenzuführen.
+
+### Workflow für Gesamtbild-Erstellung:
+1. Erstelle initiale Analyse mit `write_summary`.
+2. Führe weitere Analysen durch.
+3. Füge neue Abschnitte mit `edit_summary` (mode='append') hinzu.
+4. Wiederhole, bis das Gesamtbild vollständig ist.
+
+### Input:
+- filename: Name der existierenden Datei (z. B. "analysis.md")
+- content: Der hinzuzufügende oder ersetzende Inhalt
+- mode: Bearbeitungsmodus:
+  * 'append': Fügt Inhalt am Ende hinzu (Standard)
+  * 'prepend': Fügt Inhalt am Anfang hinzu
+  * 'replace': Ersetzt den gesamten Inhalt
+
+### Beispiele:
+- Neue Sektion anhängen: mode='append', content='\n\n## Neue Erkenntnisse\n\n...'
+- Wichtige Erkenntnis voranstellen: mode='prepend', content='# WICHTIG: ...\n\n...'
+- Komplett neu schreiben: mode='replace', content='# Analyse: ...\n\n...'
+
+### Output:
+Bestätigung, dass die Datei bearbeitet wurde, oder eine Fehlermeldung.
+"""
+
 
 class CustomTools:
-    """Custom tools for RAG agent with pandas analytics capabilities."""
+    """Custom tools for RAG agent with pandas analytics and summary management capabilities."""
     
     def __init__(self, llm, retriever):
         self.llm = llm
         self.retriever = retriever
         self._cache: dict[str, pd.DataFrame] = {}
         self.DATA_DIR = os.getenv("DATA_DIR", "./data")
+        self.SUMMARIES_DIR = os.getenv("SUMMARIES_DIR", "./summaries")
     
     def _get_dataframe(self, filename: str) -> pd.DataFrame:
         """Lädt DataFrame mit Caching."""
@@ -317,6 +496,128 @@ class CustomTools:
             logger.error(f"Pandas-Ausführung fehlgeschlagen: {type(e).__name__}: {e}")
             return f"FEHLER bei der Ausführung: {type(e).__name__}: {e}\n\nKorrigiere den Code und versuche erneut."
     
+    def _validate_summary_filename(self, filename: str) -> str:
+        """Validiert und bereinigt den Dateinamen für summaries."""
+        if not filename:
+            raise ValueError("Dateiname darf nicht leer sein.")
+        
+        filename = os.path.basename(filename)
+        
+        if not filename.endswith('.md'):
+            filename = f"{filename}.md"
+        
+        if '..' in filename or '/' in filename or '\\' in filename:
+            raise ValueError(f"Ungültiger Dateiname: {filename}")
+        
+        return filename
+    
+    def _ensure_summaries_dir(self):
+        """Stellt sicher, dass das summaries-Verzeichnis existiert."""
+        os.makedirs(self.SUMMARIES_DIR, exist_ok=True)
+    
+    def list_summaries(self) -> list[str]:
+        """Listet alle Markdown-Dateien im summaries-Verzeichnis auf."""
+        self._ensure_summaries_dir()
+        
+        if not os.path.exists(self.SUMMARIES_DIR):
+            return f"FEHLER: Summaries-Verzeichnis '{self.SUMMARIES_DIR}' existiert nicht."
+        
+        files = os.listdir(self.SUMMARIES_DIR)
+        md_files = [f for f in files if f.endswith('.md')]
+        
+        if not md_files:
+            return f"Keine Markdown-Dateien im Verzeichnis '{self.SUMMARIES_DIR}' gefunden."
+        
+        return sorted(md_files)
+    
+    def read_summary(self, filename: str) -> str:
+        """Liest den Inhalt einer Markdown-Datei aus dem summaries-Verzeichnis."""
+        try:
+            filename = self._validate_summary_filename(filename)
+            self._ensure_summaries_dir()
+            
+            filepath = os.path.join(self.SUMMARIES_DIR, filename)
+            
+            if not os.path.exists(filepath):
+                return f"FEHLER: Datei '{filename}' nicht gefunden. Nutze list_summaries, um verfügbare Dateien zu sehen."
+            
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            return f"Datei: {filename}\n\n{content}"
+            
+        except ValueError as e:
+            return f"FEHLER: {e}"
+        except Exception as e:
+            return f"FEHLER beim Lesen von '{filename}': {type(e).__name__}: {e}"
+    
+    def write_summary(self, filename: str, content: str) -> str:
+        """Erstellt oder überschreibt eine Markdown-Datei im summaries-Verzeichnis."""
+        try:
+            filename = self._validate_summary_filename(filename)
+            self._ensure_summaries_dir()
+            
+            if not content or not content.strip():
+                return "FEHLER: Inhalt darf nicht leer sein."
+            
+            filepath = os.path.join(self.SUMMARIES_DIR, filename)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            logger.info(f"Summary erstellt: {filename}")
+            return f"ERFOLG: Datei '{filename}' wurde erstellt im Verzeichnis '{self.SUMMARIES_DIR}'."
+            
+        except ValueError as e:
+            return f"FEHLER: {e}"
+        except Exception as e:
+            logger.error(f"Fehler beim Schreiben von {filename}: {e}")
+            return f"FEHLER beim Schreiben von '{filename}': {type(e).__name__}: {e}"
+    
+    def edit_summary(self, filename: str, content: str, mode: str = "append") -> str:
+        """Bearbeitet eine existierende Markdown-Datei."""
+        try:
+            filename = self._validate_summary_filename(filename)
+            self._ensure_summaries_dir()
+            
+            valid_modes = ["append", "prepend", "replace"]
+            if mode not in valid_modes:
+                return f"FEHLER: Ungültiger Modus '{mode}'. Gültige Modi: {', '.join(valid_modes)}"
+            
+            if not content or not content.strip():
+                return "FEHLER: Inhalt darf nicht leer sein."
+            
+            filepath = os.path.join(self.SUMMARIES_DIR, filename)
+            
+            if mode == "replace":
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                logger.info(f"Summary ersetzt: {filename}")
+                return f"ERFOLG: Datei '{filename}' wurde vollständig ersetzt."
+            
+            if not os.path.exists(filepath):
+                return f"FEHLER: Datei '{filename}' existiert nicht. Nutze write_summary, um eine neue Datei zu erstellen."
+            
+            with open(filepath, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
+            
+            if mode == "append":
+                new_content = existing_content.rstrip() + "\n\n" + content.lstrip()
+            elif mode == "prepend":
+                new_content = content.rstrip() + "\n\n" + existing_content.lstrip()
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            
+            logger.info(f"Summary bearbeitet ({mode}): {filename}")
+            return f"ERFOLG: Inhalt wurde {'angehängt' if mode == 'append' else 'vorangestellt'} an Datei '{filename}'."
+            
+        except ValueError as e:
+            return f"FEHLER: {e}"
+        except Exception as e:
+            logger.error(f"Fehler beim Bearbeiten von {filename}: {e}")
+            return f"FEHLER beim Bearbeiten von '{filename}': {type(e).__name__}: {e}"
+    
     def get_tools(self) -> list:
         """Gibt alle verfügbaren Tools zurück."""
         
@@ -351,9 +652,45 @@ class CustomTools:
             args_schema=RunPandasInput,
         )
         
+        # List Summaries Tool
+        list_summaries_tool = StructuredTool.from_function(
+            func=self.list_summaries,
+            name="list_summaries",
+            description=LIST_SUMMARIES_DESCRIPTION,
+            args_schema=ListSummariesInput,
+        )
+        
+        # Read Summary Tool
+        read_summary_tool = StructuredTool.from_function(
+            func=self.read_summary,
+            name="read_summary",
+            description=READ_SUMMARY_DESCRIPTION,
+            args_schema=ReadSummaryInput,
+        )
+        
+        # Write Summary Tool
+        write_summary_tool = StructuredTool.from_function(
+            func=self.write_summary,
+            name="write_summary",
+            description=WRITE_SUMMARY_DESCRIPTION,
+            args_schema=WriteSummaryInput,
+        )
+        
+        # Edit Summary Tool
+        edit_summary_tool = StructuredTool.from_function(
+            func=self.edit_summary,
+            name="edit_summary",
+            description=EDIT_SUMMARY_DESCRIPTION,
+            args_schema=EditSummaryInput,
+        )
+        
         return [
             document_search_tool,
             list_files_tool,
             preview_data_tool,
             run_pandas_tool,
+            list_summaries_tool,
+            read_summary_tool,
+            write_summary_tool,
+            edit_summary_tool,
         ]
