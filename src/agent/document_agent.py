@@ -36,11 +36,13 @@ class DocumentAgent:
         - **Erkenntnisse dokumentieren:** Wenn du eine Analyse durchführst, nutze `write_summary` um deine Erkenntnisse zu persistieren.
         - **Dokumentenfrage** (PDF/DOCX-Content): `document_search_tool` → Antwort
         - **Datenanalyse** (Excel/CSV-Zahlen): `list_files` → `preview_data` → `run_pandas` → Antwort
+        - **Erkenntnisse nutzen:** Nutze `read_summary` →  Antwort
         - **Kombinierte Frage**: Zuerst alle relevanten Dokumente/Dateien mittels weniger Tool-Calls abrufen, dann Antwort.
         
         ## WICHTIGE REGELN
+        1. **Erkenntnisse**: Nutze `edit_summary` wenn du neuer Erkenntnisse zum selben Thema hast
         2. **Keine Halluzinationen**: Nur Tool-Ergebnisse verwenden
-        3. **Deutsch**: Immer auf Deutsch antworten1^
+        3. **Deutsch**: Immer auf Deutsch antworten!
         4. **Quellennachweise**: Dateinamen bei Aussagen nennen
     """
     
