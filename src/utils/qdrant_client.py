@@ -23,16 +23,8 @@ def get_qdrant_client(collection_name: str = "local_rag") -> QdrantClient:
     qdrant_local = os.getenv("QDRANT_LOCAL", "true").lower() == "true"
     
     if qdrant_local:
-        return QdrantClient(
-            path="./local_qdrant.db",
-            collection_name=collection_name
-        )
+        return QdrantClient(path="./local_qdrant.db")
     else:
         qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
         qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
-        
-        return QdrantClient(
-            host=qdrant_host,
-            port=qdrant_port,
-            collection_name=collection_name
-        )
+        return QdrantClient(host=qdrant_host, port=qdrant_port)
