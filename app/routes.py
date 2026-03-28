@@ -114,7 +114,7 @@ def chat():
                     
                     elif kind == "on_chain_stream":
                         chunk = event.get("data", {}).get("chunk", {})
-                        messages = chunk.get("model", {}).get("messages", [])
+                        messages = chunk.get("model", {}).get("messages", []) if isinstance(chunk, dict) else []
                         for msg in messages:
                             if hasattr(msg, "content") and msg.content:
                                 if not full_response:
