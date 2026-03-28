@@ -16,4 +16,5 @@ files/**
 tools/poppler
 processed_files
 local_qdrant.db
-flask_session/
+flask_session/**
+summaries/**
