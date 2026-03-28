@@ -138,6 +138,8 @@ def chat():
                         tool_output = event.get("data", {}).get("output", "")
                         phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool beendet: {tool_name}")
                         result_queue.put(('tool_end', tool_name))
+                        # Stream das Tool-Output sofort
+                        result_queue.put(('tool_result', tool_name, str(tool_output)[:2000]))
                         # Speichere das Tool-Ergebnis
                         if tool_calls:
                             for tc in tool_calls:
@@ -172,19 +174,8 @@ def chat():
                 if msg_type == 'done':
                     SESSION_HISTORY[user] = SESSION_HISTORY.get(user, [])
                     SESSION_HISTORY[user].append({'role': 'user', 'content': user_message})
-                    # Speichere Tool-Informationen als Teil der Assistant-Nachricht
-                    if tool_calls:
-                        tool_info = "\n\n".join([
-                            f"[Tool: {tc['name']}]\nInput: {tc.get('input', 'N/A')}\nOutput: {tc.get('output', 'N/A')}"
-                            for tc in tool_calls if tc.get('output')
-                        ])
-                        if tool_info:
-                            full_msg = f"{msg_data}\n\n---\n{tool_info}"
-                        else:
-                            full_msg = msg_data
-                    else:
-                        full_msg = msg_data
-                    SESSION_HISTORY[user].append({'role': 'assistant', 'content': full_msg})
+                    # Speichere nur die finale Antwort ohne Tool-Outputs (die wurden live gestreamt)
+                    SESSION_HISTORY[user].append({'role': 'assistant', 'content': msg_data})
                     yield f"data: {json.dumps({'done': True})}\n\n"
                     break
                 
@@ -196,7 +187,11 @@ def chat():
                 
                 elif msg_type == 'tool_end':
                     yield f"data: {json.dumps({'tool_end': msg_data})}\n\n"
-                
+
+                elif msg_type == 'tool_result':
+                    tool_name, tool_output = msg_data
+                    yield f"data: {json.dumps({'tool_result': {'name': tool_name, 'output': tool_output}})}\n\n"
+
                 elif msg_type == 'error':
                     yield f"data: {json.dumps({'error': msg_data})}\n\n"
                     break

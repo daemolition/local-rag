@@ -323,6 +323,28 @@
             padding: 0.75rem 1rem;
             color: #dc2626;
         }
+
+        .thinking-block {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+        }
+        .thinking-block summary {
+            cursor: pointer;
+            color: #0284c7;
+            font-weight: 500;
+            padding: 0.5rem;
+        }
+        .thinking-block pre {
+            background: #e0f2fe;
+            padding: 0.75rem;
+            margin: 0 0.5rem 0.5rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
@@ -393,7 +415,15 @@
         }
         
         function updateMarkdown(div, content) {
-            div.innerHTML = DOMPurify.sanitize(marked.parse(content));
+            // Thinking-Blöcke als kollabierbare Details anzeigen
+            let processed = content
+                .replace(/alsexports[\s\S]*?<\/think>/g, (match, thinking) => {
+                    return `<details class="thinking-block"><summary>💭 Denken</summary><pre>${thinking.trim()}</pre></details>`;
+                })
+                .replace(/💭([\s\S]*?)💭/g, (match, thinking) => {
+                    return `<details class="thinking-block"><summary>💭 Denken</summary><pre>${thinking.trim()}</pre></details>`;
+                });
+            div.innerHTML = DOMPurify.sanitize(marked.parse(processed));
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
         
@@ -456,7 +486,24 @@
                                     if (parsed.tool_start) {
                                         addToolIndicator(assistantMsgDiv, parsed.tool_start);
                                     }
-                                    
+
+                                    if (parsed.tool_result) {
+                                        // Zeige Tool-Output in einem kollabierbaren Bereich
+                                        const toolResult = parsed.tool_result;
+                                        const details = document.createElement('details');
+                                        details.style.cssText = 'margin: 0.5rem 0; font-size: 0.85rem;';
+                                        const summary = document.createElement('summary');
+                                        summary.textContent = `[Tool: ${toolResult.name}]`;
+                                        summary.style.cssText = 'cursor: pointer; color: #667eea; font-weight: 500;';
+                                        const pre = document.createElement('pre');
+                                        pre.style.cssText = 'background: #f1f5f9; padding: 0.5rem; border-radius: 6px; overflow-x: auto; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-word;';
+                                        pre.textContent = toolResult.output;
+                                        details.appendChild(summary);
+                                        details.appendChild(pre);
+                                        assistantMsgDiv.appendChild(details);
+                                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                                    }
+
                                     if (parsed.sources) {
                                         fullResponse += parsed.sources;
                                         updateMarkdown(assistantMsgDiv, fullResponse);
