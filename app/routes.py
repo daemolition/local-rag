@@ -112,6 +112,26 @@ def chat():
                             full_response += content
                             result_queue.put(('token', content))
                     
+                    elif kind == "on_chain_stream":
+                        chunk = event.get("data", {}).get("chunk", {})
+                        messages = chunk.get("model", {}).get("messages", [])
+                        for msg in messages:
+                            if hasattr(msg, "content") and msg.content:
+                                if not full_response:
+                                    full_response = msg.content
+                                    result_queue.put(('token', msg.content))
+                    
+                    elif kind == "on_chain_end":
+                        output = event.get("data", {}).get("output", {})
+                        messages = []
+                        if isinstance(output, dict):
+                            messages = output.get("model", {}).get("messages", [])
+                        for msg in messages:
+                            if hasattr(msg, "content") and msg.content:
+                                if not full_response:
+                                    full_response = msg.content
+                                    result_queue.put(('token', msg.content))
+                    
                     elif kind == "on_tool_start":
                         tool_name = event.get("name", "unknown")
                         phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool gestartet: {tool_name}")
