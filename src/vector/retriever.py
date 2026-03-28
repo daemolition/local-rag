@@ -60,8 +60,8 @@ class DocumentRetriever:
             client=self.client,
             collection_name=self.collection_name,
             embedding=self.embeddings,
-            sparse_embedding=self.sparse_embeddings,
-            retrieval_mode=RetrievalMode.HYBRID
+            # sparse_embedding=self.sparse_embeddings,  # BM25 deaktiviert - nicht für Deutsch optimiert
+            retrieval_mode=RetrievalMode.DENSE
         )
         
         # Returns the retriever
