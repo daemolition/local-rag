@@ -139,7 +139,7 @@ def chat():
                         phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool beendet: {tool_name}")
                         result_queue.put(('tool_end', tool_name))
                         # Stream das Tool-Output sofort
-                        result_queue.put(('tool_result', tool_name, str(tool_output)[:2000]))
+                        result_queue.put(('tool_result', (tool_name, str(tool_output)[:2000])))
                         # Speichere das Tool-Ergebnis
                         if tool_calls:
                             for tc in tool_calls:
