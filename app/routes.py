@@ -102,35 +102,14 @@ def chat():
             try:
                 phase_logger.log_phase(Phase.AGENT_START, "Agent-Stream gestartet")
                 
-                async for event in agent.astream_events(input_data, version="v1"):
+                async for event in agent.astream_events(input_data, version="v2"):
                     kind = event.get("event")
-                    phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Event: {kind} | Data: {str(event.get('data', {}))[:200]}")
                     
                     if kind == "on_chat_model_stream":
                         content = event["data"]["chunk"].content
                         if content:
                             full_response += content
                             result_queue.put(('token', content))
-                    
-                    elif kind == "on_chain_stream":
-                        chunk = event.get("data", {}).get("chunk", {})
-                        messages = chunk.get("model", {}).get("messages", []) if isinstance(chunk, dict) else []
-                        for msg in messages:
-                            if hasattr(msg, "content") and msg.content:
-                                if not full_response:
-                                    full_response = msg.content
-                                    result_queue.put(('token', msg.content))
-                    
-                    elif kind == "on_chain_end":
-                        output = event.get("data", {}).get("output", {})
-                        messages = []
-                        if isinstance(output, dict):
-                            messages = output.get("model", {}).get("messages", [])
-                        for msg in messages:
-                            if hasattr(msg, "content") and msg.content:
-                                if not full_response:
-                                    full_response = msg.content
-                                    result_queue.put(('token', msg.content))
                     
                     elif kind == "on_tool_start":
                         tool_name = event.get("name", "unknown")

@@ -119,7 +119,7 @@ def init_resources(app):
     custom_tools = CustomTools(llm=llm, retriever=retriever)
     tools = custom_tools.get_tools()
     
-    agent = DocumentAgent(llm=llm.llm, tools=tools)
+    agent = DocumentAgent(llm=llm.llm_stream, tools=tools)
     
     app.extensions["vectorstore"] = vectorstore
     app.extensions["llm"] = llm

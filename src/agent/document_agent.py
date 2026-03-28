@@ -50,15 +50,16 @@ class DocumentAgent:
     ):
         self.llm = llm
         self.tools = tools
-    
-    @property
-    def agent(self):
-        """Get or create the agent dynamically."""
-        return create_agent(
+        self._agent = create_agent(
             model=self.llm,
             tools=self.tools,
             system_prompt=self.SYSTEM_PROMPT
         )
+    
+    @property
+    def agent(self):
+        """Return the cached compiled agent graph."""
+        return self._agent
     
     def stream(self, input_data: dict, config: dict = None):
         """Stream the agent's response."""
@@ -67,7 +68,7 @@ class DocumentAgent:
         config["recursion_limit"] = 500
         return self.agent.astream(input_data, config, stream_mode="messages")
 
-    def astream_events(self, input_data: dict, config: dict = None, version: str = "v1", **kwargs):
+    def astream_events(self, input_data: dict, config: dict = None, version: str = "v2", **kwargs):
         """Stream agent events."""
         if config is None:
             config = {}
