@@ -8,7 +8,7 @@ import io
 import contextlib
 from logging import getLogger
 import time
-import chardet
+from charset_normalizer import from_bytes
 
 # Third party
 import pandas as pd
@@ -390,17 +390,20 @@ class CustomTools:
     def _detect_encoding(self, file_path: str) -> str:
         """Erkennt automatisch das Encoding einer Datei (UTF-8, CP1252, Latin-1, etc.)."""
         try:
-            with open(file_path, 'rb') as f:
-                raw_data = f.read(10000)
-                result = chardet.detect(raw_data)
-                encoding = result.get('encoding', 'utf-8')
-                confidence = result.get('confidence', 0)
-                if confidence < 0.7:
-                    encoding = 'utf-8'
-                logger.info(f"Encoding erkannt für {file_path}: {encoding} (Confidence: {confidence:.2f})")
+            with open(file_path, "rb") as file:
+                # Stichprobe auf 50kb um Umlaute zu finden
+                raw_data = file.read(50000)
+                
+            results = from_bytes(raw_data).best()
+            
+            if results and results.encoding():
+                encoding = results.encoding
+                logger.info(f"Encoding erkannt: {encoding} (Confidence: {results.coherence})")
                 return encoding
-        except Exception:
-            return 'utf-8'
+            return 'cp1252'
+        except Exception as e:
+            logger.error(f"Fehler bei Encoding-Erkennung: {e}")
+            return 'cp1252'
     
     def _get_dataframe(self, filename: str) -> pd.DataFrame:
         """Lädt DataFrame mit Caching und automatischer Encoding-Erkennung."""
