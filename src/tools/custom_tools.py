@@ -8,6 +8,7 @@ import io
 import contextlib
 from logging import getLogger
 import time
+import chardet
 
 # Third party
 import pandas as pd
@@ -386,15 +387,31 @@ class CustomTools:
         self.DATA_DIR = os.getenv("DATA_DIR", "./data")
         self.SUMMARIES_DIR = os.getenv("SUMMARIES_DIR", "./summaries")
     
+    def _detect_encoding(self, file_path: str) -> str:
+        """Erkennt automatisch das Encoding einer Datei (UTF-8, CP1252, Latin-1, etc.)."""
+        try:
+            with open(file_path, 'rb') as f:
+                raw_data = f.read(10000)
+                result = chardet.detect(raw_data)
+                encoding = result.get('encoding', 'utf-8')
+                confidence = result.get('confidence', 0)
+                if confidence < 0.7:
+                    encoding = 'utf-8'
+                logger.info(f"Encoding erkannt für {file_path}: {encoding} (Confidence: {confidence:.2f})")
+                return encoding
+        except Exception:
+            return 'utf-8'
+    
     def _get_dataframe(self, filename: str) -> pd.DataFrame:
-        """Lädt DataFrame mit Caching."""
+        """Lädt DataFrame mit Caching und automatischer Encoding-Erkennung."""
         if filename not in self._cache:
             path = os.path.join(self.DATA_DIR, filename)
             try:
                 if filename.endswith('.xlsx'):
                     self._cache[filename] = pd.read_excel(path)
                 elif filename.endswith('.csv'):
-                    self._cache[filename] = pd.read_csv(path)
+                    encoding = self._detect_encoding(path)
+                    self._cache[filename] = pd.read_csv(path, encoding=encoding, on_bad_lines='skip')
                 else:
                     raise ValueError(f"Dateiformat nicht unterstützt: {filename}")
             except Exception as e:

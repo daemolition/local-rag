@@ -8,6 +8,7 @@ import glob
 import uuid
 import shutil
 import time
+import chardet
 from pathlib import Path
 from logging import getLogger
 from tqdm import tqdm
@@ -208,13 +209,29 @@ class DocumentIngestion:
         start_time = time.time()
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename}")
         
+        # Helper für Encoding-Erkennung
+        def detect_file_encoding(file_path: str) -> str:
+            try:
+                with open(file_path, 'rb') as f:
+                    raw_data = f.read(10000)
+                    result = chardet.detect(raw_data)
+                    encoding = result.get('encoding', 'utf-8')
+                    confidence = result.get('confidence', 0)
+                    if confidence < 0.7:
+                        encoding = 'utf-8'
+                    logger.info(f"Encoding erkannt: {encoding} (Confidence: {confidence:.2f})")
+                    return encoding
+            except Exception:
+                return 'utf-8'
+        
         # 1. Datei laden (PDF mit Bildern, andere ohne)
         try:
             if extension == '.pdf':
                 loader = CustomPDFLoader(file_path)
                 chunks = list(loader.lazy_load())
             elif extension == '.csv':
-                loader = CSVLoader(file_path)
+                encoding = detect_file_encoding(file_path)
+                loader = CSVLoader(file_path, encoding=encoding)
                 chunks = loader.load()
             elif extension in ['.xlsx', '.xls']:
                 loader = UnstructuredExcelLoader(file_path)
