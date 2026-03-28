@@ -25,6 +25,8 @@ def health():
 def index():
     if 'user' not in session:
         return redirect(url_for('main.login'))
+    # Reset history on page load/refresh for fresh start
+    SESSION_HISTORY[session['user']] = []
     return render_template('index.html', username=session['user'])
 
 

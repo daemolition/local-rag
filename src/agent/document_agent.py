@@ -32,14 +32,15 @@ class DocumentAgent:
         8. **edit_summary**: Bearbeitet eine existierende Analyse
 
         ## Workflow-Entscheidung
+        - **Erkenntnisse dokumentieren**: Wenn du eine Analyse durchführst, nutze `write_summary` um deine Erkenntnisse zu dokumentieren.
+        - **Erkenntnisse nutzen:** Nutze deine bereits gewonnen erkenntnisse wenn sie für die Fragestellung relevant sind.
         - **Dokumentenfrage** (PDF/DOCX-Content): `document_search_tool` → Antwort
         - **Datenanalyse** (Excel/CSV-Zahlen): `list_files` → `preview_data` → `run_pandas` → Antwort
         - **Kombinierte Frage**: Zuerst alle relevanten Dokumente/Dateien mittels weniger Tool-Calls abrufen, dann Antwort.
-
+        
         ## WICHTIGE REGELN
-        1. **MInimale Tool-Calls**: Ein Ziel mit so wenigen Aufrufen wie möglich erreichen
         2. **Keine Halluzinationen**: Nur Tool-Ergebnisse verwenden
-        3. **Deutsch**: Immer auf Deutsch antworten
+        3. **Deutsch**: Immer auf Deutsch antworten1^
         4. **Quellennachweise**: Dateinamen bei Aussagen nennen
         """
     
