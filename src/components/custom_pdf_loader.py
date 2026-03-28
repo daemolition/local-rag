@@ -14,9 +14,9 @@ from . import PreprocessPDF
 class CustomPDFLoader(BaseLoader):
     """Wrapper Class for custom loader"""
     
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, model=None):
         self.file_path = file_path
-        self.processor = PreprocessPDF()
+        self.processor = PreprocessPDF(model=model)
         
     def lazy_load(self) -> Iterator[Document]:
         """Loading wrapper"""

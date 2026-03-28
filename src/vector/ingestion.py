@@ -1,5 +1,5 @@
 """
-Document igenstion
+Document ingestion
 """
 
 # Standard library
@@ -76,6 +76,11 @@ class DocumentIngestion:
 
         # Setup model
         self.model = VisionLLM()
+        
+        # TextSplitter einmalig erstellen
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000, chunk_overlap=200
+        )
 
         # Setup the collection (öffnet Client temporär)
         self._setup_collection()
@@ -175,17 +180,21 @@ class DocumentIngestion:
 
     def _enrich_with_context(self, full_document_text: str, chunk_text: str) -> str:
         """Enrich the chunks for contextual RAG"""
-        start_time = time.time()
+        from langchain_core.messages import HumanMessage
         
+        start_time = time.time()
         phase_logger.log_phase(Phase.CONTEXT_ENRICHMENT, f"Context-Anreicherung gestartet | Chunk-Text: {len(chunk_text)} Zeichen")
 
-        prompt = f"""
-            Hier ist ein kurzes Dokument-Segment: {chunk_text}
-            Ordne diesen Ausschnitt in maximal 2 Sätzen in den Kontext des Gesamtdokuments ein:
-            {full_document_text[:2000]}
-        """
+        prompt = (
+            "Du bist ein Dokumenten-Indexierer. "
+            "Gib NUR 1-2 kurze Sätze zurück, die den Abschnitt im Gesamtdokument verorten.\n\n"
+            f"### Gesamtdokument (Auszug):\n{full_document_text[:2000]}\n\n"
+            f"### Abschnitt:\n{chunk_text}\n\n"
+            "### Kontext-Einordnung:"
+        )
 
-        context = self.model.generate(prompt)
+        message = HumanMessage(content=prompt)
+        context = self.model.generate(message)
         
         duration = time.time() - start_time
         phase_logger.log_phase(Phase.CONTEXT_ENRICHMENT, f"Context angereichert | Result: {len(context)} Zeichen", duration=duration)
@@ -227,7 +236,7 @@ class DocumentIngestion:
         # 1. Datei laden (PDF mit Bildern, andere ohne)
         try:
             if extension == '.pdf':
-                loader = CustomPDFLoader(file_path)
+                loader = CustomPDFLoader(file_path, model=self.model)
                 chunks = list(loader.lazy_load())
             elif extension == '.csv':
                 encoding = detect_file_encoding(file_path)
@@ -252,11 +261,7 @@ class DocumentIngestion:
         
         # 2. Chunks splitten (nur bei Nicht-PDFs)
         if extension != '.pdf':
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000, 
-                chunk_overlap=200
-            )
-            chunks = text_splitter.split_documents(chunks)
+            chunks = self.text_splitter.split_documents(chunks)
         
         # 3. Context anreichern
         full_text_context = " ".join([c.page_content for c in chunks])[:2500]
@@ -310,7 +315,12 @@ class DocumentIngestion:
             )
         
         client = self._get_client()
-        client.upsert(collection_name=self.collection_name, points=points)
+        
+        # Batch-Upsert (max 100 Punkte pro Batch)
+        BATCH_SIZE = 500
+        for i in range(0, len(points), BATCH_SIZE):
+            batch = points[i:i + BATCH_SIZE]
+            client.upsert(collection_name=self.collection_name, points=batch)
         
         # 6. Datei verschieben
         self._move_processed_files(chunks)

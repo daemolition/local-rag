@@ -8,6 +8,7 @@ import base64
 import shutil
 import time
 import logging
+import tempfile
 
 # Third party
 from unstructured.partition.pdf import partition_pdf
@@ -22,15 +23,16 @@ logger = logging.getLogger(__name__)
 
 class PreprocessPDF:
     
-    def __init__(self, max_retries: int = 3, retry_delay: float = 2.0):
+    def __init__(self, model: VisionLLM = None, max_retries: int = 3, retry_delay: float = 2.0):
         """
         Initialisiert die Preprocess Pipeline
         
         Args:
+            model: Optionale VisionLLM-Instanz (wird sonst neu erstellt)
             max_retries: Maximale Retry-Versuche für LLM-Calls (default: 3)
             retry_delay: Wartezeit zwischen Retries in Sekunden (default: 2.0)
         """
-        self.model = VisionLLM()
+        self.model = model or VisionLLM()
         self.duplicate_images = set()
         self.max_retries = max_retries
         self.retry_delay = retry_delay
