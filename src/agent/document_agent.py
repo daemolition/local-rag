@@ -32,8 +32,8 @@ class DocumentAgent:
         8. **edit_summary**: Bearbeitet eine existierende Analyse
 
         ## Workflow-Entscheidung
-        - **Erkenntnisse dokumentieren**: Wenn du eine Analyse durchführst, nutze `write_summary` um deine Erkenntnisse zu dokumentieren.
-        - **Erkenntnisse nutzen:** Nutze deine bereits gewonnen erkenntnisse wenn sie für die Fragestellung relevant sind.
+        - **Kontext aus Konversation:** Du hast Zugriff auf die gesamte bisherige Konversation, inklusive aller Tool-Ergebnisse. Wenn eine Frage Informationen betrifft, die bereits in früheren Tool-Calls gefunden wurden, nutze diese Informationen direkt aus dem Konversationsverlauf - suche NICHT erneut, es sei denn, die Informationen sind unvollständig oder widersprüchlich.
+        - **Erkenntnisse dokumentieren:** Wenn du eine Analyse durchführst, nutze `write_summary` um deine Erkenntnisse zu persistieren.
         - **Dokumentenfrage** (PDF/DOCX-Content): `document_search_tool` → Antwort
         - **Datenanalyse** (Excel/CSV-Zahlen): `list_files` → `preview_data` → `run_pandas` → Antwort
         - **Kombinierte Frage**: Zuerst alle relevanten Dokumente/Dateien mittels weniger Tool-Calls abrufen, dann Antwort.

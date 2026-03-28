@@ -92,40 +92,62 @@ def chat():
         messages.append({"role": role, "content": msg['content']})
     
     messages.append({"role": "user", "content": user_message})
-    
+
+    # Debug-Logging: Was wird an den Agent übergeben?
+    from logging import getLogger
+    logger = getLogger(__name__)
+    logger.info(f"[DEBUG] Messages an Agent: {len(messages)} Nachrichten")
+    for i, msg in enumerate(messages):
+        content_preview = msg.get('content', '')[:200]
+        logger.info(f"[DEBUG] Message {i}: role={msg.get('role')}, content={content_preview}...")
+
     input_data = {"messages": messages}
     
     def generate():
         result_queue = queue.Queue()
         full_response = ""
-        
+        tool_calls = []  # Speichert Tool-Aufrufe und Ergebnisse
+
         async def run_agent_async():
             nonlocal full_response
             try:
                 phase_logger.log_phase(Phase.AGENT_START, "Agent-Stream gestartet")
-                
+
                 async for event in agent.astream_events(input_data, version="v2"):
                     kind = event.get("event")
-                    
+
                     if kind == "on_chat_model_stream":
                         content = event["data"]["chunk"].content
                         if content:
                             full_response += content
                             result_queue.put(('token', content))
-                    
+
                     elif kind == "on_tool_start":
                         tool_name = event.get("name", "unknown")
+                        tool_input = event.get("data", {}).get("input", {})
                         phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool gestartet: {tool_name}")
                         result_queue.put(('tool_start', tool_name))
-                    
+                        tool_calls.append({
+                            "name": tool_name,
+                            "input": tool_input,
+                            "output": None
+                        })
+
                     elif kind == "on_tool_end":
                         tool_name = event.get("name", "unknown")
+                        tool_output = event.get("data", {}).get("output", "")
                         phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool beendet: {tool_name}")
                         result_queue.put(('tool_end', tool_name))
-                
+                        # Speichere das Tool-Ergebnis
+                        if tool_calls:
+                            for tc in tool_calls:
+                                if tc["name"] == tool_name and tc["output"] is None:
+                                    tc["output"] = str(tool_output)[:2000]  # Limit für Memory
+                                    break
+
                 phase_logger.log_phase(Phase.AGENT_RESPONSE, f"Antwort gestreamt | Tokens: {len(full_response)}")
                 result_queue.put(('done', full_response))
-                
+
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -150,7 +172,19 @@ def chat():
                 if msg_type == 'done':
                     SESSION_HISTORY[user] = SESSION_HISTORY.get(user, [])
                     SESSION_HISTORY[user].append({'role': 'user', 'content': user_message})
-                    SESSION_HISTORY[user].append({'role': 'assistant', 'content': msg_data})
+                    # Speichere Tool-Informationen als Teil der Assistant-Nachricht
+                    if tool_calls:
+                        tool_info = "\n\n".join([
+                            f"[Tool: {tc['name']}]\nInput: {tc.get('input', 'N/A')}\nOutput: {tc.get('output', 'N/A')}"
+                            for tc in tool_calls if tc.get('output')
+                        ])
+                        if tool_info:
+                            full_msg = f"{msg_data}\n\n---\n{tool_info}"
+                        else:
+                            full_msg = msg_data
+                    else:
+                        full_msg = msg_data
+                    SESSION_HISTORY[user].append({'role': 'assistant', 'content': full_msg})
                     yield f"data: {json.dumps({'done': True})}\n\n"
                     break
                 
