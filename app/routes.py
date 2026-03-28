@@ -104,6 +104,7 @@ def chat():
                 
                 async for event in agent.astream_events(input_data, version="v1"):
                     kind = event.get("event")
+                    phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Event: {kind} | Data: {str(event.get('data', {}))[:200]}")
                     
                     if kind == "on_chat_model_stream":
                         content = event["data"]["chunk"].content

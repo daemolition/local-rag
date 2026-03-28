@@ -64,12 +64,12 @@ class DocumentAgent:
         """Stream the agent's response."""
         if config is None:
             config = {}
-        config["recursion_limit"] = 100
+        config["recursion_limit"] = 500
         return self.agent.astream(input_data, config, stream_mode="messages")
 
     def astream_events(self, input_data: dict, config: dict = None, version: str = "v1", **kwargs):
         """Stream agent events."""
         if config is None:
             config = {}
-        config["recursion_limit"] = 100
+        config["recursion_limit"] = 500
         return self.agent.astream_events(input_data, config=config, version=version, **kwargs)
