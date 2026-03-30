@@ -19,6 +19,7 @@ from tqdm import tqdm
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     UnstructuredWordDocumentLoader,
+    DirectoryLoader
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
