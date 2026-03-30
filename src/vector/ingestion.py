@@ -18,8 +18,6 @@ from tqdm import tqdm
 # Third party imports
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
-    CSVLoader,
-    UnstructuredExcelLoader,
     UnstructuredWordDocumentLoader,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -247,13 +245,13 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                 with open(fp, 'rb') as f:
                     raw_data = f.read(10000)
                     result = chardet.detect(raw_data)
-                    encoding = result.get('encoding', 'utf-8')
+                    encoding = result.get('encoding', 'cp1252')
                     confidence = result.get('confidence', 0)
                     if confidence < 0.7:
-                        encoding = 'utf-8'
+                        encoding = 'cp1252'
                     return encoding
             except Exception:
-                return 'utf-8'
+                return 'cp1252'
 
         try:
             if extension == '.csv':
@@ -334,53 +332,30 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         """
         filename = os.path.basename(file_path)
         extension = Path(file_path).suffix.lower()
-        
         start_time = time.time()
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename}")
-        
-        # Helper für Encoding-Erkennung
-        def detect_file_encoding(file_path: str) -> str:
-            try:
-                with open(file_path, 'rb') as f:
-                    raw_data = f.read(10000)
-                    result = chardet.detect(raw_data)
-                    encoding = result.get('encoding', 'utf-8')
-                    confidence = result.get('confidence', 0)
-                    if confidence < 0.7:
-                        encoding = 'utf-8'
-                    logger.info(f"Encoding erkannt: {encoding} (Confidence: {confidence:.2f})")
-                    return encoding
-            except Exception:
-                return 'utf-8'
-        
+
         # 1. Datei laden (PDF mit Bildern, andere ohne)
         try:
             if extension == '.pdf':
                 loader = CustomPDFLoader(file_path, model=self.model)
                 chunks = list(loader.lazy_load())
             elif extension == '.csv':
-                # Übersichts-Chunk generieren
+                # Nur Übersichts-Chunk, keine Zeilen-Chunks
                 overview = self._get_tabular_overview(file_path)
-                encoding = detect_file_encoding(file_path)
-                loader = CSVLoader(file_path, encoding=encoding)
-                chunks = loader.load()
-                # Übersichts-Chunk am Anfang einfügen
                 overview_chunk = Document(
                     page_content=overview,
                     metadata={"source": file_path, "filename": filename, "type": "tabular_overview"}
                 )
-                chunks.insert(0, overview_chunk)
+                chunks = [overview_chunk]
             elif extension in ['.xlsx', '.xls']:
-                # Übersichts-Chunk generieren
+                # Nur Übersichts-Chunk, keine Zeilen-Chunks
                 overview = self._get_tabular_overview(file_path)
-                loader = UnstructuredExcelLoader(file_path)
-                chunks = loader.load()
-                # Übersichts-Chunk am Anfang einfügen
                 overview_chunk = Document(
                     page_content=overview,
                     metadata={"source": file_path, "filename": filename, "type": "tabular_overview"}
                 )
-                chunks.insert(0, overview_chunk)
+                chunks = [overview_chunk]
             elif extension in ['.docx', '.doc']:
                 loader = UnstructuredWordDocumentLoader(file_path)
                 chunks = loader.load()
