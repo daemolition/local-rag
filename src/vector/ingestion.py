@@ -9,11 +9,14 @@ import uuid
 import shutil
 import time
 import chardet
+import pandas as pd
 from pathlib import Path
 from logging import getLogger
+from datetime import datetime
 from tqdm import tqdm
 
 # Third party imports
+from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     CSVLoader,
     UnstructuredExcelLoader,
@@ -76,7 +79,10 @@ class DocumentIngestion:
 
         # Setup model
         self.model = VisionLLM()
-        
+
+        # DATA_DIR für CSV/Excel nach Ingestion
+        self.DATA_DIR = os.getenv("DATA_DIR", "./data")
+
         # TextSplitter einmalig erstellen
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200
@@ -165,6 +171,120 @@ class DocumentIngestion:
                 except Exception as e:
                     logger.error(f"Konnte Datei nicht verschieben {rel_path}: {e}")
 
+    def _move_to_data_dir(self, file_path: str):
+        """Verschiebt CSV/Excel nach DATA_DIR nach erfolgreicher Ingestion"""
+        filename = os.path.basename(file_path)
+        target_path = os.path.join(self.DATA_DIR, filename)
+
+        if not os.path.exists(self.DATA_DIR):
+            os.makedirs(self.DATA_DIR)
+
+        # Konflikt lösen: Timestamp anhängen wenn Datei existiert
+        if os.path.exists(target_path):
+            base, ext = os.path.splitext(filename)
+            timestamp = datetime.now().strftime("_%Y%m%d_%H%M%S")
+            target_path = os.path.join(self.DATA_DIR, f"{base}{timestamp}{ext}")
+
+        try:
+            shutil.move(file_path, target_path)
+            logger.info(f"Verschoben nach DATA_DIR: {filename}")
+        except Exception as e:
+            logger.error(f"Konnte Datei nicht nach DATA_DIR verschieben {filename}: {e}")
+
+    def _generate_content_description(self, df: pd.DataFrame, filename: str) -> str:
+        """Generiert eine LLM-basierte Inhaltsbeschreibung für Tabellendaten."""
+        from langchain_core.messages import HumanMessage
+
+        start_time = time.time()
+        phase_logger.log_phase(Phase.LLM_CALL, f"Content-Beschreibung gestartet | Datei: {filename}")
+
+        # Daten für LLM aufbereiten (limitiert um Token zu sparen)
+        columns_info = ", ".join([f"{col} ({df[col].dtype})" for col in df.columns[:10]])
+        sample_rows = df.head(5).to_string(index=False)
+
+        prompt = f"""Du bist ein Datenanalyst. Analysiere die folgende Tabelle und erstelle eine kurze Inhaltsbeschreibung.
+
+### Datei: {filename}
+### Spalten: {columns_info}
+### Anzahl Zeilen: {len(df)}
+### Beispieldaten:
+{sample_rows}
+
+### Aufgabe:
+Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt:
+1. Was stellen die Daten dar? (Thema/Zweck)
+2. Was bedeuten die wichtigsten Spalten?
+3. Welcher Zeitraum oder Umfang ist abgedeckt?
+4. Welche Suchbegriffe waeren nuetzlich, um diese Daten zu finden?
+
+### Beschreibung:"""
+
+        try:
+            message = HumanMessage(content=prompt)
+            description = self.model.generate(message)
+
+            duration = time.time() - start_time
+            phase_logger.log_phase(Phase.LLM_CALL, f"Content-Beschreibung abgeschlossen | Datei: {filename}", duration=duration)
+
+            return description.strip()
+        except Exception as e:
+            logger.warning(f"LLM-Beschreibung fehlgeschlagen fuer {filename}: {e}")
+            duration = time.time() - start_time
+            phase_logger.log_phase(Phase.LLM_CALL, f"Content-Beschreibung fehlgeschlagen | Datei: {filename}", duration=duration)
+            return ""
+
+    def _get_tabular_overview(self, file_path: str) -> str:
+        """
+        Generiert eine Markdown-Übersicht für CSV/Excel-Dateien.
+        Enthält strukturelle Infos und LLM-generierte Inhaltsbeschreibung.
+        """
+        filename = os.path.basename(file_path)
+        extension = Path(file_path).suffix.lower()
+
+        # Helper für Encoding-Erkennung (wird unten definiert)
+        def detect_encoding(fp: str) -> str:
+            try:
+                with open(fp, 'rb') as f:
+                    raw_data = f.read(10000)
+                    result = chardet.detect(raw_data)
+                    encoding = result.get('encoding', 'utf-8')
+                    confidence = result.get('confidence', 0)
+                    if confidence < 0.7:
+                        encoding = 'utf-8'
+                    return encoding
+            except Exception:
+                return 'utf-8'
+
+        try:
+            if extension == '.csv':
+                encoding = detect_encoding(file_path)
+                df = pd.read_csv(file_path, encoding=encoding)
+            else:  # xlsx, xls
+                df = pd.read_excel(file_path)
+
+            if df.empty:
+                return f"## Datei: {filename}\n\nDie Datei ist leer."
+
+            columns_str = ", ".join([f"`{col}`" for col in df.columns])
+            preview_str = df.head(4).to_markdown(index=False)
+
+            # LLM-Inhaltsbeschreibung generieren
+            content_description = self._generate_content_description(df, filename)
+            description_section = f"\n\n### Inhaltsbeschreibung:\n{content_description}" if content_description else ""
+
+            overview = f"""## Datei: {filename}
+
+**Spalten ({len(df.columns)}):** {columns_str}
+**Zeilen:** {len(df)}
+
+### Vorschau:
+{preview_str}{description_section}"""
+            return overview
+
+        except Exception as e:
+            logger.warning(f"Preview fehlgeschlagen für {file_path}: {e}")
+            return f"## Datei: {filename}\n\nDatei konnte nicht gelesen werden."
+
     def _create_directory_loader(self, files_extensions, loader_cls):
         """Directory Loader"""
 
@@ -239,12 +359,28 @@ class DocumentIngestion:
                 loader = CustomPDFLoader(file_path, model=self.model)
                 chunks = list(loader.lazy_load())
             elif extension == '.csv':
+                # Übersichts-Chunk generieren
+                overview = self._get_tabular_overview(file_path)
                 encoding = detect_file_encoding(file_path)
                 loader = CSVLoader(file_path, encoding=encoding)
                 chunks = loader.load()
+                # Übersichts-Chunk am Anfang einfügen
+                overview_chunk = Document(
+                    page_content=overview,
+                    metadata={"source": file_path, "filename": filename, "type": "tabular_overview"}
+                )
+                chunks.insert(0, overview_chunk)
             elif extension in ['.xlsx', '.xls']:
+                # Übersichts-Chunk generieren
+                overview = self._get_tabular_overview(file_path)
                 loader = UnstructuredExcelLoader(file_path)
                 chunks = loader.load()
+                # Übersichts-Chunk am Anfang einfügen
+                overview_chunk = Document(
+                    page_content=overview,
+                    metadata={"source": file_path, "filename": filename, "type": "tabular_overview"}
+                )
+                chunks.insert(0, overview_chunk)
             elif extension in ['.docx', '.doc']:
                 loader = UnstructuredWordDocumentLoader(file_path)
                 chunks = loader.load()
@@ -323,7 +459,10 @@ class DocumentIngestion:
             client.upsert(collection_name=self.collection_name, points=batch)
         
         # 6. Datei verschieben
-        self._move_processed_files(chunks)
+        if extension in ['.csv', '.xlsx', '.xls']:
+            self._move_to_data_dir(file_path)
+        else:
+            self._move_processed_files(chunks)
         
         duration = time.time() - start_time
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei fertig: {filename} | Dauer: {duration:.2f}s")

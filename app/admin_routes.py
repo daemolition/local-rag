@@ -320,18 +320,13 @@ def upload_files():
             filepath = target_dir / file.filename
             file.save(filepath)
             saved_files['pending'].append(file.filename)
-        # XLSX/XLS/CSV → DATA_DIR (sofort verfügbar für Pandas)
+        # XLSX/XLS/CSV → ./files/ (für Ingestion mit Beschreibung)
         elif ext in ['.xlsx', '.xls', '.csv']:
-            data_dir = os.getenv('DATA_DIR', './data')
-            # Absoluter Pfad falls relativ
-            if not Path(data_dir).is_absolute():
-                target_dir = project_root / data_dir
-            else:
-                target_dir = Path(data_dir)
+            target_dir = project_root / 'files'
             target_dir.mkdir(parents=True, exist_ok=True)
             filepath = target_dir / file.filename
             file.save(filepath)
-            saved_files['data'].append(file.filename)
+            saved_files['pending'].append(file.filename)
 
     _upload_status['pending_files'].extend(saved_files['pending'])
     _upload_status['data_files'].extend(saved_files['data'])

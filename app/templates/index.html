@@ -401,6 +401,24 @@
             gap: 0.75rem;
         }
 
+        .input-form textarea {
+            flex: 1;
+            padding: 0.75rem;
+            border: none;
+            background: transparent;
+            font-size: 1rem;
+            outline: none;
+            resize: none;
+            max-height: 200px;
+            min-height: 24px;
+            font-family: inherit;
+            line-height: 1.5;
+        }
+
+        .input-form textarea::placeholder {
+            color: #9ca3af;
+        }
+
         .input-form input {
             flex: 1;
             padding: 0.75rem;
@@ -572,7 +590,7 @@
                 <div class="input-container">
                     <div class="input-wrapper">
                         <form class="input-form" id="chatForm">
-                            <input type="text" id="userInput" placeholder="Frag mich was zu deinen Dokumenten..." autocomplete="off">
+                            <textarea id="userInput" placeholder="Frag mich was zu deinen Dokumenten..." rows="1" autocomplete="off"></textarea>
                             <button type="submit" id="sendBtn">Senden</button>
                         </form>
                     </div>
@@ -599,6 +617,20 @@
         const sidebarOverlay = document.getElementById('sidebarOverlay');
         const newChatBtn = document.getElementById('newChatBtn');
         const sessionList = document.getElementById('sessionList');
+
+        // Textarea auto-resize
+        userInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+        });
+
+        // Enter to submit, Shift+Enter for new line
+        userInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                chatForm.dispatchEvent(new Event('submit'));
+            }
+        });
 
         let currentSessionId = null;
 
@@ -894,6 +926,7 @@
             const message = userInput.value.trim();
             if (message) {
                 userInput.value = '';
+                userInput.style.height = 'auto';
                 sendMessage(message);
             }
         });
