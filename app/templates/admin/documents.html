@@ -57,7 +57,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1600px;
             margin: 0 auto;
             padding: 2rem;
         }
@@ -158,7 +158,7 @@
         }
 
         .content-preview {
-            max-width: 400px;
+            max-width: 800px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -345,6 +345,7 @@
             <a href="{{ url_for('main.index') }}">Chat</a>
             <a href="{{ url_for('admin.index') }}">Dashboard</a>
             <a href="{{ url_for('admin.documents') }}" class="active">Dokumente</a>
+            <a href="{{ url_for('admin.upload') }}">Upload</a>
             <a href="{{ url_for('main.logout') }}">Abmelden</a>
         </nav>
     </header>

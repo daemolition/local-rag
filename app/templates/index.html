@@ -558,6 +558,9 @@
             </div>
             <div class="user-info">
                 <span>{{ username }}</span>
+                {% if username == 'admin' %}
+                <a href="{{ url_for('admin.index') }}" class="admin-link">Admin</a>
+                {% endif %}
                 <a href="{{ url_for('main.logout') }}">Abmelden</a>
             </div>
         </header>

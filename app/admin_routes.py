@@ -1,11 +1,25 @@
 """
 Admin Routes für Qdrant Vektor-DB Verwaltung
 """
+import os
+import threading
+from pathlib import Path
 from flask import Blueprint, render_template, request, jsonify, session, current_app, redirect, url_for, flash
 from functools import wraps
 from qdrant_client import models
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+# Upload-Status-Tracking (global für asynchrone Ingestion)
+_upload_status = {
+    'is_ingesting': False,
+    'pending_files': [],      # Dateien im ./files/ Ordner (warten auf Ingestion)
+    'data_files': [],         # Dateien in DATA_DIR (sofort verfügbar)
+    'error': None,
+    'current_file': None,
+    'processed_count': 0,
+    'total_count': 0
+}
 
 
 def admin_required(f):
@@ -36,7 +50,7 @@ def index():
         stats = {
             'name': COLLECTION_NAME,
             'points_count': collection.points_count,
-            'vectors_count': collection.vectors_count,
+            'vectors_count': getattr(collection, 'indexed_vectors_count', collection.points_count) or 0,
             'status': collection.status.value if hasattr(collection.status, 'value') else str(collection.status),
             'config': {
                 'size': collection.config.params.vectors.size if hasattr(collection.config.params.vectors, 'size') else 'N/A',
@@ -273,3 +287,102 @@ def api_stats():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/upload', methods=['GET', 'POST'])
+@admin_required
+def upload_files():
+    """Dateien hochladen - GET zeigt Formular, POST verarbeitet Upload"""
+    global _upload_status
+
+    if request.method == 'GET':
+        return render_template('admin/upload.html', status=_upload_status, username=session.get('user'))
+
+    # POST: Dateien verarbeiten
+    if _upload_status['is_ingesting']:
+        return jsonify({'error': 'Ingestion läuft bereits, bitte warten'}), 409
+
+    files = request.files.getlist('files')
+    saved_files = {'pending': [], 'data': []}
+
+    for file in files:
+        if file.filename == '':
+            continue
+
+        ext = Path(file.filename).suffix.lower()
+
+        # PDF/DOCX/DOC → ./files/ (werden ingested)
+        if ext in ['.pdf', '.docx', '.doc']:
+            target_dir = Path('./files')
+            target_dir.mkdir(parents=True, exist_ok=True)
+            filepath = target_dir / file.filename
+            file.save(filepath)
+            saved_files['pending'].append(file.filename)
+        # XLSX/XLS/CSV → DATA_DIR (sofort verfügbar für Pandas)
+        elif ext in ['.xlsx', '.xls', '.csv']:
+            target_dir = Path(os.getenv('DATA_DIR', './data'))
+            target_dir.mkdir(parents=True, exist_ok=True)
+            filepath = target_dir / file.filename
+            file.save(filepath)
+            saved_files['data'].append(file.filename)
+
+    _upload_status['pending_files'].extend(saved_files['pending'])
+    _upload_status['data_files'].extend(saved_files['data'])
+
+    return jsonify({'success': True, 'files': saved_files})
+
+
+def _run_ingestion():
+    """Background-Thread für Ingestion"""
+    global _upload_status
+    try:
+        from src.vector import DocumentIngestion
+        ingest = DocumentIngestion()
+        ingest.ingest_documents()
+        _upload_status['pending_files'] = []
+        _upload_status['error'] = None
+    except Exception as e:
+        _upload_status['error'] = str(e)
+    finally:
+        _upload_status['is_ingesting'] = False
+        _upload_status['current_file'] = None
+
+
+@admin_bp.route('/ingest', methods=['POST'])
+@admin_required
+def trigger_ingestion():
+    """Ingestion im Hintergrund starten"""
+    global _upload_status
+
+    if _upload_status['is_ingesting']:
+        return jsonify({'error': 'Ingestion läuft bereits'}), 409
+
+    if not _upload_status['pending_files']:
+        return jsonify({'error': 'Keine Dateien zum Verarbeiten'}), 400
+
+    _upload_status['is_ingesting'] = True
+    _upload_status['error'] = None
+    _upload_status['processed_count'] = 0
+    _upload_status['total_count'] = len(_upload_status['pending_files'])
+
+    thread = threading.Thread(target=_run_ingestion)
+    thread.start()
+
+    return jsonify({'success': True, 'message': 'Ingestion gestartet'})
+
+
+@admin_bp.route('/upload/status')
+@admin_required
+def upload_status_api():
+    """Current upload status für Polling"""
+    return jsonify(_upload_status)
+
+
+@admin_bp.route('/upload/clear', methods=['POST'])
+@admin_required
+def clear_pending():
+    """Leert die Liste der wartenden Dateien (ohne Ingestion)"""
+    global _upload_status
+    _upload_status['pending_files'] = []
+    _upload_status['data_files'] = []
+    return jsonify({'success': True})

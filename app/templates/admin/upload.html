@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dokumente hochladen - Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(180deg, #134e4a 0%, #0f3d3d 100%);
+            color: white;
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .nav {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .nav a {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.2);
+            transition: all 0.2s ease;
+            font-size: 0.9rem;
+        }
+
+        .nav a:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .nav a.active {
+            background: rgba(255,255,255,0.4);
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
+            color: white;
+            padding: 1.25rem 1.5rem;
+        }
+
+        .card-header h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .upload-zone {
+            border: 2px dashed #e5e7eb;
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            margin-bottom: 1.5rem;
+        }
+
+        .upload-zone:hover {
+            border-color: #0d9488;
+            background: #f0fdfa;
+        }
+
+        .upload-zone.drag-over {
+            border-color: #0d9488;
+            background: #ccfbf1;
+        }
+
+        .upload-zone svg {
+            width: 48px;
+            height: 48px;
+            color: #9ca3af;
+            margin-bottom: 1rem;
+        }
+
+        .upload-zone p {
+            color: #6b7280;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-zone .hint {
+            font-size: 0.85rem;
+            color: #9ca3af;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .file-lists {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .file-lists {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .file-section h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .file-section h3 .badge {
+            background: #e5e7eb;
+            color: #6b7280;
+            padding: 0.125rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .file-list {
+            background: #f8fafc;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-item .name {
+            color: #374151;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-item .type {
+            font-size: 0.75rem;
+            color: #9ca3af;
+        }
+
+        .file-list.empty {
+            padding: 2rem;
+            text-align: center;
+            color: #9ca3af;
+            font-size: 0.9rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+        }
+
+        .btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(5, 150, 105, 0.4);
+        }
+
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #d1d5db;
+        }
+
+        .btn-danger {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #fecaca;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .actions {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .status-box {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .status-box.processing {
+            background: #fef3c7;
+        }
+
+        .status-box.error {
+            background: #fee2e2;
+        }
+
+        .status-box.success {
+            background: #dcfce7;
+        }
+
+        .status-box h4 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-box p {
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 1rem;
+        }
+
+        .progress-bar .progress {
+            height: 100%;
+            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
+            transition: width 0.3s ease;
+        }
+
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+            </svg>
+            Dokumente hochladen
+        </h1>
+        <nav class="nav">
+            <a href="{{ url_for('main.index') }}">Chat</a>
+            <a href="{{ url_for('admin.index') }}">Dashboard</a>
+            <a href="{{ url_for('admin.documents') }}">Dokumente</a>
+            <a href="{{ url_for('admin.upload') }}" class="active">Upload</a>
+            <a href="{{ url_for('main.logout') }}">Abmelden</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h2>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Dateien hochladen
+                </h2>
+            </div>
+            <div class="card-body">
+                <!-- Upload Zone -->
+                <div class="upload-zone" id="uploadZone">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Dateien hierher ziehen oder klicken zum Auswählen</p>
+                    <p class="hint">PDF, DOCX, DOC (Vektor-DB) | XLSX, XLS, CSV (Pandas-Analyse)</p>
+                    <input type="file" id="fileInput" multiple accept=".pdf,.docx,.doc,.xlsx,.xls,.csv">
+                </div>
+
+                <!-- File Lists -->
+                <div class="file-lists">
+                    <div class="file-section">
+                        <h3>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                            Warten auf Ingestion
+                            <span class="badge" id="pendingCount">0</span>
+                        </h3>
+                        <div class="file-list" id="pendingList">
+                            <div class="file-list empty">Keine Dateien</div>
+                        </div>
+                    </div>
+
+                    <div class="file-section">
+                        <h3>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path d="M3 3v18h18"/>
+                                <path d="M18 17V9"/>
+                                <path d="M13 17V5"/>
+                                <path d="M8 17v-3"/>
+                            </svg>
+                            Sofort verfügbar (Excel/CSV)
+                            <span class="badge" id="dataCount">0</span>
+                        </h3>
+                        <div class="file-list" id="dataList">
+                            <div class="file-list empty">Keine Dateien</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="actions">
+                    <button class="btn btn-primary" id="ingestBtn" onclick="triggerIngestion()">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                        Jetzt hinzufügen
+                    </button>
+                    <button class="btn btn-secondary" onclick="clearFiles()">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                        Liste leeren
+                    </button>
+                </div>
+
+                <!-- Status Box -->
+                <div class="status-box" id="statusBox" style="display: none;">
+                    <h4 id="statusTitle">Status</h4>
+                    <p id="statusMessage">Nachricht</p>
+                    <div class="progress-bar" id="progressBar" style="display: none;">
+                        <div class="progress" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Info Card -->
+        <div class="card">
+            <div class="card-header">
+                <h2>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="16" x2="12" y2="12"/>
+                        <line x1="12" y1="8" x2="12.01" y2="8"/>
+                    </svg>
+                    Informationen
+                </h2>
+            </div>
+            <div class="card-body" style="font-size: 0.9rem; color: #6b7280;">
+                <p><strong>PDF, DOCX, DOC:</strong> Werden in die Vektor-Datenbank ingested und sind durchsuchbar.</p>
+                <p style="margin-top: 0.5rem;"><strong>XLSX, XLS, CSV:</strong> Sofort für Pandas-Analysen verfügbar (keine Ingestion nötig).</p>
+                <p style="margin-top: 0.5rem;"><strong>Hinweis:</strong> Während der Ingestion können keine neuen Dateien hochgeladen werden.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initial status from server
+        let status = {{ status | tojson }};
+
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const pendingList = document.getElementById('pendingList');
+        const dataList = document.getElementById('dataList');
+        const pendingCount = document.getElementById('pendingCount');
+        const dataCount = document.getElementById('dataCount');
+        const ingestBtn = document.getElementById('ingestBtn');
+        const statusBox = document.getElementById('statusBox');
+        const statusTitle = document.getElementById('statusTitle');
+        const statusMessage = document.getElementById('statusMessage');
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+
+        // Update UI on load
+        updateFileLists();
+
+        // Drag and drop
+        uploadZone.addEventListener('click', () => fileInput.click());
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('drag-over');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('drag-over');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('drag-over');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            if (status.is_ingesting) {
+                alert('Ingestion läuft bereits. Bitte warten.');
+                return;
+            }
+
+            const formData = new FormData();
+            for (let i = 0; i < files.length; i++) {
+                formData.append('files', files[i]);
+            }
+
+            fetch('/admin/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    status.pending_files.push(...(data.files.pending || []));
+                    status.data_files.push(...(data.files.data || []));
+                    updateFileLists();
+                }
+            })
+            .catch(err => alert('Fehler beim Hochladen: ' + err));
+        }
+
+        function updateFileLists() {
+            // Pending files (PDF/DOCX)
+            pendingCount.textContent = status.pending_files.length;
+            if (status.pending_files.length === 0) {
+                pendingList.innerHTML = '<div class="file-list empty">Keine Dateien</div>';
+            } else {
+                pendingList.innerHTML = status.pending_files.map(f => `
+                    <div class="file-item">
+                        <span class="name">${f}</span>
+                        <span class="type">PDF/DOC</span>
+                    </div>
+                `).join('');
+            }
+
+            // Data files (XLSX/CSV)
+            dataCount.textContent = status.data_files.length;
+            if (status.data_files.length === 0) {
+                dataList.innerHTML = '<div class="file-list empty">Keine Dateien</div>';
+            } else {
+                dataList.innerHTML = status.data_files.map(f => `
+                    <div class="file-item">
+                        <span class="name">${f}</span>
+                        <span class="type">Excel/CSV</span>
+                    </div>
+                `).join('');
+            }
+
+            // Update button state
+            ingestBtn.disabled = status.is_ingesting || status.pending_files.length === 0;
+        }
+
+        function triggerIngestion() {
+            if (status.is_ingesting) {
+                alert('Ingestion läuft bereits.');
+                return;
+            }
+
+            if (status.pending_files.length === 0) {
+                alert('Keine Dateien zum Verarbeiten.');
+                return;
+            }
+
+            fetch('/admin/ingest', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    status.is_ingesting = true;
+                    updateFileLists();
+                    showStatus('processing', 'Ingestion läuft...', 'Bitte warten, die Dokumente werden verarbeitet.');
+                    pollStatus();
+                }
+            })
+            .catch(err => alert('Fehler: ' + err));
+        }
+
+        function clearFiles() {
+            fetch('/admin/upload/clear', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                status.pending_files = [];
+                status.data_files = [];
+                updateFileLists();
+            });
+        }
+
+        function showStatus(type, title, message) {
+            statusBox.style.display = 'block';
+            statusBox.className = 'status-box ' + type;
+            statusTitle.textContent = title;
+            statusMessage.textContent = message;
+        }
+
+        function pollStatus() {
+            fetch('/admin/upload/status')
+            .then(res => res.json())
+            .then(data => {
+                status = data;
+                updateFileLists();
+
+                if (status.is_ingesting) {
+                    setTimeout(pollStatus, 2000);
+                    showStatus('processing', 'Ingestion läuft...', status.current_file || 'Verarbeite Dokumente...');
+                    progressBar.style.display = 'block';
+                    if (status.total_count > 0) {
+                        const percent = Math.round((status.processed_count / status.total_count) * 100);
+                        progressFill.style.width = percent + '%';
+                    }
+                } else if (status.error) {
+                    showStatus('error', 'Fehler', status.error);
+                    progressBar.style.display = 'none';
+                } else {
+                    showStatus('success', 'Fertig!', 'Alle Dokumente wurden erfolgreich verarbeitet.');
+                    progressBar.style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>
