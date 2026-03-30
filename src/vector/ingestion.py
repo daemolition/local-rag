@@ -62,12 +62,12 @@ class DocumentIngestion:
                 chunk_size=32,
             )
 
-        # Document loaders
+        # Supported file extensions (CSV/Excel werden ohne Loader verarbeitet)
         self.loaders = {
             ".pdf": CustomPDFLoader,
-            ".csv": CSVLoader,
-            ".xlsx": UnstructuredExcelLoader,
-            ".xls": UnstructuredExcelLoader,
+            ".csv": None,  # Wird in _process_file direkt verarbeitet
+            ".xlsx": None,  # Wird in _process_file direkt verarbeitet
+            ".xls": None,  # Wird in _process_file direkt verarbeitet
             ".docx": UnstructuredWordDocumentLoader,
             ".doc": UnstructuredWordDocumentLoader,
         }
