@@ -182,10 +182,20 @@ def chat():
                     kind = event.get("event")
 
                     if kind == "on_chat_model_stream":
-                        content = event["data"]["chunk"].content
+                        chunk = event["data"]["chunk"]
+                        content = chunk.content
+
+                        # Reasoning aus additional_kwargs extrahieren
+                        reasoning = None
+                        if hasattr(chunk, 'additional_kwargs') and chunk.additional_kwargs:
+                            reasoning = chunk.additional_kwargs.get("reasoning_content")
+
                         if content:
                             full_response += content
                             result_queue.put(('token', content))
+
+                        if reasoning:
+                            result_queue.put(('reasoning', reasoning))
 
                     elif kind == "on_tool_start":
                         tool_name = event.get("name", "unknown")
@@ -240,6 +250,9 @@ def chat():
                     save_message(final_session_id, 'assistant', msg_data)
                     yield f"data: {json.dumps({'done': True, 'session_id': final_session_id})}\n\n"
                     break
+
+                elif msg_type == 'reasoning':
+                    yield f"data: {json.dumps({'reasoning': msg_data})}\n\n"
 
                 elif msg_type == 'token':
                     yield f"data: {json.dumps({'token': msg_data})}\n\n"

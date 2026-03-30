@@ -472,6 +472,34 @@
             height: 14px;
         }
 
+        .thinking-block {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+            font-size: 0.85rem;
+        }
+
+        .thinking-block summary {
+            cursor: pointer;
+            color: #94a3b8;
+            padding: 0.5rem;
+            font-weight: 500;
+        }
+
+        .thinking-block summary:hover {
+            color: #cbd5e1;
+        }
+
+        .thinking-block pre {
+            color: #cbd5e1;
+            padding: 0.5rem;
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border-top: 1px solid #334155;
+        }
+
         .error {
             background: #fef2f2;
             border: 1px solid #fecaca;
@@ -798,13 +826,24 @@
         function updateMarkdown(div, content) {
             // Thinking-Blöcke als kollabierbare Details anzeigen
             let processed = content
-                .replace(/alsexports[\s\S]*?<\/think>/g, (match, thinking) => {
-                    return `<details class="thinking-block"><summary>💭 Denken</summary><pre>${thinking.trim()}</pre></details>`;
-                })
-                .replace(/💭([\s\S]*?)💭/g, (match, thinking) => {
-                    return `<details class="thinking-block"><summary>💭 Denken</summary><pre>${thinking.trim()}</pre></details>`;
+                // Qwen3/DeepSeek Reasoning-Tags: <think>...</think>
+                .replace(/<think>([\s\S]*?)<\/think>/g, function(match, thinking) {
+                    return '<details class="thinking-block"><summary>🧠 Denken</summary><pre>' + thinking.trim() + '</pre></details>';
                 });
             div.innerHTML = DOMPurify.sanitize(marked.parse(processed));
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function updateThinkingBlock(div, reasoning) {
+            let thinkingDiv = div.querySelector('.thinking-block');
+            if (!thinkingDiv) {
+                thinkingDiv = document.createElement('details');
+                thinkingDiv.className = 'thinking-block';
+                thinkingDiv.open = false;
+                thinkingDiv.innerHTML = '<summary>🧠 Denken</summary><pre></pre>';
+                div.insertBefore(thinkingDiv, div.firstChild);
+            }
+            thinkingDiv.querySelector('pre').textContent = reasoning;
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
@@ -862,6 +901,16 @@
                                         }
                                         fullResponse += parsed.token;
                                         updateMarkdown(assistantMsgDiv, fullResponse);
+                                    }
+
+                                    if (parsed.reasoning) {
+                                        if (isFirstToken) {
+                                            assistantMsgDiv.innerHTML = '';
+                                            isFirstToken = false;
+                                        }
+                                        if (!window.reasoningContent) window.reasoningContent = '';
+                                        window.reasoningContent += parsed.reasoning;
+                                        updateThinkingBlock(assistantMsgDiv, window.reasoningContent);
                                     }
 
                                     if (parsed.tool_start) {
