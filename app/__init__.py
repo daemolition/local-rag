@@ -15,6 +15,7 @@ from src.llm.local_llm import VisionLLM
 from src.tools.custom_tools import CustomTools
 from src.agent.document_agent import DocumentAgent
 from src.utils.qdrant_client import get_qdrant_client
+from app.database import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,10 @@ def create_app():
     app = Flask(__name__)
     
     ensure_directories()
-    
+
+    # Initialize chat history database
+    init_db()
+
     app.config['SECRET_KEY'] = os.urandom(24)
     app.config['SESSION_TYPE'] = 'filesystem'
     app.config['SESSION_FILE_DIR'] = './flask_session/'

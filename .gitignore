@@ -18,3 +18,4 @@ processed_files
 local_qdrant.db
 flask_session/**
 summaries/**
+*.db

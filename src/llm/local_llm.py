@@ -1,5 +1,5 @@
 """
-Local LLM with vision
+Local LLM with vision - supports separate chat and vision models
 """
 # Standard library
 import os
@@ -10,37 +10,56 @@ from langchain_core.messages import HumanMessage
 from src.utils.phase_logger import phase_logger, Phase
 
 class VisionLLM:
-    
+
     def __init__(self):
         """
-        Initialisiert das Vision Model
-        
+        Initialisiert das LLM mit getrennten Chat- und Vision-Modellen.
+
         Args:
-            model (str): Das Model
-            base_url (str): Die API über das das Visionmodel erreichbar ist
-            api_key (str): Der API Key für den API zugriff (für lokal Dummy)
-            
+            Chat-Modell: Für Agent-Interaktionen und normale Chats
+            Vision-Modell: Für Bildverarbeitung
+
         Methods:
             initialize_llm: Initialisiert das llm in der Klasse
         """
-        
-        self.model = os.getenv("MODEL", "granite3.2-vision:2b-q8_0")
-        self.base_url = os.getenv("BASEURL", "http://192.168.1.35:11434/v1")
-        self.temperature = os.getenv("TEMPERATURE", 0.1)
-        self.top_p = os.getenv("TOP_P", 0.2)
+
+        # Chat model configuration (fallback to legacy MODEL env var)
+        self.chat_model = os.getenv("CHAT_MODEL", os.getenv("MODEL", "qwen3:8b"))
+        self.chat_base_url = os.getenv("CHAT_BASEURL", os.getenv("BASEURL", "http://192.168.1.35:11434/v1"))
+        self.chat_temperature = float(os.getenv("CHAT_TEMPERATURE", os.getenv("TEMPERATURE", "0.1")))
+        self.chat_top_p = float(os.getenv("CHAT_TOP_P", os.getenv("TOP_P", "0.2")))
+
+        # Vision model configuration (fallback to chat model settings)
+        self.vision_model = os.getenv("VISION_MODEL", self.chat_model)
+        self.vision_base_url = os.getenv("VISION_BASEURL", self.chat_base_url)
+
+        # Common settings
         self.api_key = os.getenv("API_KEY", "loc-123")
-        
-        self.llm = self._initialize_llm(streaming=False)
-        self.llm_stream = self._initialize_llm(streaming=True)
-        
-    
-    def _initialize_llm(self, streaming: bool = False):
-        """Initialisiert das LLM (streaming oder non-streaming)"""
+
+        # Initialize LLMs
+        self.llm = self._initialize_vision_llm()
+        self.llm_stream = self._initialize_chat_llm(streaming=True)
+
+
+    def _initialize_chat_llm(self, streaming: bool = False):
+        """Initialisiert das Chat-LLM (für Agent-Interaktionen)"""
         return ChatOpenAI(
-            model=self.model,
-            base_url=self.base_url,
+            model=self.chat_model,
+            base_url=self.chat_base_url,
             api_key=self.api_key,
-            streaming=streaming
+            streaming=streaming,
+            temperature=self.chat_temperature,
+            top_p=self.chat_top_p
+        )
+
+
+    def _initialize_vision_llm(self):
+        """Initialisiert das Vision-LLM (für Bildverarbeitung)"""
+        return ChatOpenAI(
+            model=self.vision_model,
+            base_url=self.vision_base_url,
+            api_key=self.api_key,
+            streaming=False
         )
         
     def generate_image_message(self, image: str, instruction: str = None) -> HumanMessage:
@@ -94,27 +113,27 @@ class VisionLLM:
 
         
     def generate(self, message: HumanMessage) -> str:
-        """Generiert den Text (ohne Streaming - für Bilder)"""
+        """Generiert den Text mit VISION-Modell (für Bilder)"""
         start_time = time.time()
-        phase_logger.log_phase(Phase.LLM_CALL, f"LLM-Call gestartet | Model: {self.model}")
-        
+        phase_logger.log_phase(Phase.LLM_CALL, f"LLM-Call gestartet | Model: {self.vision_model}")
+
         result = self.llm.invoke([message])
-        
+
         duration = time.time() - start_time
-        phase_logger.log_phase(Phase.LLM_CALL, f"LLM-Response erhalten | Model: {self.model}", duration=duration)
-        
+        phase_logger.log_phase(Phase.LLM_CALL, f"LLM-Response erhalten | Model: {self.vision_model}", duration=duration)
+
         return result.content
-    
-    
+
+
     def generate_stream(self, prompt: str):
-        """Generiert gestreamten Text (für Chat/Reden)"""
+        """Generiert gestreamten Text mit CHAT-Modell (für Chat)"""
         messages = [HumanMessage(content=prompt)]
-        
+
         start_time = time.time()
-        phase_logger.log_phase(Phase.STREAMING, "LLM-Streaming gestartet")
-        
+        phase_logger.log_phase(Phase.STREAMING, f"LLM-Streaming gestartet | Model: {self.chat_model}")
+
         for chunk in self.llm_stream.stream(messages):
             yield chunk
-        
+
         duration = time.time() - start_time
-        phase_logger.log_phase(Phase.STREAMING, "LLM-Streaming abgeschlossen", duration=duration)
+        phase_logger.log_phase(Phase.STREAMING, f"LLM-Streaming abgeschlossen | Model: {self.chat_model}", duration=duration)
