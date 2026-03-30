@@ -32,6 +32,11 @@
             gap: 0.5rem;
         }
 
+        .header h1 svg {
+            width: 24px;
+            height: 24px;
+        }
+
         .nav {
             display: flex;
             gap: 1rem;
@@ -84,6 +89,11 @@
             gap: 0.5rem;
         }
 
+        .card-header h2 svg {
+            width: 20px;
+            height: 20px;
+        }
+
         .card-body {
             padding: 1.5rem;
         }
@@ -109,8 +119,8 @@
         }
 
         .upload-zone svg {
-            width: 48px;
-            height: 48px;
+            width: 32px;
+            height: 32px;
             color: #9ca3af;
             margin-bottom: 1rem;
         }
@@ -291,20 +301,6 @@
             color: #6b7280;
         }
 
-        .progress-bar {
-            height: 8px;
-            background: #e5e7eb;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 1rem;
-        }
-
-        .progress-bar .progress {
-            height: 100%;
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            transition: width 0.3s ease;
-        }
-
         .spinner {
             animation: spin 1s linear infinite;
         }
@@ -411,9 +407,6 @@
                 <div class="status-box" id="statusBox" style="display: none;">
                     <h4 id="statusTitle">Status</h4>
                     <p id="statusMessage">Nachricht</p>
-                    <div class="progress-bar" id="progressBar" style="display: none;">
-                        <div class="progress" id="progressFill" style="width: 0%"></div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -433,7 +426,7 @@
             <div class="card-body" style="font-size: 0.9rem; color: #6b7280;">
                 <p><strong>PDF, DOCX, DOC:</strong> Werden in die Vektor-Datenbank ingested und sind durchsuchbar.</p>
                 <p style="margin-top: 0.5rem;"><strong>XLSX, XLS, CSV:</strong> Sofort für Pandas-Analysen verfügbar (keine Ingestion nötig).</p>
-                <p style="margin-top: 0.5rem;"><strong>Hinweis:</strong> Während der Ingestion können keine neuen Dateien hochgeladen werden.</p>
+                <p style="margin-top: 0.5rem;"><strong>Hinweis:</strong> Während der Ingestion ist die Anwendung nicht erreichbar.</p>
             </div>
         </div>
     </div>
@@ -452,8 +445,6 @@
         const statusBox = document.getElementById('statusBox');
         const statusTitle = document.getElementById('statusTitle');
         const statusMessage = document.getElementById('statusMessage');
-        const progressBar = document.getElementById('progressBar');
-        const progressFill = document.getElementById('progressFill');
 
         // Update UI on load
         updateFileLists();
@@ -550,19 +541,27 @@
                 return;
             }
 
+            // Lade-Indikator zeigen
+            ingestBtn.disabled = true;
+            showStatus('processing', 'Ingestion läuft...', 'Bitte warten, die Dokumente werden verarbeitet. Diese Seite reagiert währenddessen nicht.');
+
             fetch('/admin/ingest', { method: 'POST' })
             .then(res => res.json())
             .then(data => {
-                if (data.error) {
-                    alert(data.error);
+                if (data.success) {
+                    status.pending_files = [];
+                    showStatus('success', 'Fertig!', 'Alle Dokumente wurden erfolgreich verarbeitet.');
                 } else {
-                    status.is_ingesting = true;
-                    updateFileLists();
-                    showStatus('processing', 'Ingestion läuft...', 'Bitte warten, die Dokumente werden verarbeitet.');
-                    pollStatus();
+                    showStatus('error', 'Fehler', data.error || 'Unbekannter Fehler');
                 }
+                updateFileLists();
             })
-            .catch(err => alert('Fehler: ' + err));
+            .catch(err => {
+                showStatus('error', 'Fehler', 'Verbindung fehlgeschlagen: ' + err);
+            })
+            .finally(() => {
+                ingestBtn.disabled = false;
+            });
         }
 
         function clearFiles() {
@@ -580,31 +579,6 @@
             statusBox.className = 'status-box ' + type;
             statusTitle.textContent = title;
             statusMessage.textContent = message;
-        }
-
-        function pollStatus() {
-            fetch('/admin/upload/status')
-            .then(res => res.json())
-            .then(data => {
-                status = data;
-                updateFileLists();
-
-                if (status.is_ingesting) {
-                    setTimeout(pollStatus, 2000);
-                    showStatus('processing', 'Ingestion läuft...', status.current_file || 'Verarbeite Dokumente...');
-                    progressBar.style.display = 'block';
-                    if (status.total_count > 0) {
-                        const percent = Math.round((status.processed_count / status.total_count) * 100);
-                        progressFill.style.width = percent + '%';
-                    }
-                } else if (status.error) {
-                    showStatus('error', 'Fehler', status.error);
-                    progressBar.style.display = 'none';
-                } else {
-                    showStatus('success', 'Fertig!', 'Alle Dokumente wurden erfolgreich verarbeitet.');
-                    progressBar.style.display = 'none';
-                }
-            });
         }
     </script>
 </body>

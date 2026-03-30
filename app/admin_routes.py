@@ -2,7 +2,6 @@
 Admin Routes für Qdrant Vektor-DB Verwaltung
 """
 import os
-import threading
 from pathlib import Path
 from flask import Blueprint, render_template, request, jsonify, session, current_app, redirect, url_for, flash
 from functools import wraps
@@ -341,7 +340,7 @@ def upload_files():
 
 
 def _run_ingestion():
-    """Background-Thread für Ingestion"""
+    """Ingestion ausführen (synchron)"""
     global _upload_status
     try:
         from src.vector import DocumentIngestion
@@ -359,7 +358,7 @@ def _run_ingestion():
 @admin_bp.route('/ingest', methods=['POST'])
 @admin_required
 def trigger_ingestion():
-    """Ingestion im Hintergrund starten"""
+    """Ingestion synchron starten (blockiert bis Fertig)"""
     global _upload_status
 
     if _upload_status['is_ingesting']:
@@ -373,10 +372,13 @@ def trigger_ingestion():
     _upload_status['processed_count'] = 0
     _upload_status['total_count'] = len(_upload_status['pending_files'])
 
-    thread = threading.Thread(target=_run_ingestion)
-    thread.start()
+    # Synchron ausführen (blockiert bis fertig)
+    _run_ingestion()
 
-    return jsonify({'success': True, 'message': 'Ingestion gestartet'})
+    if _upload_status.get('error'):
+        return jsonify({'success': False, 'error': _upload_status['error']}), 500
+
+    return jsonify({'success': True, 'message': 'Ingestion abgeschlossen'})
 
 
 @admin_bp.route('/upload/status')
