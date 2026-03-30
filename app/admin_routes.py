@@ -110,7 +110,7 @@ def documents():
                 'id': str(point.id),
                 'filename': payload.get('filename', 'N/A'),
                 'source': payload.get('source', 'N/A'),
-                'content_preview': (payload.get('page_content', '') or payload.get('original_content', ''))[:200] + '...',
+                'content_preview': (payload.get('page_content', '') or payload.get('original_content', ''))[:50] + '...',
             })
 
         # Get unique filenames for filter dropdown
