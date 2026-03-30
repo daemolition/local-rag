@@ -33,4 +33,5 @@ dependencies = [
     "pillow>=11.0.0",
     "unstructured[pdf]>=0.22.6",
     "ml-dtypes>=0.5.4",
+    "tabulate>=0.10.0",
 ]
