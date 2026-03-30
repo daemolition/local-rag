@@ -21,6 +21,7 @@ from langchain_community.document_loaders import (
     CSVLoader,
     UnstructuredExcelLoader,
     UnstructuredWordDocumentLoader,
+    DirectoryLoader
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
