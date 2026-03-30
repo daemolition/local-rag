@@ -302,6 +302,9 @@ def upload_files():
     if _upload_status['is_ingesting']:
         return jsonify({'error': 'Ingestion läuft bereits, bitte warten'}), 409
 
+    # Projekt-Root bestimmen (dort wo run.py liegt)
+    project_root = Path(current_app.root_path).parent
+
     files = request.files.getlist('files')
     saved_files = {'pending': [], 'data': []}
 
@@ -313,14 +316,19 @@ def upload_files():
 
         # PDF/DOCX/DOC → ./files/ (werden ingested)
         if ext in ['.pdf', '.docx', '.doc']:
-            target_dir = Path('./files')
+            target_dir = project_root / 'files'
             target_dir.mkdir(parents=True, exist_ok=True)
             filepath = target_dir / file.filename
             file.save(filepath)
             saved_files['pending'].append(file.filename)
         # XLSX/XLS/CSV → DATA_DIR (sofort verfügbar für Pandas)
         elif ext in ['.xlsx', '.xls', '.csv']:
-            target_dir = Path(os.getenv('DATA_DIR', './data'))
+            data_dir = os.getenv('DATA_DIR', './data')
+            # Absoluter Pfad falls relativ
+            if not Path(data_dir).is_absolute():
+                target_dir = project_root / data_dir
+            else:
+                target_dir = Path(data_dir)
             target_dir.mkdir(parents=True, exist_ok=True)
             filepath = target_dir / file.filename
             file.save(filepath)
