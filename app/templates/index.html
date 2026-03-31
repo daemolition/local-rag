@@ -826,9 +826,13 @@
         function updateMarkdown(div, content) {
             // Thinking-Blöcke als kollabierbare Details anzeigen
             let processed = content
-                // Qwen3/DeepSeek Reasoning-Tags: <think>...</think>
+                // Geschlossene Qwen/DeepSeek Reasoning-Tags: <think>...</think>
                 .replace(/<think>([\s\S]*?)<\/think>/g, function(match, thinking) {
                     return '<details class="thinking-block"><summary>🧠 Denken</summary><pre>' + thinking.trim() + '</pre></details>';
+                })
+                // Offene (noch streamende) Reasoning-Tags: <think>...
+                .replace(/<think>([\s\S]*)$/g, function(match, thinking) {
+                    return '<details class="thinking-block" open><summary>🧠 Denken (läuft...)</summary><pre>' + thinking.trim() + '</pre></details>';
                 });
             div.innerHTML = DOMPurify.sanitize(marked.parse(processed));
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
