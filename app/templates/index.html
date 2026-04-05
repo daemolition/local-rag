@@ -1,997 +1,146 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local Document RAG</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            width: 280px;
-            background: linear-gradient(180deg, #134e4a 0%, #0f3d3d 100%);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-            transition: transform 0.3s ease;
-        }
-
-        .sidebar-header {
-            padding: 1rem 1.25rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .sidebar-header h2 {
-            font-size: 1rem;
-            font-weight: 600;
-        }
-
-        .new-chat-btn {
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            border: none;
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            transition: all 0.2s ease;
-        }
-
-        .new-chat-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(5, 150, 105, 0.4);
-        }
-
-        .new-chat-btn svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        .session-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 0.5rem;
-        }
-
-        .session-item {
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            margin-bottom: 0.25rem;
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: background 0.2s ease;
-        }
-
-        .session-item:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .session-item.active {
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-        }
-
-        .session-item .session-title {
-            font-size: 0.9rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            flex: 1;
-        }
-
-        .session-item .session-delete {
-            background: transparent;
-            border: none;
-            color: rgba(255, 255, 255, 0.6);
-            cursor: pointer;
-            padding: 0.25rem;
-            border-radius: 4px;
-            opacity: 0;
-            transition: all 0.2s ease;
-        }
-
-        .session-item:hover .session-delete {
-            opacity: 1;
-        }
-
-        .session-item .session-delete:hover {
-            color: #f87171;
-            background: rgba(248, 113, 113, 0.1);
-        }
-
-        .session-empty {
-            text-align: center;
-            color: rgba(255, 255, 255, 0.5);
-            padding: 2rem 1rem;
-            font-size: 0.9rem;
-        }
-
-        /* Main Content */
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .header {
-            background: linear-gradient(180deg, #134e4a 0%, #0f3d3d 100%);
-            color: white;
-            padding: 1rem 1.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            flex-shrink: 0;
-        }
-
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        .sidebar-toggle {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: white;
-            padding: 0.5rem;
-            border-radius: 8px;
-            cursor: pointer;
-            display: none;
-        }
-
-        .sidebar-toggle svg {
-            width: 24px;
-            height: 24px;
-        }
-
-        .header h1 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .header h1 svg {
-            width: 24px;
-            height: 24px;
-        }
-
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            font-size: 0.9rem;
-        }
-
-        .user-info a {
-            color: white;
-            text-decoration: none;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            background: rgba(255,255,255,0.2);
-            transition: all 0.2s ease;
-        }
-
-        .user-info a:hover {
-            background: rgba(255,255,255,0.3);
-        }
-
-        .main-wrapper {
-            flex: 1;
-            display: flex;
-            justify-content: center;
-            padding: 1.5rem;
-            overflow: hidden;
-        }
-
-        .chat-card {
-            width: 100%;
-            max-width: 900px;
-            display: flex;
-            flex-direction: column;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.15);
-            overflow: hidden;
-        }
-
-        .messages-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        .message {
-            max-width: 85%;
-            padding: 1rem 1.25rem;
-            border-radius: 16px;
-            line-height: 1.6;
-        }
-
-        .message.user {
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            color: white;
-            align-self: flex-end;
-            border-bottom-right-radius: 4px;
-        }
-
-        .message.assistant {
-            background: #f8fafc;
-            border: 1px solid #e5e7eb;
-            align-self: flex-start;
-            border-bottom-left-radius: 4px;
-        }
-
-        .message p {
-            margin: 0 0 0.75rem 0;
-        }
-
-        .message p:last-child {
-            margin-bottom: 0;
-        }
-
-        .message h1, .message h2, .message h3 {
-            margin: 1rem 0 0.5rem 0;
-            font-weight: 600;
-        }
-
-        .message h1:first-child, .message h2:first-child, .message h3:first-child {
-            margin-top: 0;
-        }
-
-        .message h1 { font-size: 1.5rem; }
-        .message h2 { font-size: 1.25rem; }
-        .message h3 { font-size: 1.1rem; }
-
-        .message code {
-            background: rgba(13, 148, 136, 0.1);
-            padding: 0.2rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.9em;
-            font-family: 'Fira Code', 'Consolas', monospace;
-        }
-
-        .message.user code {
-            background: rgba(255,255,255,0.2);
-        }
-
-        .message pre {
-            background: #1e293b;
-            color: #e2e8f0;
-            padding: 1rem;
-            border-radius: 10px;
-            overflow-x: auto;
-            margin: 0.75rem 0;
-            font-size: 0.875rem;
-            line-height: 1.5;
-        }
-
-        .message pre code {
-            background: transparent;
-            padding: 0;
-            color: inherit;
-        }
-
-        .message ul, .message ol {
-            margin: 0.5rem 0;
-            padding-left: 1.5rem;
-        }
-
-        .message li {
-            margin: 0.25rem 0;
-        }
-
-        .message table {
-            border-collapse: collapse;
-            width: 100%;
-            margin: 0.75rem 0;
-            font-size: 0.9rem;
-        }
-
-        .message th, .message td {
-            border: 1px solid #e5e7eb;
-            padding: 0.5rem 0.75rem;
-            text-align: left;
-        }
-
-        .message th {
-            background: #f1f5f9;
-            font-weight: 600;
-        }
-
-        .message blockquote {
-            border-left: 4px solid #0d9488;
-            padding-left: 1rem;
-            margin: 0.75rem 0;
-            color: #64748b;
-            font-style: italic;
-        }
-
-        .message a {
-            color: #0d9488;
-            text-decoration: none;
-            border-bottom: 1px dotted #0d9488;
-        }
-
-        .message a:hover {
-            border-bottom-style: solid;
-        }
-
-        .message hr {
-            border: none;
-            border-top: 1px solid #e5e7eb;
-            margin: 1rem 0;
-        }
-
-        .loading-dots {
-            display: flex;
-            gap: 0.3rem;
-            padding: 0.5rem 0;
-        }
-
-        .loading-dots span {
-            width: 10px;
-            height: 10px;
-            background: #0d9488;
-            border-radius: 50%;
-            animation: bounce 1.4s infinite ease-in-out both;
-        }
-
-        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
-        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
-
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
-            40% { transform: scale(1); opacity: 1; }
-        }
-
-        .input-container {
-            padding: 1rem 1.5rem 1.5rem;
-            background: white;
-            border-top: 1px solid #e5e7eb;
-            flex-shrink: 0;
-        }
-
-        .input-wrapper {
-            display: flex;
-            gap: 0.75rem;
-            background: #f8fafc;
-            border: 2px solid #e5e7eb;
-            border-radius: 16px;
-            padding: 0.5rem;
-            transition: all 0.2s ease;
-        }
-
-        .input-wrapper:focus-within {
-            border-color: #0d9488;
-            background: white;
-            box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.15);
-        }
-
-        .input-form {
-            flex: 1;
-            display: flex;
-            gap: 0.75rem;
-        }
-
-        .input-form textarea {
-            flex: 1;
-            padding: 0.75rem;
-            border: none;
-            background: transparent;
-            font-size: 1rem;
-            outline: none;
-            resize: none;
-            max-height: 200px;
-            min-height: 24px;
-            font-family: inherit;
-            line-height: 1.5;
-        }
-
-        .input-form textarea::placeholder {
-            color: #9ca3af;
-        }
-
-        .input-form input {
-            flex: 1;
-            padding: 0.75rem;
-            border: none;
-            background: transparent;
-            font-size: 1rem;
-            outline: none;
-        }
-
-        .input-form input::placeholder {
-            color: #9ca3af;
-        }
-
-        .input-form button {
-            padding: 0.75rem 1.75rem;
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            color: white;
-            border: none;
-            border-radius: 12px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.2s ease;
-        }
-
-        .input-form button:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4);
-        }
-
-        .input-form button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .tool-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-            border: 1px solid #86efac;
-            border-radius: 20px;
-            padding: 0.4rem 0.8rem;
-            margin-top: 0.5rem;
-            font-size: 0.85rem;
-            color: #166534;
-        }
-
-        .tool-indicator svg {
-            width: 14px;
-            height: 14px;
-        }
-
-        .thinking-block {
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            margin: 0.5rem 0;
-            font-size: 0.85rem;
-        }
-
-        .thinking-block summary {
-            cursor: pointer;
-            color: #94a3b8;
-            padding: 0.5rem;
-            font-weight: 500;
-        }
-
-        .thinking-block summary:hover {
-            color: #cbd5e1;
-        }
-
-        .thinking-block pre {
-            color: #cbd5e1;
-            padding: 0.5rem;
-            margin: 0;
-            white-space: pre-wrap;
-            word-break: break-word;
-            border-top: 1px solid #334155;
-        }
-
-        .error {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-            color: #dc2626;
-        }
-
-        .thinking-block {
-            background: #f0f9ff;
-            border: 1px solid #bae6fd;
-            border-radius: 8px;
-            margin: 0.5rem 0;
-        }
-        .thinking-block summary {
-            cursor: pointer;
-            color: #0284c7;
-            font-weight: 500;
-            padding: 0.5rem;
-        }
-        .thinking-block pre {
-            background: #e0f2fe;
-            padding: 0.75rem;
-            margin: 0 0.5rem 0.5rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.85rem;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        /* Mobile Responsive */
-        @media (max-width: 768px) {
-            .sidebar {
-                position: fixed;
-                left: 0;
-                top: 0;
-                bottom: 0;
-                z-index: 1000;
-                transform: translateX(-100%);
-            }
-
-            .sidebar.open {
-                transform: translateX(0);
-            }
-
-            .sidebar-toggle {
-                display: block;
-            }
-
-            .sidebar-overlay {
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.5);
-                z-index: 999;
-            }
-
-            .sidebar-overlay.open {
-                display: block;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-
-    <aside class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <h2>Chats</h2>
-            <button class="new-chat-btn" id="newChatBtn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
+{% extends "base.html" %}
+
+{% block title %}Local Document RAG{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+<style>
+    .message { max-width: 85%; padding: 1rem 1.25rem; border-radius: 1rem; line-height: 1.6; }
+    .message.user { background: linear-gradient(135deg, #475569 0%, #334155 100%); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+    .message.assistant { background: #f8fafc; border: 1px solid #e5e7eb; align-self: flex-start; border-bottom-left-radius: 4px; }
+    .dark .message.assistant { background: #374151; border-color: #4b5563; }
+    .message p { margin: 0 0 0.75rem 0; }
+    .message p:last-child { margin-bottom: 0; }
+    .message h1, .message h2, .message h3 { margin: 1rem 0 0.5rem 0; font-weight: 600; }
+    .message h1 { font-size: 1.5rem; }
+    .message h2 { font-size: 1.25rem; }
+    .message h3 { font-size: 1.1rem; }
+    .message code { background: rgba(100, 116, 139, 0.1); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.9em; font-family: 'Fira Code', Consolas, monospace; }
+    .message.user code { background: rgba(255,255,255,0.2); }
+    .message pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 10px; overflow-x: auto; margin: 0.75rem 0; font-size: 0.875rem; line-height: 1.5; }
+    .message pre code { background: transparent; padding: 0; color: inherit; }
+    .message ul, .message ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+    .message li { margin: 0.25rem 0; }
+    .message table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.9rem; }
+    .message th, .message td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
+    .message th { background: #f1f5f9; font-weight: 600; }
+    .dark .message th { background: #4b5563; }
+    .dark .message td { border-color: #4b5563; }
+    .message blockquote { border-left: 4px solid #475569; padding-left: 1rem; margin: 0.75rem 0; color: #64748b; font-style: italic; }
+    .dark .message blockquote { color: #94a3b8; }
+    .message a { color: #475569; text-decoration: none; border-bottom: 1px dotted #475569; }
+    .message a:hover { border-bottom-style: solid; }
+    .message hr { border: none; border-top: 1px solid #e5e7eb; margin: 1rem 0; }
+    .loading-dots { display: flex; gap: 0.3rem; padding: 0.5rem 0; }
+    .loading-dots span { width: 10px; height: 10px; background: #475569; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
+    .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes bounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }
+    .tool-indicator { display: inline-flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border: 1px solid #94a3b8; border-radius: 20px; padding: 0.4rem 0.8rem; margin-top: 0.5rem; font-size: 0.85rem; color: #475569; }
+    .thinking-block { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; margin: 0.5rem 0; }
+    .thinking-block summary { cursor: pointer; color: #475569; font-weight: 500; padding: 0.5rem; }
+    .thinking-block pre { background: #e2e8f0; padding: 0.75rem; margin: 0 0.5rem 0.5rem 0.5rem; border-radius: 4px; font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; }
+    .session-delete { background: transparent; border: none; color: rgba(255,255,255,0.6); cursor: pointer; padding: 0.25rem; border-radius: 4px; opacity: 0; transition: all 0.2s; }
+    .session-item:hover .session-delete { opacity: 1; }
+    .session-delete:hover { color: #f87171; background: rgba(248, 113, 113, 0.1); }
+    @media (max-width: 1024px) {
+    #sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; transform: translateX(-100%); width: 224px; }
+    #sidebar.translate-x-0 { transform: translateX(0); }
+    #sidebar.-translate-x-full { transform: translateX(-100%); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex h-screen">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="w-56 bg-gradient-to-b from-slate-700 to-slate-800 dark:from-slate-900 dark:to-slate-950 text-white flex flex-col flex-shrink-0 shadow-material-2 transition-transform duration-300">
+        <div class="p-4 border-b border-white/10 flex justify-between items-center">
+            <h2 class="text-base font-semibold">Chats</h2>
+            <button id="newChatBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors shadow-material-1">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
                 Neu
             </button>
         </div>
-        <div class="session-list" id="sessionList">
-            <div class="session-empty">Keine Chats vorhanden</div>
+        <div id="sessionList" class="flex-1 overflow-y-auto p-2">
+            <div class="text-center text-white/50 py-8 text-sm">Keine Chats vorhanden</div>
         </div>
     </aside>
 
-    <div class="main-content">
-        <header class="header">
-            <div class="header-left">
-                <button class="sidebar-toggle" id="sidebarToggle">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="3" y1="12" x2="21" y2="12"></line>
-                        <line x1="3" y1="6" x2="21" y2="6"></line>
-                        <line x1="3" y1="18" x2="21" y2="18"></line>
-                    </svg>
-                </button>
-                <h1>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
-                    </svg>
-                    Local Document RAG
-                </h1>
-            </div>
-            <div class="user-info">
-                <span>{{ username }}</span>
-                {% if username == 'admin' %}
-                <a href="{{ url_for('admin.index') }}" class="admin-link">Admin</a>
-                {% endif %}
-                <a href="{{ url_for('main.logout') }}">Abmelden</a>
+    <!-- Sidebar overlay for mobile -->
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden"></div>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+        <!-- Header -->
+        <header class="bg-gradient-to-r from-slate-700 to-slate-800 dark:from-slate-900 dark:to-slate-950 text-white shadow-material-2 flex-shrink-0">
+            <div class="flex items-center justify-between px-4 py-3">
+                <div class="flex items-center gap-3">
+                    <button id="sidebarToggle" class="lg:hidden p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <line x1="3" y1="12" x2="21" y2="12"/>
+                            <line x1="3" y1="6" x2="21" y2="6"/>
+                            <line x1="3" y1="18" x2="21" y2="18"/>
+                        </svg>
+                    </button>
+                    <h1 class="text-lg font-semibold flex items-center gap-2">
+                        <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+                        </svg>
+                        Local Document RAG
+                    </h1>
+                </div>
+                <div class="flex items-center gap-2 text-sm">
+                    <span class="hidden sm:inline">{{ username }}</span>
+                    <button onclick="toggleDarkMode()" class="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors" title="Dark Mode">
+                        <svg class="w-4 h-4 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                        </svg>
+                        <svg class="w-4 h-4 hidden dark:block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                        </svg>
+                    </button>
+                    <a href="{{ url_for('user.my_documents') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">Meine Dokumente</a>
+                    <a href="{{ url_for('user.my_summaries') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">Meine Summaries</a>
+                    {% if username == 'admin' %}
+                    <a href="{{ url_for('admin.index') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">Admin</a>
+                    {% endif %}
+                    <a href="{{ url_for('main.logout') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">Abmelden</a>
+                </div>
             </div>
         </header>
 
-        <div class="main-wrapper">
-            <div class="chat-card">
-                <div class="messages-container" id="messagesContainer"></div>
+        <!-- Chat Container -->
+        <div class="flex-1 flex justify-center p-4 overflow-hidden">
+            <div class="w-full max-w-4xl flex flex-col bg-white dark:bg-gray-800 rounded-2xl shadow-material-3 overflow-hidden">
+                <!-- Messages -->
+                <div id="messagesContainer" class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+                </div>
 
-                <div class="input-container">
-                    <div class="input-wrapper">
-                        <form class="input-form" id="chatForm">
-                            <textarea id="userInput" placeholder="Frag mich was zu deinen Dokumenten..." rows="1" autocomplete="off"></textarea>
-                            <button type="submit" id="sendBtn">Senden</button>
+                <!-- Input -->
+                <div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex-shrink-0">
+                    <div class="flex gap-3 bg-gray-50 dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-2xl p-1.5 transition-all focus-within:border-slate-500 focus-within:bg-white dark:focus-within:bg-gray-800 focus-within:shadow-lg focus-within:shadow-slate-500/10">
+                        <form id="chatForm" class="flex-1 flex gap-3">
+                            <textarea id="userInput" placeholder="Frag mich was zu deinen Dokumenten..." rows="1" autocomplete="off" class="flex-1 px-3 py-2 bg-transparent border-none outline-none resize-none max-h-50 font-sans text-gray-900 dark:text-white placeholder-gray-400"></textarea>
+                            <button type="submit" id="sendBtn" class="px-5 py-2 bg-gradient-to-r from-slate-700 to-slate-800 dark:from-slate-800 dark:to-slate-900 text-white rounded-xl font-semibold shadow-material-1 hover:shadow-material-2 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                                Senden
+                            </button>
                         </form>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+</div>
+{% endblock %}
 
-    <script>
-        marked.setOptions({
-            breaks: true,
-            gfm: true,
-            highlight: function(code, lang) {
-                return code;
-            }
-        });
-
-        const messagesContainer = document.getElementById('messagesContainer');
-        const chatForm = document.getElementById('chatForm');
-        const userInput = document.getElementById('userInput');
-        const sendBtn = document.getElementById('sendBtn');
-        const sidebar = document.getElementById('sidebar');
-        const sidebarToggle = document.getElementById('sidebarToggle');
-        const sidebarOverlay = document.getElementById('sidebarOverlay');
-        const newChatBtn = document.getElementById('newChatBtn');
-        const sessionList = document.getElementById('sessionList');
-
-        // Textarea auto-resize
-        userInput.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = Math.min(this.scrollHeight, 200) + 'px';
-        });
-
-        // Enter to submit, Shift+Enter for new line
-        userInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                chatForm.dispatchEvent(new Event('submit'));
-            }
-        });
-
-        let currentSessionId = null;
-
-        // Sidebar toggle (mobile)
-        sidebarToggle.addEventListener('click', () => {
-            sidebar.classList.toggle('open');
-            sidebarOverlay.classList.toggle('open');
-        });
-
-        sidebarOverlay.addEventListener('click', () => {
-            sidebar.classList.remove('open');
-            sidebarOverlay.classList.remove('open');
-        });
-
-        // Load sessions
-        async function loadSessions() {
-            try {
-                const response = await fetch('/api/sessions');
-                const sessions = await response.json();
-                renderSessionList(sessions);
-                return sessions;
-            } catch (error) {
-                console.error('Error loading sessions:', error);
-                return [];
-            }
-        }
-
-        // Render session list
-        function renderSessionList(sessions) {
-            if (sessions.length === 0) {
-                sessionList.innerHTML = '<div class="session-empty">Keine Chats vorhanden</div>';
-                return;
-            }
-
-            sessionList.innerHTML = sessions.map(sess => `
-                <div class="session-item ${sess.id === currentSessionId ? 'active' : ''}" data-id="${sess.id}">
-                    <span class="session-title">${escapeHtml(sess.title || 'Neuer Chat')}</span>
-                    <button class="session-delete" onclick="deleteSession('${sess.id}', event)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
-                </div>
-            `).join('');
-
-            // Add click handlers
-            document.querySelectorAll('.session-item').forEach(item => {
-                item.addEventListener('click', (e) => {
-                    if (!e.target.closest('.session-delete')) {
-                        switchSession(item.dataset.id);
-                    }
-                });
-            });
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Create new session
-        async function createNewSession() {
-            try {
-                const response = await fetch('/api/sessions', { method: 'POST' });
-                const session = await response.json();
-                currentSessionId = session.id;
-                messagesContainer.innerHTML = '';
-                await loadSessions();
-                closeSidebarMobile();
-            } catch (error) {
-                console.error('Error creating session:', error);
-            }
-        }
-
-        // Switch session
-        async function switchSession(sessionId) {
-            currentSessionId = sessionId;
-            try {
-                const response = await fetch(`/api/sessions/${sessionId}`);
-                const session = await response.json();
-                messagesContainer.innerHTML = '';
-                renderMessages(session.messages || []);
-                highlightActiveSession();
-                closeSidebarMobile();
-            } catch (error) {
-                console.error('Error switching session:', error);
-            }
-        }
-
-        // Render messages
-        function renderMessages(messages) {
-            messages.forEach(msg => {
-                if (msg.role === 'user') {
-                    addMessage('user', msg.content, false);
-                } else {
-                    addMessage('assistant', msg.content, true);
-                }
-            });
-        }
-
-        // Highlight active session
-        function highlightActiveSession() {
-            document.querySelectorAll('.session-item').forEach(item => {
-                item.classList.toggle('active', item.dataset.id === currentSessionId);
-            });
-        }
-
-        // Delete session
-        async function deleteSession(sessionId, event) {
-            event.stopPropagation();
-            if (!confirm('Chat wirklich löschen?')) return;
-
-            try {
-                await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
-                if (currentSessionId === sessionId) {
-                    currentSessionId = null;
-                    messagesContainer.innerHTML = '';
-                }
-                const sessions = await loadSessions();
-                if (sessions.length > 0 && !currentSessionId) {
-                    switchSession(sessions[0].id);
-                }
-            } catch (error) {
-                console.error('Error deleting session:', error);
-            }
-        }
-
-        // Close sidebar on mobile
-        function closeSidebarMobile() {
-            if (window.innerWidth <= 768) {
-                sidebar.classList.remove('open');
-                sidebarOverlay.classList.remove('open');
-            }
-        }
-
-        // New chat button
-        newChatBtn.addEventListener('click', createNewSession);
-
-        function addMessage(role, content, isMarkdown = false) {
-            const div = document.createElement('div');
-            div.className = `message ${role}`;
-
-            if (isMarkdown && role === 'assistant') {
-                div.innerHTML = DOMPurify.sanitize(marked.parse(content));
-            } else {
-                div.textContent = content;
-            }
-
-            messagesContainer.appendChild(div);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            return div;
-        }
-
-        function addLoadingMessage() {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            div.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div>';
-            messagesContainer.appendChild(div);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            return div;
-        }
-
-        function updateMarkdown(div, content) {
-            // Thinking-Blöcke als kollabierbare Details anzeigen
-            let processed = content
-                // Geschlossene Qwen/DeepSeek Reasoning-Tags: <think>...</think>
-                .replace(/<think>([\s\S]*?)<\/think>/g, function(match, thinking) {
-                    return '<details class="thinking-block"><summary>🧠 Denken</summary><pre>' + thinking.trim() + '</pre></details>';
-                })
-                // Offene (noch streamende) Reasoning-Tags: <think>...
-                .replace(/<think>([\s\S]*)$/g, function(match, thinking) {
-                    return '<details class="thinking-block" open><summary>🧠 Denken (läuft...)</summary><pre>' + thinking.trim() + '</pre></details>';
-                });
-            div.innerHTML = DOMPurify.sanitize(marked.parse(processed));
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-
-        function updateThinkingBlock(div, reasoning) {
-            let thinkingDiv = div.querySelector('.thinking-block');
-            if (!thinkingDiv) {
-                thinkingDiv = document.createElement('details');
-                thinkingDiv.className = 'thinking-block';
-                thinkingDiv.open = false;
-                thinkingDiv.innerHTML = '<summary>🧠 Denken</summary><pre></pre>';
-                div.insertBefore(thinkingDiv, div.firstChild);
-            }
-            thinkingDiv.querySelector('pre').textContent = reasoning;
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-
-        function addToolIndicator(messageDiv, toolName) {
-            const indicator = document.createElement('div');
-            indicator.className = 'tool-indicator';
-            indicator.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                </svg>
-                ${toolName}
-            `;
-            messageDiv.appendChild(indicator);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-
-        async function sendMessage(message) {
-            const userMsgDiv = addMessage('user', message);
-            const assistantMsgDiv = addLoadingMessage();
-
-            userInput.disabled = true;
-            sendBtn.disabled = true;
-
-            let fullResponse = '';
-            let isFirstToken = true;
-
-            try {
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: message, session_id: currentSessionId })
-                });
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    const chunk = decoder.decode(value);
-                    const lines = chunk.split('\n');
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            if (data.trim()) {
-                                try {
-                                    const parsed = JSON.parse(data);
-
-                                    if (parsed.token) {
-                                        if (isFirstToken) {
-                                            assistantMsgDiv.innerHTML = '';
-                                            isFirstToken = false;
-                                        }
-                                        fullResponse += parsed.token;
-                                        updateMarkdown(assistantMsgDiv, fullResponse);
-                                    }
-
-                                    if (parsed.reasoning) {
-                                        if (isFirstToken) {
-                                            assistantMsgDiv.innerHTML = '';
-                                            isFirstToken = false;
-                                        }
-                                        if (!window.reasoningContent) window.reasoningContent = '';
-                                        window.reasoningContent += parsed.reasoning;
-                                        updateThinkingBlock(assistantMsgDiv, window.reasoningContent);
-                                    }
-
-                                    if (parsed.tool_start) {
-                                        addToolIndicator(assistantMsgDiv, parsed.tool_start);
-                                    }
-
-                                    if (parsed.tool_result) {
-                                        const toolResult = parsed.tool_result;
-                                        const details = document.createElement('details');
-                                        details.style.cssText = 'margin: 0.5rem 0; font-size: 0.85rem;';
-                                        const summary = document.createElement('summary');
-                                        summary.textContent = `[Tool: ${toolResult.name}]`;
-                                        summary.style.cssText = 'cursor: pointer; color: #0d9488; font-weight: 500;';
-                                        const pre = document.createElement('pre');
-                                        pre.style.cssText = 'background: #f1f5f9; padding: 0.5rem; border-radius: 6px; overflow-x: auto; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-word;';
-                                        pre.textContent = toolResult.output;
-                                        details.appendChild(summary);
-                                        details.appendChild(pre);
-                                        assistantMsgDiv.appendChild(details);
-                                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                                    }
-
-                                    if (parsed.sources) {
-                                        fullResponse += parsed.sources;
-                                        updateMarkdown(assistantMsgDiv, fullResponse);
-                                    }
-
-                                    if (parsed.done) {
-                                        // Update session ID if new
-                                        if (parsed.session_id && !currentSessionId) {
-                                            currentSessionId = parsed.session_id;
-                                            loadSessions();
-                                        }
-                                        console.log('Stream complete');
-                                    }
-
-                                    if (parsed.error) {
-                                        assistantMsgDiv.innerHTML = `<div class="error">Fehler: ${parsed.error}</div>`;
-                                    }
-                                } catch (e) {
-                                    // Ignore parse errors
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (error) {
-                assistantMsgDiv.innerHTML = `<div class="error">Fehler: ${error.message}</div>`;
-            }
-
-            if (!fullResponse && isFirstToken) {
-                assistantMsgDiv.innerHTML = '<div class="error">Keine Antwort erhalten. Bitte versuche es erneut.</div>';
-            }
-
-            userInput.disabled = false;
-            sendBtn.disabled = false;
-            userInput.focus();
-        }
-
-        chatForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const message = userInput.value.trim();
-            if (message) {
-                userInput.value = '';
-                userInput.style.height = 'auto';
-                sendMessage(message);
-            }
-        });
-
-        // Initialize
-        (async function init() {
-            const sessions = await loadSessions();
-            if (sessions.length > 0) {
-                switchSession(sessions[0].id);
-            }
-            userInput.focus();
-        })();
-    </script>
-</body>
-</html>
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+<script>
+    const currentUsername = '{{ username }}';
+</script>
+{% endblock %}

@@ -1,574 +1,163 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dokumente - Admin</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+{% extends "admin/base_admin.html" %}
 
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
-            min-height: 100vh;
-        }
+{% block title %}Dokumente - Admin{% endblock %}
 
-        .header {
-            background: linear-gradient(180deg, #134e4a 0%, #0f3d3d 100%);
-            color: white;
-            padding: 1rem 1.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
+{% block admin_content %}
+<a href="{{ url_for('admin.index') }}" class="inline-flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-slate-400 transition-colors mb-4 text-sm">
+    <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <line x1="19" y1="12" x2="5" y2="12"/>
+        <polyline points="12 19 5 12 12 5"/>
+    </svg>
+    Zurück zum Dashboard
+</a>
 
-        .header h1 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .nav {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-        }
-
-        .nav a {
-            color: white;
-            text-decoration: none;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            background: rgba(255,255,255,0.2);
-            transition: all 0.2s ease;
-            font-size: 0.9rem;
-        }
-
-        .nav a:hover {
-            background: rgba(255,255,255,0.3);
-        }
-
-        .nav a.active {
-            background: rgba(255,255,255,0.4);
-        }
-
-        .container {
-            max-width: 1600px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-
-        .card {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.15);
-            overflow: hidden;
-        }
-
-        .card-header {
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            color: white;
-            padding: 1.25rem 1.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-
-        .card-header h2 {
-            font-size: 1.1rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .card-body {
-            padding: 1.5rem;
-        }
-
-        .filter-bar {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-
-        .filter-bar select,
-        .filter-bar input {
-            padding: 0.5rem 1rem;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            font-family: inherit;
-            transition: all 0.2s ease;
-        }
-
-        .filter-bar select:focus,
-        .filter-bar input:focus {
-            outline: none;
-            border-color: #0d9488;
-        }
-
-        .table-wrapper {
-            overflow-x: auto;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th, td {
-            padding: 1rem;
-            text-align: left;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        th {
-            background: #f8fafc;
-            font-weight: 600;
-            color: #374151;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        td {
-            font-size: 0.9rem;
-            color: #6b7280;
-        }
-
-        tr:hover {
-            background: #f8fafc;
-        }
-
-        .doc-id {
-            font-family: 'Fira Code', monospace;
-            font-size: 0.8rem;
-            max-width: 120px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .content-preview {
-            max-width: 250px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            font-weight: 500;
-            font-size: 0.85rem;
-            text-decoration: none;
-            cursor: pointer;
-            border: none;
-            transition: all 0.2s ease;
-        }
-
-        .btn svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        .btn-sm {
-            padding: 0.4rem 0.75rem;
-            font-size: 0.8rem;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(5, 150, 105, 0.4);
-        }
-
-        .btn-danger {
-            background: #fee2e2;
-            color: #dc2626;
-        }
-
-        .btn-danger:hover {
-            background: #fecaca;
-        }
-
-        .btn-secondary {
-            background: #f3f4f6;
-            color: #374151;
-        }
-
-        .btn-secondary:hover {
-            background: #e5e7eb;
-        }
-
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 0.5rem;
-            margin-top: 1.5rem;
-        }
-
-        .pagination a,
-        .pagination span {
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            text-decoration: none;
-            color: #374151;
-            font-size: 0.9rem;
-        }
-
-        .pagination a:hover {
-            background: #e5e7eb;
-        }
-
-        .flash-message {
-            background: #fef2f2;
-            color: #dc2626;
-            padding: 1rem 1.5rem;
-            border-radius: 10px;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .flash-message.success {
-            background: #dcfce7;
-            color: #166534;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 3rem;
-            color: #6b7280;
-        }
-
-        .empty-state svg {
-            width: 64px;
-            height: 64px;
-            margin-bottom: 1rem;
-            opacity: 0.5;
-        }
-
-        .actions {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: #6b7280;
-            text-decoration: none;
-            font-size: 0.9rem;
-            margin-bottom: 1rem;
-        }
-
-        .back-link:hover {
-            color: #0d9488;
-        }
-
-        .back-link svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-
-        .modal.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: white;
-            padding: 2rem;
-            border-radius: 16px;
-            max-width: 400px;
-            width: 90%;
-            text-align: center;
-        }
-
-        .modal-content h3 {
-            margin-bottom: 1rem;
-            color: #1f2937;
-        }
-
-        .modal-content p {
-            margin-bottom: 1.5rem;
-            color: #6b7280;
-        }
-
-        .modal-actions {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-        }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+<div class="bg-white dark:bg-gray-800 rounded-xl shadow-material-1 overflow-hidden">
+    <div class="bg-gradient-to-r from-slate-700 to-slate-800 dark:from-slate-800 dark:to-slate-900 text-white px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 class="text-lg font-semibold flex items-center gap-2">
+            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
             </svg>
-            Dokumente
-        </h1>
-        <nav class="nav">
-            <a href="{{ url_for('main.index') }}">Chat</a>
-            <a href="{{ url_for('admin.index') }}">Dashboard</a>
-            <a href="{{ url_for('admin.documents') }}" class="active">Dokumente</a>
-            <a href="{{ url_for('admin.upload_files') }}">Upload</a>
-            <a href="{{ url_for('main.logout') }}">Abmelden</a>
-        </nav>
-    </header>
-
-    <div class="container">
-        <a href="{{ url_for('admin.index') }}" class="back-link">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="19" y1="12" x2="5" y2="12"></line>
-                <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-            Zurück zum Dashboard
-        </a>
-
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                {% for message in messages %}
-                    <div class="flash-message">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                        </svg>
-                        {{ message }}
-                    </div>
+            Vektordatenbank Dokumente
+        </h2>
+        <form method="GET" class="flex gap-2">
+            <select name="filename" onchange="this.form.submit()" class="px-3 py-1.5 rounded-lg bg-white/20 border border-white/30 text-white text-sm focus:ring-2 focus:ring-white/50 focus:border-transparent">
+                <option value="">Alle Dateien</option>
+                {% for fn in filenames %}
+                <option value="{{ fn }}" {% if fn == current_filter %}selected{% endif %}>{{ fn }}</option>
                 {% endfor %}
-            {% endif %}
-        {% endwith %}
-
-        <div class="card">
-            <div class="card-header">
-                <h2>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
-                    </svg>
-                    Vektordatenbank Dokumente
-                </h2>
-                <div class="filter-bar">
-                    <form method="GET" style="display: flex; gap: 1rem;">
-                        <select name="filename" onchange="this.form.submit()">
-                            <option value="">Alle Dateien</option>
-                            {% for fn in filenames %}
-                                <option value="{{ fn }}" {% if fn == current_filter %}selected{% endif %}>{{ fn }}</option>
-                            {% endfor %}
-                        </select>
-                        <input type="number" name="limit" value="{{ limit }}" min="10" max="100" style="width: 80px;" onchange="this.form.submit()">
-                    </form>
-                </div>
-            </div>
-
-            <div class="card-body">
-                {% if documents %}
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Dateiname</th>
-                                <th>Quelle</th>
-                                <th>Inhalt (Vorschau)</th>
-                                <th>Aktionen</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for doc in documents %}
-                            <tr>
-                                <td class="doc-id" title="{{ doc.id }}">{{ doc.id[:8] }}...</td>
-                                <td>{{ doc.filename }}</td>
-                                <td title="{{ doc.source }}">{{ doc.source[:40] }}{% if doc.source|length > 40 %}...{% endif %}</td>
-                                <td class="content-preview">{{ doc.content_preview }}</td>
-                                <td class="actions">
-                                    <a href="{{ url_for('admin.document_detail', doc_id=doc.id) }}" class="btn btn-primary btn-sm">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                            <circle cx="12" cy="12" r="3"></circle>
-                                        </svg>
-                                        Ansehen
-                                    </a>
-                                    <button onclick="confirmDelete('{{ doc.id }}', '{{ doc.filename }}')" class="btn btn-danger btn-sm">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polyline points="3 6 5 6 21 6"></polyline>
-                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                        </svg>
-                                        Löschen
-                                    </button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-
-                {% if next_offset %}
-                <div class="pagination">
-                    <a href="{{ url_for('admin.documents', offset=next_offset, limit=limit, filename=current_filter) }}" class="btn btn-secondary">
-                        Nächste Seite
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="9 18 15 12 9 6"></polyline>
-                        </svg>
-                    </a>
-                </div>
-                {% endif %}
-
-                {% if current_filter %}
-                <div style="margin-top: 1rem;">
-                    <button onclick="confirmBatchDelete('{{ current_filter }}')" class="btn btn-danger">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="3 6 5 6 21 6"></polyline>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        </svg>
-                        Alle "{{ current_filter }}" Dokumente löschen
-                    </button>
-                </div>
-                {% endif %}
-
-                {% else %}
-                <div class="empty-state">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
-                    </svg>
-                    <h3>Keine Dokumente gefunden</h3>
-                    <p>Die Vektordatenbank enthält keine Dokumente{% if current_filter %} mit diesem Filter{% endif %}.</p>
-                </div>
-                {% endif %}
-            </div>
-        </div>
+            </select>
+            <input type="number" name="limit" value="{{ limit }}" min="10" max="100" class="w-20 px-3 py-1.5 rounded-lg bg-white/20 border border-white/30 text-white text-sm focus:ring-2 focus:ring-white/50 focus:border-transparent" onchange="this.form.submit()">
+        </form>
     </div>
 
-    <!-- Delete Confirmation Modal -->
-    <div id="deleteModal" class="modal">
-        <div class="modal-content">
-            <h3>Dokument löschen?</h3>
-            <p id="deleteModalText">Möchtest du dieses Dokument wirklich löschen?</p>
-            <div class="modal-actions">
-                <button onclick="closeModal()" class="btn btn-secondary">Abbrechen</button>
-                <button onclick="deleteDocument()" class="btn btn-danger">Löschen</button>
-            </div>
+    <div class="p-6">
+        {% if documents %}
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">ID</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Dateiname</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Datei</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Quelle</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Inhalt (Vorschau)</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Aktionen</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                    {% for doc in documents %}
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                        <td class="px-4 py-3">
+                            <span class="font-mono text-xs text-gray-500 dark:text-gray-400" title="{{ doc.id }}">{{ doc.id[:8] }}...</span>
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-800 dark:text-white">{{ doc.filename }}</td>
+                        <td class="px-4 py-3">
+                            {% if doc.has_data_file %}
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-900/30 text-slate-700 dark:text-slate-200">
+                                <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                Vorhanden
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                Keine Datei
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400" title="{{ doc.source }}">{{ doc.source[:40] }}{% if doc.source|length > 40 %}...{% endif %}</td>
+                        <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-xs truncate">{{ doc.content_preview }}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-2">
+                                <a href="{{ url_for('admin.document_detail', doc_id=doc.id) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-slate-700 to-slate-800 dark:from-slate-800 dark:to-slate-900 text-white rounded-lg text-xs font-medium shadow-material-1 hover:shadow-material-2 transition-all">
+                                    <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                        <circle cx="12" cy="12" r="3"/>
+                                    </svg>
+                                    Ansehen
+                                </a>
+                                <button onclick="confirmDelete('{{ doc.id }}', '{{ doc.filename }}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-xs font-medium hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
+                                    <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <polyline points="3 6 5 6 21 6"/>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                    </svg>
+                                    Löschen
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if next_offset %}
+        <div class="flex justify-center mt-6">
+            <a href="{{ url_for('admin.documents', offset=next_offset, limit=limit, filename=current_filter) }}" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                Nächste Seite
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
+            </a>
+        </div>
+        {% endif %}
+
+        {% if current_filter %}
+        <div class="mt-4">
+            <button onclick="confirmBatchDelete('{{ current_filter }}')" class="inline-flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg font-medium hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                Alle "{{ current_filter }}" Dokumente löschen
+            </button>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="text-center py-12">
+            <svg class="w-16 h-16 mx-auto mb-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+            </svg>
+            <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">Keine Dokumente gefunden</h3>
+            <p class="text-gray-500 dark:text-gray-400">Die Vektordatenbank enthält keine Dokumente{% if current_filter %} mit diesem Filter{% endif %}.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Delete Modal -->
+<div id="deleteModal" class="fixed inset-0 z-50 hidden items-center justify-center">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeModal()"></div>
+    <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-material-3 w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-semibold text-gray-800 dark:text-white mb-2">Dokument löschen?</h3>
+        <p id="deleteModalText" class="text-gray-600 dark:text-gray-400 mb-6">Möchtest du dieses Dokument wirklich löschen?</p>
+        <div class="flex justify-center gap-3">
+            <button onclick="closeModal()" class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Abbrechen</button>
+            <button onclick="deleteDocument()" class="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 transition-all">Löschen</button>
         </div>
     </div>
+</div>
 
-    <!-- Batch Delete Confirmation Modal -->
-    <div id="batchDeleteModal" class="modal">
-        <div class="modal-content">
-            <h3>Alle Dokumente löschen?</h3>
-            <p id="batchDeleteModalText">Möchtest du wirklich alle Dokumente dieser Datei löschen?</p>
-            <div class="modal-actions">
-                <button onclick="closeBatchModal()" class="btn btn-secondary">Abbrechen</button>
-                <button onclick="batchDeleteDocument()" class="btn btn-danger">Alle löschen</button>
-            </div>
+<!-- Batch Delete Modal -->
+<div id="batchDeleteModal" class="fixed inset-0 z-50 hidden items-center justify-center">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeBatchModal()"></div>
+    <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-material-3 w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-semibold text-gray-800 dark:text-white mb-2">Alle Dokumente löschen?</h3>
+        <p id="batchDeleteModalText" class="text-gray-600 dark:text-gray-400 mb-6">Möchtest du wirklich alle Dokumente dieser Datei löschen?</p>
+        <div class="flex justify-center gap-3">
+            <button onclick="closeBatchModal()" class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Abbrechen</button>
+            <button onclick="batchDeleteDocument()" class="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 transition-all">Alle löschen</button>
         </div>
     </div>
+</div>
+{% endblock %}
 
-    <script>
-        let currentDocId = null;
-        let currentFilename = null;
-
-        function confirmDelete(docId, filename) {
-            currentDocId = docId;
-            document.getElementById('deleteModalText').textContent =
-                `Möchtest du das Dokument "${filename}" wirklich löschen?`;
-            document.getElementById('deleteModal').classList.add('active');
-        }
-
-        function closeModal() {
-            document.getElementById('deleteModal').classList.remove('active');
-            currentDocId = null;
-        }
-
-        function deleteDocument() {
-            if (!currentDocId) return;
-
-            fetch(`/admin/documents/${currentDocId}/delete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload();
-                } else {
-                    alert('Fehler: ' + (data.error || 'Unbekannter Fehler'));
-                    closeModal();
-                }
-            })
-            .catch(err => {
-                alert('Fehler: ' + err.message);
-                closeModal();
-            });
-        }
-
-        function confirmBatchDelete(filename) {
-            currentFilename = filename;
-            document.getElementById('batchDeleteModalText').textContent =
-                `Möchtest du wirklich alle Dokumente von "${filename}" löschen?`;
-            document.getElementById('batchDeleteModal').classList.add('active');
-        }
-
-        function closeBatchModal() {
-            document.getElementById('batchDeleteModal').classList.remove('active');
-            currentFilename = null;
-        }
-
-        function batchDeleteDocument() {
-            if (!currentFilename) return;
-
-            fetch('/admin/documents/batch-delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filename: currentFilename })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload();
-                } else {
-                    alert('Fehler: ' + (data.error || 'Unbekannter Fehler'));
-                    closeBatchModal();
-                }
-            })
-            .catch(err => {
-                alert('Fehler: ' + err.message);
-                closeBatchModal();
-            });
-        }
-    </script>
-</body>
-</html>
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/documents.js') }}"></script>
+{% endblock %}

@@ -1,82 +1,53 @@
 # Local Document RAG
 
-Ein lokales RAG-System (Retrieval-Augmented Generation) mit Flask-Webinterface, SSE-Streaming und Pandas-Datenanalyse-Fähigkeiten.
+Ein lokales RAG-System (Retrieval-Augmented Generation) mit Flask-Webinterface, SSE-Streaming, Pandas-Datenanalyse und Multi-User-Verwaltung.
 
 ## Features
 
-- **Flask Webinterface** mit Login-Authentifizierung
+- **Flask Webinterface** mit Login-Authentifizierung und Session-Management
+- **Multi-User Support** mit Admin-Panel und Berechtigungen
 - **SSE Streaming** für Echtzeit-Antworten
 - **Hybride Vektorsuche** (Dense + Sparse/BM25) mit Qdrant
 - **Multi-Format Dokumenten-Ingestion** (PDF, CSV, Excel, DOCX)
 - **Pandas Analytics Tools** für Datenanalyse
 - **Lokales LLM** via Ollama/OpenAI-kompatibler API
+- **Admin Panel** für Settings, User Management und Summaries
+- **Alembic Datenbank-Migrationen** für SQLAlchemy
 
 ---
 
-## Projektstruktur
+## Schnellstart
 
-```
-local-document-rag/
-├── app/                          # Flask Application
-│   ├── __init__.py               # App Factory & Ressourcen-Initialisierung
-│   ├── routes.py                 # Routes (Login, Chat, SSE-Endpoint)
-│   └── templates/
-│       ├── index.html            # Chat-Interface
-│       └── login.html            # Login-Seite
-│
-├── src/
-│   ├── llm/
-│   │   └── local_llm.py          # VisionLLM Wrapper
-│   ├── vector/
-│   │   ├── retriever.py          # Document Retriever
-│   │   └── ingestion.py          # Document Ingestion Pipeline
-│   ├── agent/
-│   │   └── document_agent.py     # LangChain Agent mit Tools
-│   ├── tools/
-│   │   └── custom_tools.py       # Pandas & Document Tools
-│   └── components/
-│       └── custom_pdf_loader.py  # PDF-Loader mit OCR/OCR
-│
-├── files/                        # Eingabe-Ordner für Dokumente
-├── analytics/                    # Excel/CSV-Dateien für Pandas-Analyse
-├── local_qdrant.db/              # Qdrant Vektordatenbank
-├── flask_session/                # Serverseitige Sessions
-│
-├── run.py                        # Flask Entry Point
-├── ingest_documents.py           # Dokumente in Vektordatenbank laden
-├── .env                          # Umgebungsvariablen
-└── pyproject.toml                # Dependencies
+### Windows (Keine Admin-Rechte nötig!)
+
+```batch
+# Einfach doppelklicken:
+start.bat
+
+# Oder manuell:
+python run_windows.py
 ```
 
----
+→ Öffnet http://127.0.0.1:5000 (nur lokal, keine Firewall-Abfrage!)
 
-## Architektur
+### Linux / Docker
 
+```bash
+# Mit Docker Compose
+docker-compose up --build
+
+# Oder manuell:
+alembic upgrade head
+python run_linux.py
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Flask App                                │
-├─────────────────────────────────────────────────────────────────┤
-│  Login (hardcoded) → Session → Chat Endpoint (SSE)              │
-└────────────────────────────────────┬────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      DocumentAgent                               │
-│  (LangChain ReAct Agent mit System Prompt)                      │
-├─────────────────────────────────────────────────────────────────┤
-│  Tools:                                                          │
-│  1. document_search_tool → Qdrant Vector Search                  │
-│  2. list_files           → Verfügbare Excel/CSV auflisten       │
-│  3. preview_data          → Spalten/Vorschau anzeigen           │
-│  4. run_pandas            → Pandas-Code ausführen               │
-└────────────────────────────────────┬────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         LLM                                      │
-│  (Ollama / OpenAI-kompatible API)                               │
-└─────────────────────────────────────────────────────────────────┘
-```
+
+→ Öffnet http://localhost:5000
+
+### Default Login
+
+| Benutzer | Passwort | Rolle |
+|---------|----------|-------|
+| admin | secret123 | Admin (alle Berechtigungen) |
 
 ---
 
@@ -101,83 +72,238 @@ local-document-rag/
    uv sync
    ```
 
-3. **Umgebungsvariablen konfigurieren (`.env`):**
+3. **Datenbank initialisieren:**
+   ```bash
+   alembic upgrade head
+   ```
+   → Erstellt `app.db` mit allen Tabellen + Admin-User
+
+4. **Umgebungsvariablen (`.env`):**
    ```bash
    # LLM
-   MODEL=gemma3:4b
-   BASEURL=http://192.168.1.35:11434/v1
+   CHAT_MODEL=qwen3:8b
+   CHAT_BASEURL=http://localhost:11434/v1
+   CHAT_TEMPERATURE=0.1
+   CHAT_TOP_P=0.2
+   
+   VISION_MODEL=qwen3-vl:8b
+   VISION_BASEURL=http://localhost:11434/v1
+   
+   # Legacy Fallback
+   MODEL=qwen3-vl:8b
+   BASEURL=http://localhost:11434/v1
    TEMPERATURE=0.1
    TOP_P=0.2
    API_KEY=loc-123
-
+   
    # Embedding
    EMBEDDING_SOURCE=local
    EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
    EMBEDDING_DIMENSION=384
-
-   # Data Directory für Pandas Analytics
-   DATA_DIR=./analytics
-   ```
-
-4. **Dokumente ingestieren:**
-   ```bash
-   # PDF, CSV, Excel, DOCX in ./files/ legen
-   uv run python ingest_documents.py
+   
+   # Qdrant
+   QDRANT_LOCAL=true
+   # QDRANT_HOST=localhost
+   # QDRANT_PORT=6333
+   
+   # Storage
+   DATA_DIR=./data
+   SUMMARIES_DIR=./summaries
    ```
 
 ---
 
-## Starten
+## Projektstruktur
 
-### Entwicklung
+```
+local-document-rag/
+├── app/                          # Flask Application
+│   ├── __init__.py               # App Factory & SQLAlchemy Init
+│   ├── routes.py                 # Main Routes (Chat, SSE)
+│   ├── admin_routes.py           # Admin Panel (Settings, Users)
+│   ├── user_routes.py            # User Routes (Documents, Summaries)
+│   ├── database_service.py       # SQLAlchemy CRUD Operations
+│   ├── settings_service.py       # Settings Management
+│   ├── models.py                 # SQLAlchemy Models
+│   └── templates/
+│       ├── index.html            # Chat-Interface
+│       ├── login.html            # Login-Seite
+│       ├── admin/                # Admin Templates
+│       │   ├── index.html
+│       │   ├── documents.html
+│       │   ├── settings.html
+│       │   ├── users.html
+│       │   ├── summaries.html
+│       │   └── edit_summary.html
+│       └── user/                 # User Templates
+│           ├── documents.html
+│           ├── summaries.html
+│           └── edit_summary.html
+│
+├── src/
+│   ├── llm/
+│   │   └── local_llm.py          # VisionLLM Wrapper
+│   ├── vector/
+│   │   ├── retriever.py          # Document Retriever
+│   │   └── ingestion.py          # Document Ingestion Pipeline
+│   ├── agent/
+│   │   └── document_agent.py     # LangChain Agent mit Tools
+│   ├── tools/
+│   │   └── custom_tools.py       # Pandas & Document Tools
+│   └── utils/
+│       ├── qdrant_client.py      # Qdrant Client Factory
+│       ├── file_manager.py        # File Management Utilities
+│       └── phase_logger.py       # Phase Logging
+│
+├── alembic/                      # Alembic Migrationen
+│   ├── versions/
+│   ├── env.py
+│   └── alembic.ini
+│
+├── scripts/
+│   ├── manage_qdrant.py          # Qdrant Migration (local ↔ remote)
+│   └── migrate_sessions.py       # Legacy Sessions Migration
+│
+├── files/                        # Upload-Ordner für Dokumente
+├── data/                         # Excel/CSV-Dateien für Analyse
+├── summaries/                    # Markdown Summary-Dateien
+├── app.db                        # SQLite Hauptdatenbank (SQLAlchemy)
+├── chat_history.db               # Legacy DB (optional für Migration)
+│
+├── run_windows.py                # Windows Entry Point
+├── run_linux.py                  # Linux Entry Point
+├── start.bat                     # Windows Starter
+├── Dockerfile                    # Docker Image
+├── docker-compose.yml            # Docker Compose
+├── entrypoint.sh                 # Docker Entrypoint
+├── ingest_documents.py           # Dokumente in Vektordatenbank laden
+└── pyproject.toml                # Dependencies
+```
+
+---
+
+## Multi-Platform Deployment
+
+### Windows (Ohne Admin-Rechte)
+
+```batch
+# Einfach starten
+start.bat
+
+# Oder mit vorhandener Qdrant-Installation
+python run_windows.py --no-qdrant
+```
+
+**Features:**
+- Auto-Download von `qdrant.exe` (wenn nicht vorhanden)
+- Flask auf `127.0.0.1:5000` (nur lokal, keine Firewall-Abfrage!)
+- Qdrant auf `127.0.0.1:6333` (nur lokal)
+- Waitress WSGI Server
+
+### Linux / Docker
 
 ```bash
-uv run python run.py
+# Mit Docker (empfohlen)
+docker-compose up --build
+
+# Oder manuell
+alembic upgrade head
+python run_linux.py
 ```
 
-Die App läuft unter: http://localhost:5000
-
-### Default Login
-
-| Benutzer | Passwort |
-|---------|----------|
-| admin | secret123 |
-| user | password123 |
+**Features:**
+- Gunicorn WSGI Server (4 Worker)
+- Qdrant als Docker Container
+- Netzwerk-weit erreichbar (`0.0.0.0:5000`)
 
 ---
 
-## Verwendung
+## Datenbank-Migrationen (Alembic)
 
-### 1. Dokumenten-Suche
+### Erste Installation
 
-Stelle eine Frage und der Agent durchsucht die Vektordatenbank:
-
+```bash
+# Erstellt app.db mit allen Tabellen
+alembic upgrade head
 ```
-"Wie hoch war der Umsatz im Q1 2024?"
+
+### Migrationen verwalten
+
+```bash
+# Neue Migration erstellen (nach Model-Änderungen)
+alembic revision --autogenerate -m "description"
+
+# Migration anwenden
+alembic upgrade head
+
+# Migration zurücksetzen
+alembic downgrade -1
+
+# Status prüfen
+alembic current
 ```
 
-### 2. Pandas Datenanalyse
+### Legacy-Daten migrieren
 
-Lege Excel/CSV-Dateien in `./analytics/` ab. Der Agent kann:
-
-1. **Dateien auflisten:** `list_files`
-2. **Vorschau anzeigen:** `preview_data`
-3. **Analysen durchführen:** `run_pandas`
-
-Beispiel-Prompts:
-- "Welche Excel-Dateien sind verfügbar?"
-- "Zeige mir die ersten 5 Zeilen der Datei sales.xlsx"
-- "Berechne die Summe der Spalte 'Umsatz' in sales.xlsx"
-
-### 3. Workflow-Beispiel
-
+```bash
+# Alte chat_history.db → Neue app.db
+python scripts/migrate_sessions.py
 ```
-User: "Was ist in der Datei sales.xlsx enthalten?"
 
-Agent Workflow:
-  1. list_files() → ["sales.xlsx"]
-  2. preview_data("sales.xlsx", rows=5) → Spalten & Daten
-  3. Antwort: "Die Datei enthält Spalten: Datum, Produkt, Umsatz, Menge..."
+---
+
+## Admin Panel
+
+### Zugriff
+
+- URL: http://localhost:5000/admin/
+- Login: admin / secret123
+
+### Features
+
+| Bereich | Funktion |
+|---------|----------|
+| **Dashboard** | Qdrant-Statistiken, Collection-Info |
+| **Dokumente** | Alle Qdrant-Dokumente anzeigen/löschen |
+| **Upload** | Dateien für Ingestion hochladen |
+| **Settings** | Alle .env-Variablen im UI bearbeiten |
+| **Users** | User anlegen/löschen/Passwort zurücksetzen |
+| **Summaries** | Alle Markdown-Dateien bearbeiten/löschen |
+
+---
+
+## User Features
+
+### Meine Dokumente
+
+- Eigene Dokumente hochladen
+- Eigene Dokumente löschen
+- Bei Löschung: Automatische Löschung der zugehörigen Datei im DATA_DIR
+
+### Meine Summaries
+
+- Eigene Markdown-Dateien bearbeiten (Inline-Editor mit Preview)
+- Eigene Markdown-Dateien löschen
+- Erstellt automatisch beim Speichern von Analysen
+
+---
+
+## Qdrant Verwaltung
+
+### Qdrant Migration (Local ↔ Remote)
+
+```bash
+# Status prüfen
+python scripts/manage_qdrant.py status
+
+# Lokal → Remote (Dry-Run)
+python scripts/manage_qdrant.py migrate --from local --to-remote --dry-run
+
+# Lokal → Remote (Ausführen)
+python scripts/manage_qdrant.py migrate --from local --to-remote
+
+# Remote → Lokal
+python scripts/manage_qdrant.py migrate --from-remote --to local
 ```
 
 ---
@@ -186,89 +312,106 @@ Agent Workflow:
 
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
-| `/` | GET | Chat-Interface (Login required) |
-| `/login` | GET/POST | Login-Seite |
-| `/logout` | GET | Session beenden |
-| `/chat` | POST (SSE) | Streaming Chat mit Agent |
-| `/history` | GET | Chat-History (JSON) |
+| `/` | GET | Chat-Interface |
+| `/login` | GET/POST | Login |
+| `/logout` | GET | Logout |
+| `/chat` | POST (SSE) | Streaming Chat |
+| `/api/sessions` | GET/POST | Session Management |
+| `/admin/*` | - | Admin Panel |
+| `/user/*` | - | User Routes |
 
 ---
 
-## Tools Details
+## Entwicklung
 
-### document_search_tool
+### Code Style
 
-Sucht in der Vektordatenbank nach relevanten Text-Ausschnitten.
+```bash
+# Linting
+uv run ruff check .
+uv run ruff check --fix .
 
-- **Input:** Suchanfrage (String)
-- **Output:** Liste von Chunks mit Metadaten
-
-### list_files
-
-Listet verfügbare Excel/CSV-Dateien im `DATA_DIR`.
-
-- **Input:** Keines
-- **Output:** Liste von Dateinamen
-
-### preview_data
-
-Zeigt Spaltennamen und erste N Zeilen einer Datei.
-
-- **Input:** `filename`, `rows` (optional, default 5)
-- **Output:** Formatierter String mit Spalten & Daten
-
-### run_pandas
-
-Führt Pandas-Code auf einem DataFrame aus.
-
-- **Input:** `filename`, `code`
-- **Output:** Analyseergebnis
-
-**Beispiel-Code:**
-```python
-result = df['Umsatz'].sum()
-result = df.groupby('Kategorie')['Wert'].mean()
-result = df[df['Jahr'] == 2024]['Umsatz'].sum()
+# Formatting
+uv run ruff format .
 ```
 
-**Sicherheit:** Befehle wie `os.`, `sys.`, `subprocess`, `to_csv`, etc. sind blockiert.
-
----
-
-## Development
-
-### Dependencies hinzufügen
+### Neue Dependencies
 
 ```bash
 uv add <package>
-```
-
-### Ruff Linting
-
-```bash
-uv run ruff check .
-uv run ruff format .
 ```
 
 ---
 
 ## Troubleshooting
 
-### "Collection not found"
+### "database is locked" (SQLite)
 
-Starte `ingest_documents.py` um die Vektordatenbank zu initialisieren.
+- Mehrere gleichzeitige Schreibzugriffe
+- **Lösung:** WAL Mode aktivieren oder auf PostgreSQL migrieren
 
-### Embedding-Warning
+### Qdrant Verbindungsfehler
 
+```bash
+# Prüfen ob Qdrant läuft
+curl http://localhost:6333/health
+
+# Windows: qdrant.exe starten
+# Linux: docker-compose ps
 ```
-embeddings.position_ids | UNEXPECTED
-```
 
-Kann ignoriert werden - das Modell funktioniert dennoch korrekt.
+### Alembic Migration fehlgeschlagen
+
+```bash
+# Von vorne beginnen (Achtung: Daten gehen verloren!)
+rm app.db
+alembic upgrade head
+```
 
 ### Session-Probleme
 
-Lösche den `flask_session/` Ordner und starte neu.
+```bash
+# Session-Verzeichnis löschen
+rm -rf flask_session/
+```
+
+---
+
+## Architektur
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Flask App                                │
+├─────────────────────────────────────────────────────────────────┤
+│  SQLAlchemy DB (Users, Sessions, Messages, Documents, ...) │
+│  Auth: Session-based (admin/user roles)                         │
+└────────────────────────────────────┬────────────────────────────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    ▼                ▼                ▼
+              ┌─────────┐      ┌──────────┐     ┌──────────┐
+              │  Admin   │      │  User    │     │  Chat    │
+              │  Panel   │      │  Routes  │     │  (SSE)   │
+              └─────────┘      └──────────┘     └────┬─────┘
+                                                       │
+                                                       ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                      DocumentAgent                                │
+│  (LangChain ReAct Agent mit deutschem System Prompt)            │
+├──────────────────────────────────────────────────────────────────┤
+│  Tools:                                                           │
+│  1. document_search_tool → Qdrant Vector Search                  │
+│  2. list_files           → Verfügbare Dateien auflisten           │
+│  3. preview_data          → Spalten/Vorschau anzeigen            │
+│  4. run_pandas            → Pandas-Code ausführen                │
+└─────────────────────────────────────┬────────────────────────────┘
+                                      │
+                                      ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                         LLM                                      │
+│  (Ollama / OpenAI-kompatibele API)                               │
+└──────────────────────────────────────────────────────────────────┘
+```
 
 ---
 

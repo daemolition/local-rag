@@ -24,7 +24,7 @@ from langchain_community.document_loaders import (
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
 from langchain_huggingface import HuggingFaceEmbeddings
-from qdrant_client import models
+from qdrant_client import models as qdrant_models
 from langchain_openai import OpenAIEmbeddings
 
 # Custom imports
@@ -122,15 +122,15 @@ class DocumentIngestion:
             client.create_collection(
                 collection_name=self.collection_name,
                 # 1. Konfiguration für normale Embeddings (Dense)
-                vectors_config=models.VectorParams(
+                vectors_config=qdrant_models.VectorParams(
                     size=int(self.dimensions),  # Sicherstellen, dass es ein Int ist
-                    distance=models.Distance.COSINE,
+                    distance=qdrant_models.Distance.COSINE,
                 ),
                 # 2. WICHTIG: Konfiguration für BM25 (Sparse)
                 sparse_vectors_config={
-                    "langchain-sparse": models.SparseVectorParams()  # Standardname für LangChain Hybrid
+                    "langchain-sparse": qdrant_models.SparseVectorParams()  # Standardname für LangChain Hybrid
                 },
-                hnsw_config=models.HnswConfigDiff(
+                hnsw_config=qdrant_models.HnswConfigDiff(
                     m=16,
                     ef_construct=100,
                     full_scan_threshold=10000,
@@ -406,13 +406,13 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         points = []
         for i in range(len(texts_to_embed)):
             sv = sparse_vectors[i]
-            qdrant_sparse = models.SparseVector(
+            qdrant_sparse = qdrant_models.SparseVector(
                 indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
                 values=sv.values if hasattr(sv, "values") else sv["values"],
             )
             
             points.append(
-                models.PointStruct(
+                qdrant_models.PointStruct(
                     id=str(uuid.uuid4()),
                     vector={
                         "": dense_vectors[i],

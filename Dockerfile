@@ -1,7 +1,6 @@
 FROM python:3.12-slim-bookworm
 
 LABEL maintainer="local-document-rag"
-LABEL architecture="arm64"
 
 WORKDIR /app
 
@@ -17,23 +16,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv via pip (system-wide, direkt verfügbar)
+RUN pip install --no-cache-dir uv
+
+# Copy project files
 COPY pyproject.toml ./
-COPY requirements.txt ./
+COPY README.md ./
 
-RUN pip install --upgrade pip setuptools wheel \
-    && pip install uv \
-    && uv pip install -r requirements.txt
-    && uv pip install --system unstructured[pdf] \
-    && uv pip install --system imagehash pillow \
-    && uv pip install --system --no-deps -e .
+# Install dependencies system-wide (no .venv!)
+RUN uv pip install --system -e .
 
+# Copy rest of application
 COPY . .
 
-RUN mkdir -p /app/files /app/processed_files /app/summaries /app/local_qdrant.db /app/images
+# Create directories
+RUN mkdir -p /app/files /app/summaries /app/data /app/flask_session
+
+# Copy entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 5000
 
-CMD ["python", "run.py"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["python", "run_linux.py"]

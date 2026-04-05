@@ -1,211 +1,62 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Document RAG</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            padding: 1rem;
-        }
-        
-        .login-container {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(20px);
-            border-radius: 20px;
-            padding: 3rem 2.5rem;
-            width: 100%;
-            max-width: 420px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        }
-        
-        .logo {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        
-        .logo-icon {
-            width: 60px;
-            height: 60px;
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            border-radius: 16px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 1rem;
-        }
-        
-        .logo-icon svg {
-            width: 32px;
-            height: 32px;
-            fill: white;
-        }
-        
-        h1 {
-            font-size: 1.75rem;
-            font-weight: 700;
-            color: #1a1a2e;
-            text-align: center;
-            margin-bottom: 0.5rem;
-        }
-        
-        .subtitle {
-            color: #6b7280;
-            text-align: center;
-            margin-bottom: 2rem;
-            font-size: 0.95rem;
-        }
-        
-        .form-group {
-            margin-bottom: 1.25rem;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: #374151;
-            font-weight: 500;
-            font-size: 0.875rem;
-        }
-        
-        .input-wrapper {
-            position: relative;
-        }
-        
-        input[type="text"], input[type="password"] {
-            width: 100%;
-            padding: 0.875rem 1rem;
-            padding-left: 2.75rem;
-            border: 2px solid #e5e7eb;
-            border-radius: 12px;
-            font-size: 1rem;
-            transition: all 0.2s ease;
-            background: #f9fafb;
-        }
-        
-        input[type="text"]:focus, input[type="password"]:focus {
-            outline: none;
-            border-color: #0d9488;
-            background: white;
-            box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.15);
-        }
-        
-        .input-icon {
-            position: absolute;
-            left: 1rem;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #9ca3af;
-        }
-        
-        button {
-            width: 100%;
-            padding: 1rem;
-            background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
-            color: white;
-            border: none;
-            border-radius: 12px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-top: 0.5rem;
-        }
-        
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px -5px rgba(5, 150, 105, 0.4);
-        }
-        
-        button:active {
-            transform: translateY(0);
-        }
-        
-        .flash-message {
-            background: #fef2f2;
-            color: #dc2626;
-            padding: 0.875rem 1rem;
-            border-radius: 12px;
-            margin-bottom: 1.25rem;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .flash-message svg {
-            flex-shrink: 0;
-        }
-        
-        .footer {
-            text-align: center;
-            margin-top: 1.5rem;
-            color: #9ca3af;
-            font-size: 0.8rem;
-        }
-    </style>
-</head>
-<body>
-    <div class="login-container">
-        <div class="logo">
-            <div class="logo-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+{% extends "base.html" %}
+
+{% block title %}Login - Document RAG{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-700 to-slate-800 p-4">
+    <div class="bg-white/95 dark:bg-gray-800 backdrop-blur-xl rounded-2xl shadow-material-3 w-full max-w-md p-8">
+        <div class="text-center mb-8">
+            <div class="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-slate-700 to-slate-800 rounded-2xl flex items-center justify-center">
+                <svg class="w-8 h-8 text-white" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
                 </svg>
             </div>
-            <h1>Document RAG</h1>
-            <p class="subtitle">Intelligente Dokumentenanalyse</p>
+            <h1 class="text-2xl font-bold text-gray-800 dark:text-white">Document RAG</h1>
+            <p class="text-gray-500 dark:text-gray-400 mt-1">Intelligente Dokumentenanalyse</p>
         </div>
         
         {% with messages = get_flashed_messages() %}
             {% if messages %}
-                <div class="flash-message">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                <div class="mb-6 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 flex items-center gap-2">
+                    <svg class="w-5 h-5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
                     {% for message in messages %}{{ message }}{% endfor %}
                 </div>
             {% endif %}
         {% endwith %}
         
-        <form method="POST">
-            <div class="form-group">
-                <label for="username">Benutzername</label>
-                <div class="input-wrapper">
-                    <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="12" cy="7" r="4"></circle>
+        <form method="POST" class="space-y-4">
+            <div>
+                <label for="username" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Benutzername</label>
+                <div class="relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
                     </svg>
-                    <input type="text" id="username" name="username" placeholder="Benutzername eingeben" required>
+                    <input type="text" id="username" name="username" placeholder="Benutzername eingeben" required autofocus
+                           class="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all">
                 </div>
             </div>
-            <div class="form-group">
-                <label for="password">Passwort</label>
-                <div class="input-wrapper">
-                    <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            <div>
+                <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Passwort</label>
+                <div class="relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                     </svg>
-                    <input type="password" id="password" name="password" placeholder="Passwort eingeben" required>
+                    <input type="password" id="password" name="password" placeholder="Passwort eingeben" required
+                           class="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all">
                 </div>
             </div>
-            <button type="submit">Anmelden</button>
+            <button type="submit" class="w-full py-3 bg-gradient-to-r from-slate-700 to-slate-800 dark:from-slate-800 dark:to-slate-900 text-white rounded-lg font-semibold shadow-material-1 hover:shadow-material-2 hover:-translate-y-0.5 transition-all">
+                Anmelden
+            </button>
         </form>
         
-        <div class="footer">
-            Lokale KI-gestützte Dokumentenanalyse
-        </div>
+        <p class="text-center mt-6 text-sm text-gray-400">Lokale KI-gestützte Dokumentenanalyse</p>
     </div>
-</body>
-</html>
+</div>
+{% endblock %}
