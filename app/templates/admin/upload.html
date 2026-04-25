@@ -62,7 +62,7 @@
 
         <!-- Actions -->
         <div class="flex flex-wrap gap-3">
-            <button id="ingestBtn" onclick="triggerIngestion()" class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-slate-700 to-slate-800 dark:from-slate-800 dark:to-slate-900 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+            <button id="ingestBtn" onclick="startIngestion()" class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-slate-700 to-slate-800 dark:from-slate-800 dark:to-slate-900 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                 <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <polyline points="20 6 9 17 4 12"/>
                 </svg>
@@ -75,6 +75,21 @@
                 </svg>
                 Liste leeren
             </button>
+        </div>
+
+        <!-- Progress Area -->
+        <div id="progressArea" class="hidden mt-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-900/20">
+            <div class="flex items-center gap-3">
+                <svg class="w-5 h-5 text-slate-600 dark:text-slate-400 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" id="progressFile">-</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        <span id="progressStage"></span> <span id="progressChunks"></span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Status Box -->
@@ -100,7 +115,6 @@
     <div class="p-6 text-sm text-gray-600 dark:text-gray-400">
         <p><strong class="text-gray-700 dark:text-gray-300">PDF, DOCX, DOC:</strong> Werden in die Vektor-Datenbank ingested und sind durchsuchbar.</p>
         <p class="mt-2"><strong class="text-gray-700 dark:text-gray-300">XLSX, XLS, CSV:</strong> Sofort für Pandas-Analysen verfügbar (keine Ingestion nötig).</p>
-        <p class="mt-2"><strong class="text-gray-700 dark:text-gray-300">Hinweis:</strong> Während der Ingestion ist die Anwendung nicht erreichbar.</p>
     </div>
 </div>
 {% endblock %}

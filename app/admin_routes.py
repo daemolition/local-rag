@@ -1,9 +1,12 @@
 """
 Admin Routes für Qdrant Vektor-DB Verwaltung, User Management und Settings
 """
+import json
 import os
+import queue
+import threading
 from pathlib import Path
-from flask import Blueprint, render_template, request, jsonify, session, current_app, redirect, url_for, flash
+from flask import Blueprint, render_template, request, jsonify, session, current_app, redirect, url_for, flash, Response, stream_with_context
 from functools import wraps
 from werkzeug.security import generate_password_hash
 from qdrant_client import models as qdrant_models
@@ -418,12 +421,12 @@ def upload_files():
     return jsonify({'success': True, 'files': saved_files})
 
 
-def _run_ingestion():
-    """Ingestion ausführen (synchron)"""
+def _run_ingestion(progress_queue=None):
+    """Ingestion ausführen (synchron, optional mit Progress-Queue)"""
     global _upload_status
     try:
         from src.vector import DocumentIngestion
-        ingest = DocumentIngestion()
+        ingest = DocumentIngestion(progress_queue=progress_queue)
         ingest.ingest_documents()
         _upload_status['pending_files'] = []
         _upload_status['error'] = None
@@ -458,6 +461,50 @@ def trigger_ingestion():
         return jsonify({'success': False, 'error': _upload_status['error']}), 500
 
     return jsonify({'success': True, 'message': 'Ingestion abgeschlossen'})
+
+
+@admin_bp.route('/ingest/stream', methods=['POST'])
+@admin_required
+def trigger_ingestion_stream():
+    """Ingestion als SSE-Stream starten (nicht-blockierend)"""
+    global _upload_status
+
+    if _upload_status['is_ingesting']:
+        return Response('data: {"error": "Ingestion läuft bereits"}\n\n',
+                       mimetype='text/event-stream')
+
+    if not _upload_status['pending_files']:
+        return Response('data: {"error": "Keine Dateien zum Verarbeiten"}\n\n',
+                       mimetype='text/event-stream')
+
+    _upload_status['is_ingesting'] = True
+    _upload_status['error'] = None
+    _upload_status['processed_count'] = 0
+    _upload_status['total_count'] = len(_upload_status['pending_files'])
+
+    result_queue = queue.Queue()
+
+    def run_in_thread():
+        _run_ingestion(progress_queue=result_queue)
+
+    thread = threading.Thread(target=run_in_thread)
+    thread.start()
+
+    @stream_with_context
+    def generate():
+        try:
+            while True:
+                event = result_queue.get()
+                if event.get('stage') == 'done' and not event.get('file'):
+                    yield f"data: {json.dumps(event)}\n\n"
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            thread.join(timeout=1)
+
+    return Response(generate(), mimetype='text/event-stream')
 
 
 @admin_bp.route('/upload/status')

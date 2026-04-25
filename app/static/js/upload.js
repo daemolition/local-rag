@@ -10,6 +10,10 @@ const ingestBtn = document.getElementById('ingestBtn');
 const statusBox = document.getElementById('statusBox');
 const statusTitle = document.getElementById('statusTitle');
 const statusMessage = document.getElementById('statusMessage');
+const progressArea = document.getElementById('progressArea');
+const progressFile = document.getElementById('progressFile');
+const progressStage = document.getElementById('progressStage');
+const progressChunks = document.getElementById('progressChunks');
 
 updateFileLists();
 
@@ -90,7 +94,26 @@ function updateFileLists() {
     ingestBtn.disabled = status.is_ingesting || status.pending_files.length === 0;
 }
 
-function triggerIngestion() {
+function updateProgressUI(event) {
+    const stageLabels = {
+        start: 'Startet...',
+        parsing: 'Parse & OCR...',
+        embedding: 'Embeddings...',
+        done: 'Fertig'
+    };
+
+    progressFile.textContent = event.file || '-';
+    progressStage.textContent = stageLabels[event.stage] || event.stage;
+    progressChunks.textContent = event.chunks !== undefined ? `${event.chunks} Chunks` : '';
+
+    if (event.stage === 'start' || event.stage === 'parsing' || event.stage === 'embedding') {
+        progressArea.classList.remove('hidden');
+    } else if (event.stage === 'done' && !event.file) {
+        progressArea.classList.add('hidden');
+    }
+}
+
+async function startIngestion() {
     if (status.is_ingesting) {
         showToast('Ingestion läuft bereits.', 'error');
         return;
@@ -102,25 +125,57 @@ function triggerIngestion() {
     }
 
     ingestBtn.disabled = true;
-    showStatus('processing', 'Ingestion läuft...', 'Bitte warten, die Dokumente werden verarbeitet. Diese Seite reagiert währenddessen nicht.');
+    showStatus('processing', 'Ingestion läuft...', 'Die Dokumente werden verarbeitet...');
+    progressArea.classList.remove('hidden');
 
-    fetch('/admin/ingest', { method: 'POST' })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            status.pending_files = [];
-            showStatus('success', 'Fertig!', 'Alle Dokumente wurden erfolgreich verarbeitet.');
-        } else {
-            showStatus('error', 'Fehler', data.error || 'Unbekannter Fehler');
+    try {
+        const response = await fetch('/admin/ingest/stream', { method: 'POST' });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6).trim();
+                    if (!data) continue;
+
+                    try {
+                        const event = JSON.parse(data);
+
+                        if (event.error) {
+                            showStatus('error', 'Fehler', event.error);
+                            progressArea.classList.add('hidden');
+                            break;
+                        }
+
+                        updateProgressUI(event);
+
+                        if (event.stage === 'done' && !event.file) {
+                            status.pending_files = [];
+                            showStatus('success', 'Fertig!', 'Alle Dokumente wurden erfolgreich verarbeitet.');
+                            progressArea.classList.add('hidden');
+                        }
+                    } catch (e) {
+                        console.error('Parse error:', e, data);
+                    }
+                }
+            }
         }
-        updateFileLists();
-    })
-    .catch(err => {
+    } catch (err) {
         showStatus('error', 'Fehler', 'Verbindung fehlgeschlagen: ' + err);
-    })
-    .finally(() => {
+        progressArea.classList.add('hidden');
+    } finally {
         ingestBtn.disabled = false;
-    });
+        updateFileLists();
+    }
 }
 
 function clearFiles() {
@@ -135,7 +190,7 @@ function clearFiles() {
 
 function showStatus(type, title, message) {
     statusBox.classList.remove('hidden', 'bg-amber-50', 'dark:bg-amber-900/20', 'bg-red-50', 'dark:bg-red-900/20', 'bg-slate-50', 'dark:bg-slate-900/20');
-    
+
     if (type === 'processing') {
         statusBox.classList.add('bg-amber-50', 'dark:bg-amber-900/20');
     } else if (type === 'error') {
@@ -143,7 +198,7 @@ function showStatus(type, title, message) {
     } else if (type === 'success') {
         statusBox.classList.add('bg-slate-50', 'dark:bg-slate-900/20');
     }
-    
+
     statusTitle.textContent = title;
     statusMessage.textContent = message;
 }

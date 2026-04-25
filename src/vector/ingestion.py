@@ -6,6 +6,7 @@ Document ingestion
 import os
 import glob
 import uuid
+import queue
 import shutil
 import time
 import chardet
@@ -39,7 +40,8 @@ logger = getLogger(__name__)
 class DocumentIngestion:
     """Document ingestion class"""
 
-    def __init__(self):
+    def __init__(self, progress_queue: queue.Queue | None = None):
+        self.progress_queue = progress_queue
 
         embedding_source = os.getenv("EMBEDDING_SOURCE", "local")
         embedding_endpoint = os.getenv(
@@ -105,6 +107,14 @@ class DocumentIngestion:
         if self._client is None:
             self._client = get_qdrant_client(collection_name=self.collection_name)
         return self._client
+
+    def _emit(self, event: dict):
+        """Sendet ein Progress-Event an die SSE-Queue, falls vorhanden."""
+        if self.progress_queue is not None:
+            try:
+                self.progress_queue.put(event)
+            except Exception:
+                pass
 
     def _close_client(self):
         """Schließt den Client sauber (wichtig für Windows Locks)"""
@@ -335,11 +345,12 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         extension = Path(file_path).suffix.lower()
         start_time = time.time()
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename}")
+        self._emit({"stage": "start", "file": filename, "chunks": 0})
 
         # 1. Datei laden (PDF mit Bildern, andere ohne)
         try:
             if extension == '.pdf':
-                loader = CustomPDFLoader(file_path, model=self.model)
+                loader = CustomPDFLoader(file_path, model=self.model, progress_callback=self._emit)
                 chunks = list(loader.lazy_load())
             elif extension == '.csv':
                 # Nur Übersichts-Chunk, keine Zeilen-Chunks
@@ -369,39 +380,43 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         
         if not chunks:
             logger.info(f"Keine Chunks für {filename}")
+            self._emit({"stage": "done", "file": filename, "chunks": 0, "error": "Keine Chunks extrahiert"})
             return False
-        
+
         # 2. Chunks splitten (nur bei Nicht-PDFs)
         if extension != '.pdf':
             chunks = self.text_splitter.split_documents(chunks)
-        
+
+        self._emit({"stage": "parsing", "file": filename, "chunks": len(chunks)})
+
         # 3. Context anreichern
         full_text_context = " ".join([c.page_content for c in chunks])[:2500]
-        
+
         texts_to_embed = []
         metadatas = []
-        
+
         total_chunks = len(chunks)
         for i, chunk in enumerate(chunks, 1):
             logger.info(f"  [{i}/{total_chunks}] Context anreichern: {filename}")
-            
+
             enriched_text = self._enrich_with_context(full_text_context, chunk.page_content)
-            
+
             if "[Bild-BESCHREIBUNG:" in chunk.page_content or "[Bildbeschreibung:" in chunk.page_content:
                 phase_logger.log_phase(Phase.VISION_PROCESSING, f"Bild-Kontext extrahiert | Datei: {filename}")
                 logger.info(f"  Bild-Kontext verarbeitet für: {filename}")
-            
+
             texts_to_embed.append(enriched_text)
             meta = chunk.metadata.copy()
             meta["filename"] = filename
             metadatas.append(meta)
-        
+
         # 4. Vektoren berechnen
+        self._emit({"stage": "embedding", "file": filename, "chunks": len(texts_to_embed)})
         phase_logger.log_phase(Phase.RETRIEVAL, f"Embeddings berechnen | Datei: {filename} | Vektoren: {len(texts_to_embed)}")
-        
+
         dense_vectors = self.embeddings.embed_documents(texts_to_embed)
         sparse_vectors = sparse_model.embed_documents(texts_to_embed)
-        
+
         # 5. Upload Qdrant
         points = []
         for i in range(len(texts_to_embed)):
@@ -410,7 +425,7 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                 indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
                 values=sv.values if hasattr(sv, "values") else sv["values"],
             )
-            
+
             points.append(
                 qdrant_models.PointStruct(
                     id=str(uuid.uuid4()),
@@ -425,52 +440,55 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                     },
                 )
             )
-        
+
         client = self._get_client()
-        
+
         # Batch-Upsert (max 100 Punkte pro Batch)
         BATCH_SIZE = 500
         for i in range(0, len(points), BATCH_SIZE):
             batch = points[i:i + BATCH_SIZE]
             client.upsert(collection_name=self.collection_name, points=batch)
-        
+
         # 6. Datei verschieben
         if extension in ['.csv', '.xlsx', '.xls']:
             self._move_to_data_dir(file_path)
         else:
             self._move_processed_files(chunks)
-        
+
         duration = time.time() - start_time
+        self._emit({"stage": "done", "file": filename, "chunks": len(texts_to_embed)})
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei fertig: {filename} | Dauer: {duration:.2f}s")
-        
+
         return True
 
     def ingest_documents(self):
         """Sequentielle Ingestion pro Datei"""
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Dokument-Ingestion gestartet")
-        
+        self._emit({"stage": "start", "file": "", "chunks": 0})
+
         # Dateien sammeln
         all_files = []
         for extension in self.loaders.keys():
             pattern = os.path.join("./files", f"**/*{extension}")
             files = glob.glob(pattern, recursive=True)
             all_files.extend(files)
-        
+
         if not all_files:
             logger.info("Keine Dateien gefunden.")
             phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Keine Dateien gefunden", duration=0.0)
+            self._emit({"stage": "done", "file": "", "chunks": 0, "error": "Keine Dateien gefunden"})
             return
-        
+
         sparse_model = FastEmbedSparse(model_name="Qdrant/bm25")
         pbar = tqdm(all_files, desc="Processing Files", unit="file")
-        
+
         success_count = 0
         error_count = 0
-        
+
         for file_path in pbar:
             filename = os.path.basename(file_path)
             pbar.set_description(f"Processing: {filename}")
-            
+
             try:
                 success = self._process_file(file_path, sparse_model)
                 if success:
@@ -482,9 +500,11 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
             except Exception as e:
                 error_count += 1
                 logger.error(f"Fehler bei {filename}: {e}")
+                self._emit({"stage": "done", "file": filename, "chunks": 0, "error": str(e)})
                 pbar.write(f"✗ {filename} fehlgeschlagen: {str(e)[:50]}")
                 continue
-        
+
         self._close_client()
+        self._emit({"stage": "done", "file": "", "chunks": success_count})
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Dokument-Ingestion abgeschlossen | Erfolgreich: {success_count} | Fehler: {error_count}")
         logger.info(f"Fertig! {success_count} Dateien erfolgreich verarbeitet, {error_count} Fehler.")

@@ -1,29 +1,23 @@
 """
 PDF Loader wrapper
 """
-# Standard library
-from typing import Iterator
+from typing import Iterator, Callable
 
-# Third party
 from langchain_core.documents import Document
 from langchain_community.document_loaders.base import BaseLoader
 
-# Custom imports
-from . import PreprocessPDF
+from .preprocess_pdf import PreprocessPDF
+
 
 class CustomPDFLoader(BaseLoader):
     """Wrapper Class for custom loader"""
-    
-    def __init__(self, file_path: str, model=None):
+
+    def __init__(self, file_path: str, model=None, progress_callback: Callable | None = None):
         self.file_path = file_path
-        self.processor = PreprocessPDF(model=model)
-        
+        self.processor = PreprocessPDF(progress_callback=progress_callback)
+
     def lazy_load(self) -> Iterator[Document]:
         """Loading wrapper"""
-        
-        # Documents from unstructured process
-        documents = self.processor.process_with_unstructured(self.file_path)
-       
+        documents = self.processor.process_with_docling(self.file_path)
         for doc in documents:
-            # Yield the docs
             yield doc
