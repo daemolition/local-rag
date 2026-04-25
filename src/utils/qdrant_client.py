@@ -2,8 +2,7 @@
 Qdrant Client Factory mit Unterstützung für lokale und remote Verbindungen
 """
 import os
-import time
-from typing import Optional, Union
+from typing import Optional
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 
