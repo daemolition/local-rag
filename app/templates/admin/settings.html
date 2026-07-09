@@ -21,14 +21,11 @@
             <form data-category="{{ category }}" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {% for setting in settings %}
                 {% set is_select = setting.key in select_options %}
-                {% set is_dependent_field = setting.key in ['EMBEDDING_ENDPOINT', 'QDRANT_HOST', 'QDRANT_PORT', 'QDRANT_API_KEY'] %}
-                
+                {% set is_dependent_field = setting.key in ['EMBEDDING_ENDPOINT'] %}
+
                 <div class="{% if is_dependent_field %}pl-4 border-l-3 border-slate-500{% endif %} {% if is_dependent_field %}hidden{% endif %}"
                      {% if is_dependent_field %}id="group-{{ setting.key }}"{% endif %}
-                     {% if setting.key == 'EMBEDDING_ENDPOINT' %}data-depends-on="EMBEDDING_SOURCE" data-show-when="endpoint"{% endif %}
-                     {% if setting.key == 'QDRANT_HOST' %}data-depends-on="QDRANT_LOCAL" data-show-when="false"{% endif %}
-                     {% if setting.key == 'QDRANT_PORT' %}data-depends-on="QDRANT_LOCAL" data-show-when="false"{% endif %}
-                     {% if setting.key == 'QDRANT_API_KEY' %}data-depends-on="QDRANT_LOCAL" data-show-when="false"{% endif %}>
+                     {% if setting.key == 'EMBEDDING_ENDPOINT' %}data-depends-on="EMBEDDING_SOURCE" data-show-when="endpoint"{% endif %}>
                     <label for="{{ setting.key }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         <code class="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-sm">{{ setting.key }}</code>
                         {% if setting.is_sensitive %}

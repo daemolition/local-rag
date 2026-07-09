@@ -7,8 +7,8 @@ __pycache__
 .coverage
 htmlcov
 *.log
-*.db
-*.db-journal
+app/data/*.db
+app/data/*.db-journal
 local_qdrant.db
 venv
 .venv

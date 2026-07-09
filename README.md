@@ -1,6 +1,8 @@
 # Local Document RAG
 
-Ein lokales RAG-System (Retrieval-Augmented Generation) mit Flask-Webinterface, SSE-Streaming, Pandas-Datenanalyse und Multi-User-Verwaltung.
+Ein lokales RAG-System (Retrieval-Augmented Generation) mit Flask-Webinterface, SSE-Streaming, Pandas-Datenanalyse, Multi-User-Verwaltung und hybrider Vektorsuche.
+
+> **Lizenz:** Dieses Projekt ist unter der **GNU Affero General Public License v3 oder später (AGPL-3.0-or-later)** veröffentlicht. Siehe [`LICENSE`](./LICENSE).
 
 ## Features
 
@@ -47,7 +49,36 @@ python run_linux.py
 
 | Benutzer | Passwort | Rolle |
 |---------|----------|-------|
-| admin | secret123 | Admin (alle Berechtigungen) |
+| admin | admin | Admin (alle Berechtigungen) |
+
+> **Wichtig:** Ändere das Admin-Passwort nach dem ersten Login! Setze `ADMIN_PASSWORD` in `.env` für einen benutzerdefinierten Default.
+
+---
+
+## Qdrant
+
+Dieses Projekt benötigt einen **laufenden Qdrant-Server** (Server-Modus). Die App verbindet sich zu `QDRANT_HOST:QDRANT_PORT` (Default: `localhost:6333`).
+
+### Windows
+
+`run_windows.py` startet automatisch einen lokalen Qdrant-Server (`qdrant.exe` auf `127.0.0.1:6333`) — ohne Administratorrechte und ohne Firewall-Abfrage:
+
+- `qdrant.exe` wird automatisch heruntergeladen, falls nicht vorhanden.
+- Qdrant läuft auf `127.0.0.1:6333` (nur localhost erreichbar).
+- Der Flask-Server läuft auf `127.0.0.1:5000` (ebenfalls nur localhost).
+- Beim Beenden wird der Qdrant-Prozess aufgeräumt.
+
+Wenn du Qdrant bereits separat betreibst (z. B. per Docker oder manuell):
+
+```batch
+python run_windows.py --no-qdrant
+```
+
+### Linux / Docker
+
+Docker Compose startet Qdrant als separaten Container (`qdrant/qdrant:latest`). Die App verbindet sich über das `local-rag-network` zum `qdrant`-Service.
+
+Manuell: Starte Qdrant separat (Docker, Binary, etc.) und konfiguriere `QDRANT_HOST`/`QDRANT_PORT` in `.env`.
 
 ---
 
@@ -58,12 +89,16 @@ python run_linux.py
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) Package Manager
 - [Ollama](https://ollama.ai/) oder kompatibler LLM-Server
+- Ein laufender Qdrant-Server (siehe oben)
+- Für PDF-OCR:
+  - **Windows:** Tesseract-OCR + Poppler (Pfade können über `.env` gesetzt werden)
+  - **Linux:** `tesseract-ocr`, `tesseract-ocr-deu`, `poppler-utils`
 
 ### Setup
 
 1. **Repository klonen:**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/daemolition/local-document-rag.git
    cd local-document-rag
    ```
 
@@ -76,40 +111,15 @@ python run_linux.py
    ```bash
    alembic upgrade head
    ```
-   → Erstellt `app.db` mit allen Tabellen + Admin-User
+   → Erstellt `app/data/app.db` mit allen Tabellen + Admin-User (`admin`/`admin`).
 
 4. **Umgebungsvariablen (`.env`):**
    ```bash
-   # LLM
-   CHAT_MODEL=qwen3:8b
-   CHAT_BASEURL=http://localhost:11434/v1
-   CHAT_TEMPERATURE=0.1
-   CHAT_TOP_P=0.2
-   
-   VISION_MODEL=qwen3-vl:8b
-   VISION_BASEURL=http://localhost:11434/v1
-   
-   # Legacy Fallback
-   MODEL=qwen3-vl:8b
-   BASEURL=http://localhost:11434/v1
-   TEMPERATURE=0.1
-   TOP_P=0.2
-   API_KEY=loc-123
-   
-   # Embedding
-   EMBEDDING_SOURCE=local
-   EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
-   EMBEDDING_DIMENSION=384
-   
-   # Qdrant
-   QDRANT_LOCAL=true
-   # QDRANT_HOST=localhost
-   # QDRANT_PORT=6333
-   
-   # Storage
-   DATA_DIR=./data
-   SUMMARIES_DIR=./summaries
+   cp env.example .env
+   # .env anpassen (LLM-URL, Qdrant-Host, etc.)
    ```
+
+   Siehe [`env.example`](./env.example) für alle verfügbaren Variablen.
 
 ---
 
@@ -117,58 +127,28 @@ python run_linux.py
 
 ```
 local-document-rag/
-├── app/                          # Flask Application
+├── app/                          # Flask Application & RAG Pipeline
 │   ├── __init__.py               # App Factory & SQLAlchemy Init
 │   ├── routes.py                 # Main Routes (Chat, SSE)
-│   ├── admin_routes.py           # Admin Panel (Settings, Users)
+│   ├── admin_routes.py           # Admin Panel (Settings, Users, Upload/Ingestion)
 │   ├── user_routes.py            # User Routes (Documents, Summaries)
 │   ├── database_service.py       # SQLAlchemy CRUD Operations
 │   ├── settings_service.py       # Settings Management
 │   ├── models.py                 # SQLAlchemy Models
-│   └── templates/
-│       ├── index.html            # Chat-Interface
-│       ├── login.html            # Login-Seite
-│       ├── admin/                # Admin Templates
-│       │   ├── index.html
-│       │   ├── documents.html
-│       │   ├── settings.html
-│       │   ├── users.html
-│       │   ├── summaries.html
-│       │   └── edit_summary.html
-│       └── user/                 # User Templates
-│           ├── documents.html
-│           ├── summaries.html
-│           └── edit_summary.html
-│
-├── src/
-│   ├── llm/
-│   │   └── local_llm.py          # VisionLLM Wrapper
-│   ├── vector/
-│   │   ├── retriever.py          # Document Retriever
-│   │   └── ingestion.py          # Document Ingestion Pipeline
-│   ├── agent/
-│   │   └── document_agent.py     # LangChain Agent mit Tools
-│   ├── tools/
-│   │   └── custom_tools.py       # Pandas & Document Tools
-│   └── utils/
-│       ├── qdrant_client.py      # Qdrant Client Factory
-│       ├── file_manager.py        # File Management Utilities
-│       └── phase_logger.py       # Phase Logging
+│   ├── templates/                # Flask Templates
+│   ├── llm/local_llm.py          # VisionLLM Wrapper
+│   ├── vector/                   # Document Ingestion & Retrieval
+│   ├── agent/document_agent.py   # LangChain Agent mit Tools
+│   ├── tools/custom_tools.py     # Pandas & Document Tools
+│   ├── utils/                    # Qdrant Client, File Manager, Phase Logger
+│   ├── components/               # PDF Loader & Preprocessing
+│   └── data/                     # SQLite-Datenbanken (app.db, chat_history.db)
 │
 ├── alembic/                      # Alembic Migrationen
-│   ├── versions/
-│   ├── env.py
-│   └── alembic.ini
-│
-├── scripts/
-│   ├── manage_qdrant.py          # Qdrant Migration (local ↔ remote)
-│   └── migrate_sessions.py       # Legacy Sessions Migration
-│
+├── scripts/                      # Qdrant Server-Migration
 ├── files/                        # Upload-Ordner für Dokumente
 ├── data/                         # Excel/CSV-Dateien für Analyse
 ├── summaries/                    # Markdown Summary-Dateien
-├── app.db                        # SQLite Hauptdatenbank (SQLAlchemy)
-├── chat_history.db               # Legacy DB (optional für Migration)
 │
 ├── run_windows.py                # Windows Entry Point
 ├── run_linux.py                  # Linux Entry Point
@@ -176,7 +156,6 @@ local-document-rag/
 ├── Dockerfile                    # Docker Image
 ├── docker-compose.yml            # Docker Compose
 ├── entrypoint.sh                 # Docker Entrypoint
-├── ingest_documents.py           # Dokumente in Vektordatenbank laden
 └── pyproject.toml                # Dependencies
 ```
 
@@ -197,7 +176,7 @@ python run_windows.py --no-qdrant
 **Features:**
 - Auto-Download von `qdrant.exe` (wenn nicht vorhanden)
 - Flask auf `127.0.0.1:5000` (nur lokal, keine Firewall-Abfrage!)
-- Qdrant auf `127.0.0.1:6333` (nur lokal)
+- Qdrant auf `127.0.0.1:6333` (nur lokal, im Benutzerkontext)
 - Waitress WSGI Server
 
 ### Linux / Docker
@@ -212,9 +191,39 @@ python run_linux.py
 ```
 
 **Features:**
-- Gunicorn WSGI Server (4 Worker)
+- Gunicorn WSGI Server (1 Worker, SQLite-sicher)
 - Qdrant als Docker Container
 - Netzwerk-weit erreichbar (`0.0.0.0:5000`)
+
+---
+
+## Dokumente einlesen (Ingestion)
+
+Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates CLI-Skript mehr nötig.
+
+### Admin-Panel
+
+1. Als Admin einloggen.
+2. Unter **Upload** PDF-, DOCX-, XLSX-, XLS- oder CSV-Dateien hochladen.
+3. **Ingestion starten** klicken.
+4. Der Admin kann auch über **Dokumente** einzelne Einträge oder ganze Dateigruppen löschen.
+
+### User-Bereich
+
+1. Als normaler User einloggen.
+2. Unter **Meine Dokumente** Dateien hochladen.
+3. **Ingestion starten** klicken.
+4. Der User sieht und verwaltet nur seine eigenen Dokumente.
+
+### Was passiert im Hintergrund?
+
+Die Ingestion nutzt `app.vector.DocumentIngestion`:
+
+- PDFs werden mit OCR und einem Vision-LLM für Bilder/Diagramme verarbeitet.
+- DOCX-Dateien werden strukturiert eingelesen.
+- CSV/XLSX-Dateien erzeugen eine tabellarische Übersicht plus eine LLM-generierte Inhaltsbeschreibung.
+- Alle Inhalte werden gechunkt, mit Kontext angereichert und als dichte + sparse (BM25) Vektoren in die Qdrant-Collection `"local_rag"` geschrieben.
+- Verarbeitete PDFs/DOCXs landen in `./processed_files/`, CSV/XLSX-Dateien in `./data/`.
 
 ---
 
@@ -223,7 +232,7 @@ python run_linux.py
 ### Erste Installation
 
 ```bash
-# Erstellt app.db mit allen Tabellen
+# Erstellt app/data/app.db mit allen Tabellen + Admin-User
 alembic upgrade head
 ```
 
@@ -243,11 +252,13 @@ alembic downgrade -1
 alembic current
 ```
 
-### Legacy-Daten migrieren
+### Bestehende app.db
+
+Wenn `app.db` bereits existiert (z. B. durch `DatabaseService` erstellt, nicht durch Alembic), schlägt `alembic upgrade head` mit "table already exists" fehl. Lösung:
 
 ```bash
-# Alte chat_history.db → Neue app.db
-python scripts/migrate_sessions.py
+# Markiere DB als migriert, ohne DDL auszuführen
+alembic stamp head
 ```
 
 ---
@@ -257,7 +268,7 @@ python scripts/migrate_sessions.py
 ### Zugriff
 
 - URL: http://localhost:5000/admin/
-- Login: admin / secret123
+- Login: admin / admin (oder `ADMIN_PASSWORD` aus `.env`)
 
 ### Features
 
@@ -278,32 +289,38 @@ python scripts/migrate_sessions.py
 
 - Eigene Dokumente hochladen
 - Eigene Dokumente löschen
-- Bei Löschung: Automatische Löschung der zugehörigen Datei im DATA_DIR
+- Bei Löschung: Automatische Löschung der zugehörigen Datei
 
 ### Meine Summaries
 
 - Eigene Markdown-Dateien bearbeiten (Inline-Editor mit Preview)
 - Eigene Markdown-Dateien löschen
-- Erstellt automatisch beim Speichern von Analysen
+- Werden automatisch beim Speichern von Analysen erstellt
 
 ---
 
 ## Qdrant Verwaltung
 
-### Qdrant Migration (Local ↔ Remote)
+### Qdrant Server-Migration
+
+Migration zwischen zwei Qdrant-Server-Instanzen (z. B. beim Wechsel des Hosts):
 
 ```bash
-# Status prüfen
-python scripts/manage_qdrant.py status
+# Status einer Qdrant-Instanz prüfen
+uv run python scripts/manage_qdrant.py status --host localhost --port 6333
 
-# Lokal → Remote (Dry-Run)
-python scripts/manage_qdrant.py migrate --from local --to-remote --dry-run
+# Migration Server A → Server B (Dry-Run)
+uv run python scripts/manage_qdrant.py migrate \
+    --source-host localhost --source-port 6333 \
+    --target-host 192.168.1.100 --target-port 6333 --dry-run
 
-# Lokal → Remote (Ausführen)
-python scripts/manage_qdrant.py migrate --from local --to-remote
+# Migration durchführen
+uv run python scripts/manage_qdrant.py migrate \
+    --source-host localhost --source-port 6333 \
+    --target-host 192.168.1.100 --target-port 6333
 
-# Remote → Lokal
-python scripts/manage_qdrant.py migrate --from-remote --to local
+# Collection-Info anzeigen
+uv run python scripts/manage_qdrant.py info --host localhost --port 6333
 ```
 
 ---
@@ -319,6 +336,45 @@ python scripts/manage_qdrant.py migrate --from-remote --to local
 | `/api/sessions` | GET/POST | Session Management |
 | `/admin/*` | - | Admin Panel |
 | `/user/*` | - | User Routes |
+| `/health` | GET | Health Check |
+
+---
+
+## Architektur
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Flask App                                │
+├─────────────────────────────────────────────────────────────────┤
+│  SQLAlchemy DB (Users, Sessions, Messages, Documents, ...)      │
+│  Auth: Session-based (admin/user roles)                          │
+└────────────────────────────────────┬────────────────────────────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    ▼                ▼                ▼
+              ┌─────────┐      ┌──────────┐     ┌──────────┐
+              │  Admin   │      │  User    │     │  Chat    │
+              │  Panel   │      │  Routes  │     │  (SSE)   │
+              └─────────┘      └──────────┘     └────┬─────┘
+                                                       │
+                                                       ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                      DocumentAgent                                │
+│  (LangChain ReAct Agent mit deutschem System Prompt)             │
+├──────────────────────────────────────────────────────────────────┤
+│  Tools:                                                           │
+│  1. document_search_tool → Qdrant Vector Search                   │
+│  2. list_files           → Verfügbare Dateien auflisten           │
+│  3. preview_data          → Spalten/Vorschau anzeigen             │
+│  4. run_pandas            → Pandas-Code ausführen                 │
+└─────────────────────────────────────┬────────────────────────────┘
+                                      │
+                                      ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                         LLM                                       │
+│  (Ollama / OpenAI-kompatible API)                                 │
+└──────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -356,15 +412,18 @@ uv add <package>
 # Prüfen ob Qdrant läuft
 curl http://localhost:6333/health
 
-# Windows: qdrant.exe starten
+# Windows: qdrant.exe starten oder python run_windows.py
 # Linux: docker-compose ps
 ```
 
 ### Alembic Migration fehlgeschlagen
 
 ```bash
-# Von vorne beginnen (Achtung: Daten gehen verloren!)
-rm app.db
+# Bestehende DB als migriert markieren (ohne DDL auszuführen)
+alembic stamp head
+
+# Oder von vorne beginnen (Achtung: Daten gehen verloren!)
+rm app/data/app.db
 alembic upgrade head
 ```
 
@@ -377,50 +436,14 @@ rm -rf flask_session/
 
 ---
 
-## Architektur
+## Lizenz
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Flask App                                │
-├─────────────────────────────────────────────────────────────────┤
-│  SQLAlchemy DB (Users, Sessions, Messages, Documents, ...) │
-│  Auth: Session-based (admin/user roles)                         │
-└────────────────────────────────────┬────────────────────────────┘
-                                     │
-                    ┌────────────────┼────────────────┐
-                    ▼                ▼                ▼
-              ┌─────────┐      ┌──────────┐     ┌──────────┐
-              │  Admin   │      │  User    │     │  Chat    │
-              │  Panel   │      │  Routes  │     │  (SSE)   │
-              └─────────┘      └──────────┘     └────┬─────┘
-                                                       │
-                                                       ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                      DocumentAgent                                │
-│  (LangChain ReAct Agent mit deutschem System Prompt)            │
-├──────────────────────────────────────────────────────────────────┤
-│  Tools:                                                           │
-│  1. document_search_tool → Qdrant Vector Search                  │
-│  2. list_files           → Verfügbare Dateien auflisten           │
-│  3. preview_data          → Spalten/Vorschau anzeigen            │
-│  4. run_pandas            → Pandas-Code ausführen                │
-└─────────────────────────────────────┬────────────────────────────┘
-                                      │
-                                      ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                         LLM                                      │
-│  (Ollama / OpenAI-kompatibele API)                               │
-└──────────────────────────────────────────────────────────────────┘
-```
+Dieses Projekt steht unter der [GNU Affero General Public License v3 oder später](https://www.gnu.org/licenses/agpl-3.0.html).
 
----
-
-## License
-
-MIT
+Jede Interaktion mit der Anwendung über ein Netzwerk erfordert laut AGPLv3, dass den Nutzern der Quellcode der laufenden Version zur Verfügung gestellt wird. Betreibst du eine öffentlich erreichbare Instanz, stelle sicher, dass ein Link zum Quellcode angeboten wird — z. B. in der App-UI oder im Footer.
 
 ---
 
 ## Autor
 
-Christopher Abanilla
+Christopher Abanilla — [GitHub](https://github.com/daemolition)

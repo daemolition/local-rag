@@ -47,7 +47,7 @@
             <div id="pane-edit" class="h-full">
                 <textarea id="content" placeholder="Markdown-Inhalt..." class="w-full h-full p-6 bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-mono text-sm resize-none focus:outline-none focus:bg-white dark:focus:bg-gray-800 transition-colors">{{ content }}</textarea>
             </div>
-            <div id="pane-preview" class="h-full hidden overflow-y-auto p-6">
+            <div id="pane-preview" class="h-full hidden overflow-y-auto p-6 prose dark:prose-invert max-w-none">
                 <div id="preview-content" class="prose dark:prose-invert max-w-none"></div>
             </div>
         </div>
@@ -55,7 +55,19 @@
 </div>
 {% endblock %}
 
+{% block extra_head %}
+<style>
+    #preview-content table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.9rem; }
+    #preview-content th, #preview-content td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
+    #preview-content th { background: #f1f5f9; font-weight: 600; }
+    .dark #preview-content th { background: #4b5563; }
+    .dark #preview-content th, .dark #preview-content td { border-color: #4b5563; }
+</style>
+{% endblock %}
+
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
 <script src="{{ url_for('static', filename='js/edit_summary.js') }}"></script>
 <script>
     const saveEndpoint = '/user/summaries/{{ filename | urlencode }}/save';

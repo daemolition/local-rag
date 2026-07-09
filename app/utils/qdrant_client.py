@@ -1,5 +1,22 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
-Qdrant Client Factory mit Unterstützung für lokale und remote Verbindungen
+Qdrant Client Factory - Server-Modus (remote)
+Verbindet sich zu einem laufenden Qdrant-Server (exe, docker, remote).
 """
 import os
 from typing import Optional
@@ -9,94 +26,67 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 
 def get_qdrant_client(
     collection_name: str = "local_rag",
-    force_local: bool = False,
-    force_remote: bool = False,
     custom_host: Optional[str] = None,
     custom_port: Optional[int] = None,
     api_key: Optional[str] = None
 ) -> "QdrantClient":
     """
-    Erstellt einen Qdrant-Client basierend auf Settings oder Parametern.
-    
+    Erstellt einen Qdrant-Client fuer einen laufenden Qdrant-Server.
+
     Args:
         collection_name: Name der Collection (default: "local_rag")
-        force_local: True = immer lokale DB verwenden (ignoriert Settings)
-        force_remote: True = immer remote verwenden (ignoriert Settings)
-        custom_host: Optionaler custom Host (überschreibt Settings)
-        custom_port: Optionaler custom Port (überschreibt Settings)
-        api_key: Optionaler API-Key für gesicherte Remote-Qdrant
-    
+        custom_host: Optionaler custom Host (ueberschreibt Settings)
+        custom_port: Optionaler custom Port (ueberschreibt Settings)
+        api_key: Optionaler API-Key fuer gesicherte Qdrant-Instanz
+
     Returns:
         QdrantClient: Konfigurierter Client
     """
-    # Priorität: force_local/force_remote > Settings > Environment > Default
-    if force_local:
-        return QdrantClient(path="./local_qdrant.db")
-    
-    if force_remote:
-        host = custom_host or os.getenv("QDRANT_HOST", "localhost")
-        port = custom_port or int(os.getenv("QDRANT_PORT", 6333))
-        key = api_key or os.getenv("QDRANT_API_KEY")
-        
-        if key:
-            return QdrantClient(host=host, port=port, api_key=key)
-        return QdrantClient(host=host, port=port)
-    
-    # Versuche Settings aus DB zu laden (für App-Context)
+    # Versuche Settings aus DB zu laden (fuer App-Context)
     try:
         from app.database_service import get_db_service
         from app.settings_service import SettingsService
-        
+
         db = get_db_service()
         db_session = db.get_session()
         settings = SettingsService(db_session)
-        
-        is_local = settings.get_bool('QDRANT_LOCAL', True)
+
         host = custom_host or settings.get('QDRANT_HOST', 'localhost')
         port = custom_port or settings.get_int('QDRANT_PORT', 6333)
         key = api_key or settings.get('QDRANT_API_KEY')
-        
+
         db_session.close()
-        
-        if is_local:
-            return QdrantClient(path="./local_qdrant.db")
-        else:
-            if key:
-                return QdrantClient(host=host, port=port, api_key=key)
-            return QdrantClient(host=host, port=port)
-            
-    except Exception:
-        # Fallback auf Environment
-        pass
-    
-    # Environment/Defaults
-    qdrant_local = os.getenv("QDRANT_LOCAL", "true").lower() == "true"
-    
-    if qdrant_local:
-        return QdrantClient(path="./local_qdrant.db")
-    else:
-        host = custom_host or os.getenv("QDRANT_HOST", "localhost")
-        port = custom_port or int(os.getenv("QDRANT_PORT", 6333))
-        key = api_key or os.getenv("QDRANT_API_KEY")
-        
+
         if key:
             return QdrantClient(host=host, port=port, api_key=key)
         return QdrantClient(host=host, port=port)
+
+    except Exception:
+        # Fallback auf Environment
+        pass
+
+    # Environment/Defaults
+    host = custom_host or os.getenv("QDRANT_HOST", "localhost")
+    port = custom_port or int(os.getenv("QDRANT_PORT", 6333))
+    key = api_key or os.getenv("QDRANT_API_KEY")
+
+    if key:
+        return QdrantClient(host=host, port=port, api_key=key)
+    return QdrantClient(host=host, port=port)
 
 
 def test_connection(client: QdrantClient, timeout: int = 5) -> tuple[bool, str]:
     """
     Testet die Qdrant-Verbindung.
-    
+
     Args:
         client: QdrantClient Instanz
         timeout: Timeout in Sekunden
-    
+
     Returns:
         tuple: (success: bool, message: str)
     """
     try:
-        # Health check
         collections = client.get_collections()
         return True, f"Verbunden. {len(collections.collections)} Collection(s) gefunden."
     except Exception as e:
@@ -105,25 +95,24 @@ def test_connection(client: QdrantClient, timeout: int = 5) -> tuple[bool, str]:
 
 def get_collection_info(client: QdrantClient, collection_name: str = "local_rag") -> Optional[dict]:
     """
-    Holt Informationen über eine Collection.
-    
+    Holt Informationen ueber eine Collection.
+
     Args:
         client: QdrantClient Instanz
         collection_name: Name der Collection
-    
+
     Returns:
         dict mit Collection-Info oder None
     """
     try:
         collection = client.get_collection(collection_name)
-        
-        # Zusätzliche Stats
+
         try:
             count = client.count(collection_name)
             points_count = count.count
-        except:
+        except Exception:
             points_count = collection.points_count
-        
+
         return {
             'name': collection_name,
             'points_count': points_count,

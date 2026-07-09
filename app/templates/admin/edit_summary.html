@@ -56,7 +56,19 @@
 </div>
 {% endblock %}
 
+{% block extra_head %}
+<style>
+    #preview-content table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.9rem; }
+    #preview-content th, #preview-content td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
+    #preview-content th { background: #f1f5f9; font-weight: 600; }
+    .dark #preview-content th { background: #4b5563; }
+    .dark #preview-content th, .dark #preview-content td { border-color: #4b5563; }
+</style>
+{% endblock %}
+
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
 <script src="{{ url_for('static', filename='js/edit_summary.js') }}"></script>
 <script>
     const saveEndpoint = '/admin/summaries/{{ filename | urlencode }}/save';

@@ -1,8 +1,25 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 User Routes für Dokumentenverwaltung (nur eigene Dokumente)
 Normale User können hier ihre Dokumente hochladen und verwalten
 """
 import os
+from logging import getLogger
 from pathlib import Path
 from flask import Blueprint, render_template, request, jsonify, session, current_app, redirect, url_for, flash
 from functools import wraps
@@ -10,6 +27,8 @@ from werkzeug.security import check_password_hash
 from qdrant_client import models
 
 from app.database_service import get_db_service
+
+logger = getLogger(__name__)
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
 
@@ -60,16 +79,23 @@ def my_documents():
     if client:
         for user_doc in user_docs:
             try:
-                result = client.retrieve(
+                # Eine Datei erzeugt mehrere Qdrant-Punkte (Chunks); document_id
+                # ist die gemeinsame file_group_id, daher Filter statt Punkt-ID.
+                points, _ = client.scroll(
                     collection_name=COLLECTION_NAME,
-                    ids=[user_doc.document_id],
+                    scroll_filter=models.Filter(
+                        must=[models.FieldCondition(
+                            key="file_group_id",
+                            match=models.MatchValue(value=user_doc.document_id)
+                        )]
+                    ),
+                    limit=1,
                     with_payload=True,
                     with_vectors=False
                 )
-                if result:
-                    point = result[0]
-                    payload = point.payload or {}
-                    
+                if points:
+                    payload = points[0].payload or {}
+
                     # Prüfen ob zugehörige Datei existiert
                     from app.utils.file_manager import check_data_file_exists
                     has_data_file = check_data_file_exists(user_doc.filename)
@@ -131,29 +157,38 @@ def upload_document():
     for file in files:
         if file.filename == '':
             continue
-        
+
         ext = Path(file.filename).suffix.lower()
-        
+
         # Nur PDF/DOCX/DOC/XLSX/XLS/CSV erlauben
         allowed_exts = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv']
         if ext not in allowed_exts:
             continue
-        
-        # In files/ Verzeichnis speichern
-        target_dir = project_root / 'files'
+
+        # Pro-Nutzer-Unterverzeichnis (im app-data-Volume), damit Uploads
+        # verschiedener Nutzer mit gleichem Dateinamen sich nicht in die Quere
+        # kommen (fruehere Ursache fuer faelschliche "existiert bereits"-Fehler).
+        target_dir = project_root / 'data' / 'files' / str(user.id)
         target_dir.mkdir(parents=True, exist_ok=True)
         filepath = target_dir / file.filename
-        
-        # Prüfen ob Datei bereits existiert
-        if filepath.exists():
+
+        # Bereits ingestierte (verarbeitete) Dokumente dieses Nutzers liegen im
+        # Archiv unter demselben relativen Pfad - nur dort wirklich blocken,
+        # da das ein committetes Dokument in der Wissensbasis ist.
+        processed_path = project_root / 'data' / 'processed_files' / str(user.id) / file.filename
+        if processed_path.exists():
             return jsonify({
-                'success': False, 
-                'error': f'Datei "{file.filename}" existiert bereits'
+                'success': False,
+                'error': f'Datei "{file.filename}" wurde bereits hochgeladen und verarbeitet. '
+                         f'Bitte zuerst das bestehende Dokument löschen, um es zu ersetzen.'
             }), 409
-        
+
+        # Eine noch nicht ingestierte eigene Datei mit demselben Namen darf
+        # anstandslos ueberschrieben werden - es wurde noch nichts in die
+        # Wissensbasis uebernommen.
         file.save(filepath)
         saved_files.append(file.filename)
-    
+
     if saved_files:
         return jsonify({
             'success': True, 
@@ -190,28 +225,38 @@ def delete_my_document(doc_id):
         db_session.close()
         return jsonify({'success': False, 'error': 'Dokument nicht gefunden oder keine Berechtigung'}), 404
     
+    # document_id ist die file_group_id, die alle Chunks dieser Datei teilen -
+    # eine Datei erzeugt mehrere Qdrant-Punkte, daher Filter statt Punkt-ID.
+    doc_filter = models.Filter(
+        must=[models.FieldCondition(
+            key="file_group_id",
+            match=models.MatchValue(value=user_doc.document_id)
+        )]
+    )
+
     # Payload aus Qdrant holen für Datei-Löschung
     client = current_app.extensions.get("client")
     payload = None
     if client:
         try:
-            result = client.retrieve(
+            points, _ = client.scroll(
                 collection_name=COLLECTION_NAME,
-                ids=[user_doc.document_id],
+                scroll_filter=doc_filter,
+                limit=1,
                 with_payload=True,
                 with_vectors=False
             )
-            if result:
-                payload = result[0].payload
+            if points:
+                payload = points[0].payload
         except Exception as e:
             logger.error(f"Fehler beim Holen des Dokuments für Datei-Löschung: {e}")
-    
-    # Aus Qdrant löschen
+
+    # Aus Qdrant löschen (alle Chunks dieser Datei)
     if client:
         try:
             client.delete(
                 collection_name=COLLECTION_NAME,
-                points_selector=models.PointIdsList(points=[user_doc.document_id])
+                points_selector=models.FilterSelector(filter=doc_filter)
             )
         except Exception as e:
             db_session.close()
@@ -236,37 +281,34 @@ def delete_my_document(doc_id):
 @login_required
 def trigger_ingestion():
     """User startet Ingestion der hochgeladenen Dateien"""
-    import subprocess
-    import sys
+    from app.vector import DocumentIngestion
+    from app import wait_for_resources
 
+    # Ressourcen (Embedding-Modell) muessen bereit sein, bevor Ingestion laeuft.
     try:
-        # Ingestion als Subprocess starten
-        # Das erfordert, dass ingest_documents.py User-Dokument-Zuordnung unterstützt
-        result = subprocess.run(
-            [sys.executable, 'ingest_documents.py'],
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 Minuten Timeout
-        )
-
-        if result.returncode == 0:
-            return jsonify({
-                'success': True,
-                'message': 'Ingestion erfolgreich',
-                'output': result.stdout
-            })
-        else:
+        if not wait_for_resources(timeout=180):
             return jsonify({
                 'success': False,
-                'error': result.stderr
-            }), 500
+                'error': 'RAG-System wird noch initialisiert (Embedding-Modell '
+                         'lädt). Bitte in wenigen Sekunden erneut versuchen.'
+            }), 503
+    except RuntimeError as e:
+        return jsonify({'success': False, 'error': str(e)}), 503
 
-    except subprocess.TimeoutExpired:
+    try:
+        ingest = DocumentIngestion(
+            embeddings=current_app.extensions.get("dense_embeddings"),
+            sparse_embeddings=current_app.extensions.get("sparse_embeddings"),
+        )
+        ingest.ingest_documents()
+
         return jsonify({
-            'success': False,
-            'error': 'Ingestion Timeout (5 Minuten)'
-        }), 500
+            'success': True,
+            'message': 'Ingestion erfolgreich'
+        })
     except Exception as e:
+        logger = getLogger(__name__)
+        logger.error(f"Fehler bei der User-Ingestion: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -294,7 +336,7 @@ def my_summaries():
     # Settings holen
     from app.settings_service import SettingsService
     settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get('SUMMARIES_DIR', './summaries'))
+    summaries_dir = Path(settings.get('SUMMARIES_DIR', './data/summaries'))
 
     # Eigene Summaries aus DB holen
     user_summaries = db.get_user_summaries(user.id)
@@ -341,7 +383,7 @@ def edit_my_summary(filename):
     # Settings holen
     from app.settings_service import SettingsService
     settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get('SUMMARIES_DIR', './summaries'))
+    summaries_dir = Path(settings.get('SUMMARIES_DIR', './data/summaries'))
 
     file_path = summaries_dir / filename
 
@@ -383,7 +425,7 @@ def save_my_summary(filename):
     # Settings holen
     from app.settings_service import SettingsService
     settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get('SUMMARIES_DIR', './summaries'))
+    summaries_dir = Path(settings.get('SUMMARIES_DIR', './data/summaries'))
 
     file_path = summaries_dir / filename
 
@@ -424,7 +466,7 @@ def delete_my_summary(filename):
     # Settings holen
     from app.settings_service import SettingsService
     settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get('SUMMARIES_DIR', './summaries'))
+    summaries_dir = Path(settings.get('SUMMARIES_DIR', './data/summaries'))
 
     file_path = summaries_dir / filename
 

@@ -57,6 +57,9 @@ function handleFiles(files) {
             status.pending_files.push(...(data.files.pending || []));
             status.data_files.push(...(data.files.data || []));
             updateFileLists();
+            if (data.skipped && data.skipped.length > 0) {
+                showToast(`Bereits verarbeitet, übersprungen: ${data.skipped.join(', ')}`, 'error');
+            }
         }
     })
     .catch(err => showToast('Fehler beim Hochladen: ' + err, 'error'));

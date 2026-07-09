@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Document ingestion
 """
@@ -28,10 +44,10 @@ from qdrant_client import models as qdrant_models
 from langchain_openai import OpenAIEmbeddings
 
 # Custom imports
-from src.components import CustomPDFLoader
-from src.llm.local_llm import VisionLLM
-from src.utils.phase_logger import phase_logger, Phase
-from src.utils.qdrant_client import get_qdrant_client
+from app.components import CustomPDFLoader
+from app.llm.local_llm import VisionLLM
+from app.utils.phase_logger import phase_logger, Phase
+from app.utils.qdrant_client import get_qdrant_client
 
 logger = getLogger(__name__)
 
@@ -39,25 +55,59 @@ logger = getLogger(__name__)
 class DocumentIngestion:
     """Document ingestion class"""
 
-    def __init__(self):
+    def __init__(self, embeddings=None, sparse_embeddings=None):
 
-        embedding_source = os.getenv("EMBEDDING_SOURCE", "local")
-        embedding_endpoint = os.getenv(
-            "EMBEDDING_ENDPOINT", "http://192.168.1.35:8080/v1"
-        )
-        model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-        embedding_dim = os.getenv("EMBEDDING_DIMENSION", 384)
+        # Defaults (Standalone-Fallback, falls kein DB-Kontext)
+        embedding_source = "local"
+        embedding_endpoint = "http://localhost:8080/v1"
+        model_name = "paraphrase-multilingual-MiniLM-L12-v2"
+        embedding_dim = 384
+        data_dir = "./data"
+
+        try:
+            # Settings aus DB lesen (UI = Source of Truth); eigene Session,
+            # thread-safe via Engine.
+            from app.database_service import get_db_service
+            from app.settings_service import SettingsService
+            db = get_db_service()
+            session = db.get_session()
+            settings = SettingsService(session)
+            embedding_source = settings.get("EMBEDDING_SOURCE", embedding_source) or embedding_source
+            embedding_endpoint = settings.get("EMBEDDING_ENDPOINT", embedding_endpoint) or embedding_endpoint
+            model_name = settings.get("EMBEDDING_MODEL", model_name) or model_name
+            embedding_dim = settings.get_int("EMBEDDING_DIMENSION", embedding_dim)
+            data_dir = settings.get("DATA_DIR", data_dir) or data_dir
+            session.close()
+        except Exception:
+            # Standalone-Fallback: env
+            embedding_source = os.getenv("EMBEDDING_SOURCE", embedding_source)
+            embedding_endpoint = os.getenv("EMBEDDING_ENDPOINT", embedding_endpoint)
+            model_name = os.getenv("EMBEDDING_MODEL", model_name)
+            try:
+                embedding_dim = int(os.getenv("EMBEDDING_DIMENSION", embedding_dim))
+            except (ValueError, TypeError):
+                pass
+            data_dir = os.getenv("DATA_DIR", data_dir)
 
         # Collectoin Settings
         self.collection_name = "local_rag"
         self.dimensions = embedding_dim
 
+        # Geteilte Sparse-Instanz aus app.extensions (optional); Fallback, falls
+        # DocumentIngestion standalone (ohne uebergebene Instanz) genutzt wird.
+        self._shared_sparse = sparse_embeddings
+
         if embedding_source == "local":
-            self.embeddings = HuggingFaceEmbeddings(model_name=model_name)
+            # Geteilte Dense-Instanz aus app.extensions wiederverwenden, falls
+            # vorhanden (kein Reload/Download pro Ingestion-Request).
+            if embeddings is not None:
+                self.embeddings = embeddings
+            else:
+                self.embeddings = HuggingFaceEmbeddings(model_name=model_name)
         else:
             self.embeddings = OpenAIEmbeddings(
                 base_url=embedding_endpoint,
-                api_key="loc-123",
+                api_key=os.getenv("API_KEY", "ollama"),
                 model=model_name,
                 dimensions=self.dimensions,
                 chunk_size=32,
@@ -80,7 +130,7 @@ class DocumentIngestion:
         self.model = VisionLLM()
 
         # DATA_DIR für CSV/Excel nach Ingestion
-        self.DATA_DIR = os.getenv("DATA_DIR", "./data")
+        self.DATA_DIR = data_dir
 
         # TextSplitter einmalig erstellen
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -143,7 +193,7 @@ class DocumentIngestion:
 
     def _move_processed_files(self, documents):
         """Verschiebt verarbeitete Dateien in einen Archiv-Ordner (behält Unterordner-Struktur)"""
-        processed_dir = "./processed_files"
+        processed_dir = "./data/processed_files"
 
         if not os.path.exists(processed_dir):
             os.makedirs(processed_dir)
@@ -156,7 +206,7 @@ class DocumentIngestion:
 
         for file_path in unique_files:
             if os.path.exists(file_path):
-                rel_path = os.path.relpath(file_path, "./files")
+                rel_path = os.path.relpath(file_path, "./data/files")
                 target_path = os.path.join(processed_dir, rel_path)
 
                 target_dir = os.path.dirname(target_path)
@@ -287,11 +337,11 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
     def _create_directory_loader(self, files_extensions, loader_cls):
         """Directory Loader"""
 
-        if not os.path.exists("./files"):
-            os.mkdir("./files")
+        if not os.path.exists("./data/files"):
+            os.mkdir("./data/files")
 
         return DirectoryLoader(
-            path="./files",
+            path="./data/files",
             glob=f"**/*{files_extensions}",
             loader_cls=loader_cls,
             recursive=True,
@@ -335,6 +385,12 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         extension = Path(file_path).suffix.lower()
         start_time = time.time()
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename}")
+
+        # Gruppen-ID fuer alle Chunks dieser einen Datei (eine Datei erzeugt
+        # i.d.R. mehrere Qdrant-Punkte/Chunks). Wird als UserDocument.document_id
+        # gespeichert, damit Liste/Loeschen alle zugehoerigen Punkte ueber einen
+        # Payload-Filter statt einer einzelnen Punkt-ID finden.
+        file_group_id = str(uuid.uuid4())
 
         # 1. Datei laden (PDF mit Bildern, andere ohne)
         try:
@@ -394,6 +450,7 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
             texts_to_embed.append(enriched_text)
             meta = chunk.metadata.copy()
             meta["filename"] = filename
+            meta["file_group_id"] = file_group_id
             metadatas.append(meta)
         
         # 4. Vektoren berechnen
@@ -439,7 +496,26 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
             self._move_to_data_dir(file_path)
         else:
             self._move_processed_files(chunks)
-        
+
+        # 7. UserDocument-Zuordnung anlegen, damit "Meine Dokumente" und das
+        # Loeschen eigener Dokumente das ingestierte Dokument finden. Der
+        # Uploader (User oder Admin) steckt als erstes Pfadsegment unter
+        # data/files/<user_id>/... (siehe user_routes.upload_document).
+        try:
+            rel_path = os.path.relpath(file_path, "./data/files")
+            user_id = int(rel_path.split(os.sep)[0])
+            from app.database_service import get_db_service
+            get_db_service().add_document(
+                user_id=user_id, document_id=file_group_id, filename=filename
+            )
+        except (ValueError, IndexError):
+            logger.warning(
+                f"Konnte Uploader fuer {filename} nicht bestimmen "
+                f"(keine Nutzer-Unterordner-Struktur) - kein UserDocument-Eintrag."
+            )
+        except Exception as e:
+            logger.error(f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}")
+
         duration = time.time() - start_time
         phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei fertig: {filename} | Dauer: {duration:.2f}s")
         
@@ -452,7 +528,7 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         # Dateien sammeln
         all_files = []
         for extension in self.loaders.keys():
-            pattern = os.path.join("./files", f"**/*{extension}")
+            pattern = os.path.join("./data/files", f"**/*{extension}")
             files = glob.glob(pattern, recursive=True)
             all_files.extend(files)
         
@@ -461,7 +537,7 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
             phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Keine Dateien gefunden", duration=0.0)
             return
         
-        sparse_model = FastEmbedSparse(model_name="Qdrant/bm25")
+        sparse_model = self._shared_sparse or FastEmbedSparse(model_name="Qdrant/bm25")
         pbar = tqdm(all_files, desc="Processing Files", unit="file")
         
         success_count = 0

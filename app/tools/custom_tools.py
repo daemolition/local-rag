@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Custom tools for the agent
 """
@@ -17,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from langchain_core.tools import create_retriever_tool
 from langchain_core.tools.structured import StructuredTool
-from src.utils.phase_logger import phase_logger, Phase
+from app.utils.phase_logger import phase_logger, Phase
 
 logger = getLogger(__name__)
 
@@ -380,12 +396,13 @@ Bestätigung, dass die Datei bearbeitet wurde, oder eine Fehlermeldung.
 class CustomTools:
     """Custom tools for RAG agent with pandas analytics and summary management capabilities."""
     
-    def __init__(self, llm, retriever):
+    def __init__(self, llm, retriever, data_dir=None, summaries_dir=None):
         self.llm = llm
         self.retriever = retriever
         self._cache: dict[str, pd.DataFrame] = {}
-        self.DATA_DIR = os.getenv("DATA_DIR", "./data")
-        self.SUMMARIES_DIR = os.getenv("SUMMARIES_DIR", "./summaries")
+        # DB-Aufgeloeste Werte aus init_resources; Fallback auf env (Standalone).
+        self.DATA_DIR = data_dir or os.getenv("DATA_DIR", "./data")
+        self.SUMMARIES_DIR = summaries_dir or os.getenv("SUMMARIES_DIR", "./data/summaries")
     
     def _detect_encoding(self, file_path: str) -> str:
         """Erkennt automatisch das Encoding einer Datei (UTF-8, CP1252, Latin-1, etc.)."""
@@ -595,23 +612,51 @@ class CustomTools:
         except Exception as e:
             return f"FEHLER beim Lesen von '{filename}': {type(e).__name__}: {e}"
     
+    def _track_summary_for_current_user(self, filename: str) -> None:
+        """Verknuepft die geschriebene Summary-Datei mit dem aktuell eingeloggten
+        Nutzer, damit sie unter "Meine Analysen" erscheint. CustomTools ist eine
+        einzige, prozessweit geteilte Instanz (siehe init_resources in
+        app/__init__.py) ohne eigenen Nutzerkontext, daher wird der Nutzer hier
+        ueber die Flask-Session des gerade laufenden Requests aufgeloest.
+        """
+        try:
+            from flask import session
+            from app.database_service import get_db_service
+
+            username = session.get('user')
+            if not username:
+                return
+
+            db = get_db_service()
+            user = db.get_user_by_username(username)
+            if not user:
+                return
+
+            existing = {s.filename for s in db.get_user_summaries(user.id)}
+            if filename not in existing:
+                db.create_summary_file(user_id=user.id, filename=filename)
+        except Exception as e:
+            logger.error(f"Konnte Summary-Zuordnung fuer {filename} nicht anlegen: {e}")
+
     def write_summary(self, filename: str, content: str) -> str:
         """Erstellt oder überschreibt eine Markdown-Datei im summaries-Verzeichnis."""
         try:
             filename = self._validate_summary_filename(filename)
             self._ensure_summaries_dir()
-            
+
             if not content or not content.strip():
                 return "FEHLER: Inhalt darf nicht leer sein."
-            
+
             filepath = os.path.join(self.SUMMARIES_DIR, filename)
-            
+
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)
-            
+
+            self._track_summary_for_current_user(filename)
+
             logger.info(f"Summary erstellt: {filename}")
             return f"ERFOLG: Datei '{filename}' wurde erstellt im Verzeichnis '{self.SUMMARIES_DIR}'."
-            
+
         except ValueError as e:
             return f"FEHLER: {e}"
         except Exception as e:

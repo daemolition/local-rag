@@ -14,9 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""
-Utilities module
-"""
-from app.utils.phase_logger import phase_logger, Phase
-
-__all__ = ["phase_logger", "Phase"]
+from .ingestion import DocumentIngestion
+from .retriever import DocumentRetriever

@@ -2077,7 +2077,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "qdrant-client", specifier = ">=1.17.1" },
     { name = "ruff", specifier = ">=0.15.7" },
-    { name = "sentence-transformers", specifier = ">=5.3.0" },
+    { name = "sentence-transformers", specifier = ">=5.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "tabulate", specifier = ">=0.10.0" },
     { name = "tqdm", specifier = ">=4.67.3" },

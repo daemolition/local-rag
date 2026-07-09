@@ -31,9 +31,16 @@ userInput.addEventListener('keydown', function(e) {
 let currentSessionId = null;
 
 sidebarToggle.addEventListener('click', () => {
-    sidebar.classList.toggle('-translate-x-full');
-    sidebar.classList.toggle('translate-x-0');
-    sidebarOverlay.classList.toggle('hidden');
+    const isOpen = sidebar.classList.contains('translate-x-0');
+    if (isOpen) {
+        sidebar.classList.add('-translate-x-full');
+        sidebar.classList.remove('translate-x-0');
+        sidebarOverlay.classList.add('hidden');
+    } else {
+        sidebar.classList.remove('-translate-x-full');
+        sidebar.classList.add('translate-x-0');
+        sidebarOverlay.classList.remove('hidden');
+    }
 });
 
 sidebarOverlay.addEventListener('click', () => {

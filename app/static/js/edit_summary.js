@@ -1,24 +1,8 @@
-function parseMarkdown(text) {
-    let html = text
-        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-        .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-        .replace(/\*(.*)\*/gim, '<em>$1</em>')
-        .replace(/```([\s\S]*?)```/gim, '<pre><code>$1</code></pre>')
-        .replace(/`([^`]+)`/gim, '<code>$1</code>')
-        .replace(/^\s*[-*+]\s+(.*)/gim, '<li>$1</li>')
-        .replace(/^\s*>\s*(.*)/gim, '<blockquote>$1</blockquote>');
-    
-    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$1</ul>');
-    html = html.replace(/\n/g, '<br>');
-    
-    return html;
-}
+marked.setOptions({ breaks: true, gfm: true });
 
 function updatePreview() {
     const content = document.getElementById('content').value;
-    document.getElementById('preview-content').innerHTML = parseMarkdown(content);
+    document.getElementById('preview-content').innerHTML = DOMPurify.sanitize(marked.parse(content));
 }
 
 function switchTab(tab) {

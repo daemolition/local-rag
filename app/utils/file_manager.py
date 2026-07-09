@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 File Manager Utilities für Qdrant-zugehörige Dateien
 """
@@ -61,11 +77,11 @@ def check_data_file_exists(filename: str) -> bool:
 
 def delete_associated_file(payload: Dict[str, Any]) -> bool:
     """
-    Löscht zugehörige Datei im DATA_DIR basierend auf Qdrant-Metadaten.
-    
+    Löscht zugehörige Datei basierend auf Qdrant-Metadaten.
+
     Args:
         payload: Qdrant Dokument Payload (dict)
-    
+
     Returns:
         True wenn Datei gelöscht wurde oder nicht existierte,
         False bei Fehler
@@ -73,36 +89,53 @@ def delete_associated_file(payload: Dict[str, Any]) -> bool:
     filename = extract_filename_from_payload(payload)
     if not filename:
         return False
-    
-    # Nur CSV und Excel-Dateien löschen (Analytics-Dateien)
+
     ext = Path(filename).suffix.lower()
-    if ext not in ['.csv', '.xlsx', '.xls']:
-        return False
-    
-    # DATA_DIR bestimmen
-    try:
-        from flask import current_app
-        settings = current_app.extensions.get('settings')
-        if settings:
-            data_dir = settings.get('DATA_DIR', './data')
-        else:
+
+    if ext in ['.csv', '.xlsx', '.xls']:
+        # CSV/Excel werden nach erfolgreicher Ingestion nach DATA_DIR verschoben
+        try:
+            from flask import current_app
+            settings = current_app.extensions.get('settings')
+            if settings:
+                data_dir = settings.get('DATA_DIR', './data')
+            else:
+                data_dir = os.getenv('DATA_DIR', './data')
+        except:
             data_dir = os.getenv('DATA_DIR', './data')
-    except:
-        data_dir = os.getenv('DATA_DIR', './data')
-    
-    file_path = Path(data_dir) / filename
-    
+
+        candidates = [Path(data_dir) / filename]
+    elif ext in ['.pdf', '.docx', '.doc']:
+        # PDF/DOCX/DOC werden nach erfolgreicher Ingestion von data/files/<rel>
+        # nach data/processed_files/<rel> verschoben (rel enthaelt die
+        # Nutzer-Unterordner-Struktur). 'source' im Payload zeigt noch auf den
+        # urspruenglichen data/files-Pfad zur Ingestion-Zeit.
+        source = payload.get('source')
+        candidates = []
+        if source:
+            try:
+                rel_path = os.path.relpath(source, "./data/files")
+                candidates.append(Path("./data/processed_files") / rel_path)
+            except ValueError:
+                pass
+            candidates.append(Path(source))
+        if not candidates:
+            candidates = [Path("./data/processed_files") / filename]
+    else:
+        return False
+
     try:
-        if file_path.exists() and file_path.is_file():
-            file_path.unlink()
-            return True
+        for file_path in candidates:
+            if file_path.exists() and file_path.is_file():
+                file_path.unlink()
+                return True
     except Exception as e:
         # Fehler beim Löschen loggen aber nicht blockieren
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Fehler beim Löschen der Datei {file_path}: {e}")
+        logger.error(f"Fehler beim Löschen der Datei {filename}: {e}")
         return False
-    
+
     return False
 
 

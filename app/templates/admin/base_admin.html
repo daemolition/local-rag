@@ -1,87 +1,106 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="min-h-screen">
-    <!-- Header -->
-    <header class="bg-gradient-to-br from-slate-700 to-slate-800 dark:from-slate-900 dark:to-slate-950 text-white shadow-material-2 sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-14">
-                <!-- Logo & Title -->
-                <div class="flex items-center gap-3">
-                    <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
-                    </svg>
-                    <span class="text-lg font-semibold hidden sm:inline">Admin Dashboard</span>
-                </div>
-                
-                <!-- Desktop Navigation -->
-                <nav class="hidden lg:flex items-center gap-1">
-                    <a href="{{ url_for('main.index') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-sm font-medium">Chat</a>
-                    <a href="{{ url_for('admin.index') }}" class="px-3 py-1.5 rounded-lg {% if request.endpoint == 'admin.index' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Dashboard</a>
-                    <a href="{{ url_for('admin.documents') }}" class="px-3 py-1.5 rounded-lg {% if request.endpoint == 'admin.documents' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Dokumente</a>
-                    <a href="{{ url_for('admin.upload_files') }}" class="px-3 py-1.5 rounded-lg {% if request.endpoint == 'admin.upload_files' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Upload</a>
-                    <a href="{{ url_for('admin.settings') }}" class="px-3 py-1.5 rounded-lg {% if request.endpoint == 'admin.settings' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Settings</a>
-                    <a href="{{ url_for('admin.users') }}" class="px-3 py-1.5 rounded-lg {% if request.endpoint == 'admin.users' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Users</a>
-                    <a href="{{ url_for('admin.summaries') }}" class="px-3 py-1.5 rounded-lg {% if request.endpoint in ['admin.summaries', 'admin.edit_summary'] %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Summaries</a>
-                </nav>
-                
-                <!-- Right side actions -->
-                <div class="flex items-center gap-2">
-                    <!-- Dark Mode Toggle -->
-                    <button onclick="toggleDarkMode()" class="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors" title="Dark Mode">
-                        <svg class="w-5 h-5 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-                        </svg>
-                        <svg class="w-5 h-5 hidden dark:block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-                        </svg>
-                    </button>
-                    <a href="{{ url_for('main.logout') }}" class="hidden sm:inline-flex px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-sm font-medium">Abmelden</a>
-                    
-                    <!-- Mobile Menu Button -->
-                    <button id="mobile-menu-button" onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">
-                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                        </svg>
-                    </button>
-                </div>
+<div class="min-h-screen flex flex-col lg:flex-row">
+    <!-- Mobile Top Bar -->
+    <header class="lg:hidden bg-gradient-to-r from-slate-700 to-slate-800 dark:from-slate-900 dark:to-slate-950 text-white shadow-material-2 sticky top-0 z-50">
+        <div class="flex items-center justify-between h-14 px-4">
+            <div class="flex items-center gap-2">
+                <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                </svg>
+                <span class="text-lg font-semibold">Admin Dashboard</span>
             </div>
-            
-            <!-- Mobile Navigation (Hidden by default) -->
-            <nav id="mobile-menu" class="lg:hidden hidden pb-3">
-                <div class="flex flex-col gap-1 pt-2 border-t border-white/20">
-                    <a href="{{ url_for('main.index') }}" class="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-sm font-medium">Chat</a>
-                    <a href="{{ url_for('admin.index') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.index' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Dashboard</a>
-                    <a href="{{ url_for('admin.documents') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.documents' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Dokumente</a>
-                    <a href="{{ url_for('admin.upload_files') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.upload_files' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Upload</a>
-                    <a href="{{ url_for('admin.settings') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.settings' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Settings</a>
-                    <a href="{{ url_for('admin.users') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.users' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Users</a>
-                    <a href="{{ url_for('admin.summaries') }}" class="px-3 py-2 rounded-lg {% if request.endpoint in ['admin.summaries', 'admin.edit_summary'] %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Summaries</a>
-                    <a href="{{ url_for('main.logout') }}" class="sm:hidden px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-sm font-medium">Abmelden</a>
-                </div>
-            </nav>
+            <button id="mobile-menu-button" onclick="toggleMobileMenu()" class="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">
+                <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
         </div>
+
+        <!-- Mobile Navigation (Hidden by default) -->
+        <nav id="mobile-menu" class="hidden px-4 pb-3">
+            <div class="flex flex-col gap-1 pt-2 border-t border-white/20">
+                <a href="{{ url_for('main.index') }}" class="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-sm font-medium">Chat</a>
+                <a href="{{ url_for('admin.index') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.index' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Dashboard</a>
+                <a href="{{ url_for('admin.documents') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.documents' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Vektordatenbank</a>
+                <a href="{{ url_for('admin.settings') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.settings' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Settings</a>
+                <a href="{{ url_for('admin.users') }}" class="px-3 py-2 rounded-lg {% if request.endpoint == 'admin.users' %}bg-white/40{% else %}bg-white/20 hover:bg-white/30{% endif %} transition-colors text-sm font-medium">Users</a>
+                <button onclick="toggleDarkMode()" class="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-sm font-medium text-left">Dark Mode</button>
+                <a href="{{ url_for('main.logout') }}" class="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-sm font-medium">Abmelden</a>
+            </div>
+        </nav>
     </header>
-    
+
+    <!-- Desktop Sidebar -->
+    <aside class="hidden lg:flex lg:flex-col w-64 bg-gradient-to-b from-slate-700 to-slate-800 dark:from-slate-900 dark:to-slate-950 text-white shadow-material-2 flex-shrink-0">
+        <div class="p-4 border-b border-white/10">
+            <h2 class="text-lg font-semibold flex items-center gap-2">
+                <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                </svg>
+                Admin Dashboard
+            </h2>
+        </div>
+        <nav class="p-2 flex-1">
+            <a href="{{ url_for('main.index') }}" class="block px-4 py-2 rounded-lg hover:bg-white/10 transition-colors text-sm">
+                ← Zurück zum Chat
+            </a>
+            <div class="my-2 border-t border-white/10"></div>
+            <a href="{{ url_for('admin.index') }}" class="block px-4 py-2 rounded-lg {% if request.endpoint == 'admin.index' %}bg-white/25{% else %}hover:bg-white/10{% endif %} transition-colors text-sm">
+                Dashboard
+            </a>
+            <a href="{{ url_for('admin.documents') }}" class="block px-4 py-2 rounded-lg {% if request.endpoint == 'admin.documents' %}bg-white/25{% else %}hover:bg-white/10{% endif %} transition-colors text-sm">
+                Vektordatenbank
+            </a>
+            <div class="my-2 border-t border-white/10"></div>
+            <a href="{{ url_for('admin.users') }}" class="block px-4 py-2 rounded-lg {% if request.endpoint == 'admin.users' %}bg-white/25{% else %}hover:bg-white/10{% endif %} transition-colors text-sm">
+                Users
+            </a>
+            <a href="{{ url_for('admin.settings') }}" class="block px-4 py-2 rounded-lg {% if request.endpoint == 'admin.settings' %}bg-white/25{% else %}hover:bg-white/10{% endif %} transition-colors text-sm">
+                Settings
+            </a>
+        </nav>
+
+        <!-- Dark Mode Toggle + Logout -->
+        <div class="p-2 border-t border-white/10 space-y-1">
+            <button onclick="toggleDarkMode()" class="w-full px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-sm flex items-center justify-center gap-2">
+                <svg class="w-4 h-4 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                </svg>
+                <svg class="w-4 h-4 hidden dark:block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                </svg>
+                <span class="dark:hidden">Light</span>
+                <span class="hidden dark:inline">Dark</span>
+            </button>
+            <a href="{{ url_for('main.logout') }}" class="block px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-sm text-center">
+                Abmelden
+            </a>
+        </div>
+    </aside>
+
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <!-- Flash Messages -->
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                {% for message in messages %}
-                    <div class="mb-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 flex items-center gap-2">
-                        <svg class="w-5 h-5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                        </svg>
-                        {{ message }}
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-        
-        {% block admin_content %}{% endblock %}
+    <main class="flex-1 bg-gray-50 dark:bg-gray-900 overflow-auto">
+        <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="mb-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 flex items-center gap-2">
+                            <svg class="w-5 h-5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block admin_content %}{% endblock %}
+        </div>
     </main>
 </div>
 {% endblock %}
