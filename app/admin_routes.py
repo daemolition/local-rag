@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Admin Routes für Qdrant Vektor-DB Verwaltung, User Management und Settings
 """
@@ -385,45 +401,55 @@ def upload_files():
     if _upload_status['is_ingesting']:
         return jsonify({'error': 'Ingestion läuft bereits, bitte warten'}), 409
 
+    db = get_db_service()
+    admin_user = db.get_user_by_username(session.get('user'))
+
     # Projekt-Root bestimmen (dort wo run.py liegt)
     project_root = Path(current_app.root_path).parent
 
     files = request.files.getlist('files')
     saved_files = {'pending': [], 'data': []}
+    skipped_files = []
+
+    # Pro-Uploader-Unterverzeichnis (analog zum User-Upload), damit Admin- und
+    # User-Uploads mit gleichem Dateinamen sich nicht gegenseitig blockieren.
+    target_dir = project_root / 'data' / 'files' / str(admin_user.id)
+    processed_dir = project_root / 'data' / 'processed_files' / str(admin_user.id)
 
     for file in files:
         if file.filename == '':
             continue
 
         ext = Path(file.filename).suffix.lower()
+        if ext not in ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv']:
+            continue
 
-        # PDF/DOCX/DOC → ./files/ (werden ingested)
-        if ext in ['.pdf', '.docx', '.doc']:
-            target_dir = project_root / 'files'
-            target_dir.mkdir(parents=True, exist_ok=True)
-            filepath = target_dir / file.filename
-            file.save(filepath)
-            saved_files['pending'].append(file.filename)
-        # XLSX/XLS/CSV → ./files/ (für Ingestion mit Beschreibung)
-        elif ext in ['.xlsx', '.xls', '.csv']:
-            target_dir = project_root / 'files'
-            target_dir.mkdir(parents=True, exist_ok=True)
-            filepath = target_dir / file.filename
-            file.save(filepath)
-            saved_files['pending'].append(file.filename)
+        # Bereits ingestierte Dokumente nur dort wirklich blocken
+        if (processed_dir / file.filename).exists():
+            skipped_files.append(file.filename)
+            continue
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        filepath = target_dir / file.filename
+        file.save(filepath)
+        saved_files['pending'].append(file.filename)
 
     _upload_status['pending_files'].extend(saved_files['pending'])
     _upload_status['data_files'].extend(saved_files['data'])
 
-    return jsonify({'success': True, 'files': saved_files})
+    return jsonify({'success': True, 'files': saved_files, 'skipped': skipped_files})
 
 
 def _run_ingestion():
-    """Ingestion ausführen (synchron)"""
+    """Ingestion ausführen (synchron). Verwendet die geteilten Embedding-Instanzen
+    aus app.extensions (kein Reload/Download pro Request)."""
     global _upload_status
     try:
-        from src.vector import DocumentIngestion
-        ingest = DocumentIngestion()
+        from app.vector import DocumentIngestion
+        ingest = DocumentIngestion(
+            embeddings=current_app.extensions.get("dense_embeddings"),
+            sparse_embeddings=current_app.extensions.get("sparse_embeddings"),
+        )
         ingest.ingest_documents()
         _upload_status['pending_files'] = []
         _upload_status['error'] = None
@@ -445,6 +471,16 @@ def trigger_ingestion():
 
     if not _upload_status['pending_files']:
         return jsonify({'error': 'Keine Dateien zum Verarbeiten'}), 400
+
+    # Ressourcen (Embedding-Modell) muessen bereit sein, bevor Ingestion laeuft.
+    from app import wait_for_resources
+    try:
+        if not wait_for_resources(timeout=180):
+            return jsonify({'error': 'RAG-System wird noch initialisiert '
+                                      '(Embedding-Modell lädt). Bitte in wenigen '
+                                      'Sekunden erneut versuchen.'}), 503
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 503
 
     _upload_status['is_ingesting'] = True
     _upload_status['error'] = None
@@ -603,10 +639,6 @@ SELECT_OPTIONS = {
     'EMBEDDING_SOURCE': [
         ('local', 'Lokal (HuggingFace)'),
         ('endpoint', 'Remote Endpoint')
-    ],
-    'QDRANT_LOCAL': [
-        ('true', 'Lokal (.db Datei)'),
-        ('false', 'Remote Server')
     ]
 }
 
@@ -614,10 +646,6 @@ DEPENDENT_FIELDS = {
     'EMBEDDING_SOURCE': {
         'show_when': 'endpoint',
         'fields': ['EMBEDDING_ENDPOINT']
-    },
-    'QDRANT_LOCAL': {
-        'show_when': 'false',
-        'fields': ['QDRANT_HOST', 'QDRANT_PORT', 'QDRANT_API_KEY']
     }
 }
 
@@ -726,7 +754,7 @@ def summaries():
 
     db = get_db_service()
     settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get('SUMMARIES_DIR', './summaries'))
+    summaries_dir = Path(settings.get('SUMMARIES_DIR', './data/summaries'))
 
     # Alle .md Dateien holen
     md_files = []
@@ -758,7 +786,7 @@ def edit_summary(filename):
 
     db = get_db_service()
     settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get('SUMMARIES_DIR', './summaries'))
+    summaries_dir = Path(settings.get('SUMMARIES_DIR', './data/summaries'))
 
     file_path = summaries_dir / filename
 
@@ -791,7 +819,7 @@ def save_summary(filename):
 
     db = get_db_service()
     settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get('SUMMARIES_DIR', './summaries'))
+    summaries_dir = Path(settings.get('SUMMARIES_DIR', './data/summaries'))
 
     file_path = summaries_dir / filename
 
@@ -819,7 +847,7 @@ def delete_summary(filename):
 
     db = get_db_service()
     settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get('SUMMARIES_DIR', './summaries'))
+    summaries_dir = Path(settings.get('SUMMARIES_DIR', './data/summaries'))
 
     file_path = summaries_dir / filename
 

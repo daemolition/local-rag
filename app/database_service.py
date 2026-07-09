@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Database Service mit SQLAlchemy
 Ersetzt die bestehende database.py
@@ -9,7 +25,7 @@ from typing import Optional, List, Dict, Any
 from werkzeug.security import generate_password_hash
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session as SQLAlchemySession
+from sqlalchemy.orm import sessionmaker, Session as SQLAlchemySession, joinedload
 
 from app.models import Base, User, ChatSession, Message, UserDocument, Setting
 
@@ -17,7 +33,7 @@ from app.models import Base, User, ChatSession, Message, UserDocument, Setting
 class DatabaseService:
     """Zentraler Database Service für SQLAlchemy"""
     
-    def __init__(self, db_path: str = "./app.db"):
+    def __init__(self, db_path: str = "./data/app.db"):
         self.engine = create_engine(
             f'sqlite:///{db_path}',
             echo=False,  # True für Debugging
@@ -51,7 +67,7 @@ class DatabaseService:
     def _create_default_users(self, db: SQLAlchemySession):
         """Initiale Users aus .env oder Defaults erstellen"""
         # Admin
-        admin_pass = os.getenv("ADMIN_PASSWORD", "secret123")
+        admin_pass = os.getenv("ADMIN_PASSWORD", "admin")
         admin = User(
             username="admin",
             password_hash=generate_password_hash(admin_pass),
@@ -59,7 +75,7 @@ class DatabaseService:
         )
         
         # Normaler User
-        user_pass = os.getenv("USER_PASSWORD", "password123")
+        user_pass = os.getenv("USER_PASSWORD", "user")
         user = User(
             username="user",
             password_hash=generate_password_hash(user_pass),
@@ -84,17 +100,11 @@ class DatabaseService:
             'CHAT_TOP_P': ('llm', '0.2', 'Top-P Sampling'),
             'VISION_MODEL': ('llm', 'qwen3-vl:8b', 'Vision-Modell für Bilder'),
             'VISION_BASEURL': ('llm', 'http://localhost:11434/v1', 'Vision API URL'),
-            'API_KEY': ('llm', 'loc-123', 'API Key', True),
-            
-            # Legacy Fallback
-            'MODEL': ('llm', '', 'Legacy: Model (wenn CHAT_MODEL nicht gesetzt)'),
-            'BASEURL': ('llm', '', 'Legacy: BaseURL (wenn CHAT_BASEURL nicht gesetzt)'),
-            'TEMPERATURE': ('llm', '0.1', 'Legacy: Temperature'),
-            'TOP_P': ('llm', '0.2', 'Legacy: Top-P'),
-            
+            'API_KEY': ('llm', 'ollama', 'API Key', True),
+
             # Embedding Settings
             'EMBEDDING_SOURCE': ('embedding', 'local', 'Quelle: local oder endpoint'),
-            'EMBEDDING_MODEL': ('embedding', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', 'Embedding Modell'),
+            'EMBEDDING_MODEL': ('embedding', 'paraphrase-multilingual-MiniLM-L12-v2', 'Embedding Modell'),
             'EMBEDDING_ENDPOINT': ('embedding', 'http://localhost:8080/v1', 'Embedding Endpoint URL'),
             'EMBEDDING_DIMENSION': ('embedding', '384', 'Vektor-Dimension'),
             
@@ -106,31 +116,27 @@ class DatabaseService:
             
             # Storage Settings
             'DATA_DIR': ('storage', './data', 'Daten-Verzeichnis'),
-            'SUMMARIES_DIR': ('storage', './summaries', 'Summaries-Verzeichnis'),
+            'SUMMARIES_DIR': ('storage', './data/summaries', 'Summaries-Verzeichnis'),
             
             # Qdrant Settings
-            'QDRANT_LOCAL': ('qdrant', 'true', 'Lokale DB (true) oder Remote (false)'),
             'QDRANT_HOST': ('qdrant', 'localhost', 'Qdrant Host'),
             'QDRANT_PORT': ('qdrant', '6333', 'Qdrant Port'),
-            
-            # Chat DB
-            'CHAT_DB_PATH': ('storage', './chat_history.db', 'Pfad zur Chat DB (Legacy)'),
         }
-        
+
         for key, config in all_settings.items():
             if len(config) == 4:
                 category, default, description, is_sensitive = config
             else:
                 category, default, description = config
                 is_sensitive = False
-            
+
             # Prüfen ob Setting bereits existiert
             existing = db.query(Setting).filter_by(key=key).first()
             if not existing:
                 # Wert aus .env nehmen oder Default
                 env_value = os.getenv(key)
                 value = env_value if env_value is not None else default
-                
+
                 setting = Setting(
                     key=key,
                     value=value,
@@ -140,6 +146,21 @@ class DatabaseService:
                     description=description
                 )
                 db.add(setting)
+
+        # Idempotentes Cleanup: veraltete Settings entfernen (Legacy-Felder,
+        # die nicht mehr im Admin-Panel gefuehrt werden). Einmalig, danach No-Op.
+        deprecated_keys = {'MODEL', 'BASEURL', 'TEMPERATURE', 'TOP_P', 'CHAT_DB_PATH'}
+        db.query(Setting).filter(Setting.key.in_(deprecated_keys)).delete(
+            synchronize_session=False
+        )
+
+        # Migration: SUMMARIES_DIR lag frueher auf ./summaries (Bind-Mount). Nach
+        # der Konsolidierung ins app-data-Volume ist der neue Default
+        # ./data/summaries. Bestehende DBs mit dem alten Default werden einmalig
+        # umgestellt; explizit abweichende Werte bleiben unangetastet.
+        old_summaries = db.query(Setting).filter_by(key='SUMMARIES_DIR').first()
+        if old_summaries and old_summaries.value == './summaries':
+            old_summaries.value = './data/summaries'
     
     # === User Methods ===
     
@@ -469,7 +490,10 @@ class DatabaseService:
         db = self.get_session()
         try:
             from app.models import UserSummaryFile
-            return db.query(UserSummaryFile).filter_by(filename=filename).first()
+            # user eager laden, da die Session vor Rueckgabe geschlossen wird -
+            # ein spaeterer Zugriff auf .user wuerde sonst einen lazy-load nach
+            # Session-Schluss ausloesen (DetachedInstanceError).
+            return db.query(UserSummaryFile).options(joinedload(UserSummaryFile.user)).filter_by(filename=filename).first()
         finally:
             db.close()
 
@@ -519,7 +543,7 @@ class DatabaseService:
 # Singleton für App-Context
 db_service = None
 
-def init_db_service(db_path: str = "./app.db") -> DatabaseService:
+def init_db_service(db_path: str = "./data/app.db") -> DatabaseService:
     """Database Service initialisieren (Singleton)"""
     global db_service
     if db_service is None:

@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Custom preprocess
 """
@@ -12,12 +28,30 @@ import tempfile
 
 # Third party
 from unstructured.partition.pdf import partition_pdf
+
+
+def _clear_dir(path: str) -> None:
+    """Leert den Inhalt eines Verzeichnisses, ohne das Verzeichnis selbst zu
+    loeschen. Notwendig, weil ./images (./data/images) in Docker unter dem
+    /app/data-Mountpoint liegt und shutil.rmtree() auf einem Mountpoint mit
+    [Errno 16] Device or resource busy fehlschlaegt. Legt das Verzeichnis an,
+    falls es nicht existiert."""
+    os.makedirs(path, exist_ok=True)
+    for entry in os.listdir(path):
+        entry_path = os.path.join(path, entry)
+        if os.path.isdir(entry_path) and not os.path.islink(entry_path):
+            shutil.rmtree(entry_path)
+        else:
+            try:
+                os.remove(entry_path)
+            except IsADirectoryError:
+                shutil.rmtree(entry_path)
 from langchain_core.documents import Document
 from PIL import Image
 import imagehash
 
 # Custom imports
-from src.llm.local_llm import VisionLLM
+from app.llm.local_llm import VisionLLM
 
 logger = logging.getLogger(__name__)
 
@@ -130,12 +164,12 @@ class PreprocessPDF:
         """Verarbeitet die PDF und gibt eine Liste mit Dictionaies zurück"""
         
         # Bilderberzeichnis für die extrahierten Bilder aus den PDFs
-        images_dir = "./images"    
-    
-        # Sicherstellen dass der Ordner leer ist, damit nur die Images pro PDF verarbeitet werden
-        if os.path.exists(images_dir):
-            shutil.rmtree(images_dir)
-        os.makedirs(images_dir)
+        images_dir = "./data/images"
+
+        # Sicherstellen dass der Ordner leer ist, damit nur die Images pro PDF
+        # verarbeitet werden. Inhalte leeren statt rmtree, da ./data/images in
+        # Docker unter dem /app/data-Mountpoint liegt (s. _clear_dir).
+        _clear_dir(images_dir)
         
         # strategy="hi_res" nutzt ein Model zur Layouterkennung (langsam, aber gut)
         elements = partition_pdf(
@@ -232,8 +266,8 @@ class PreprocessPDF:
             chunks.append(create_langchain_doc(current_chunk))
                             
         if os.path.exists(images_dir):
-            shutil.rmtree(images_dir)      
-            
+            _clear_dir(images_dir)
+
         return chunks
 
         

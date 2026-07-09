@@ -30,11 +30,38 @@ COPY README.md ./
 # Install dependencies system-wide (no .venv!)
 RUN uv pip install --system -e .
 
+# Embedding- + Sparse-Modell zur Build-Zeit in den HF-Cache laden,
+# damit der Containerstart nicht auf einen Download wartet (Start-Timeout-Fix).
+# Wenn EMBEDDING_MODEL geaendert wird, mit --build-arg EMBEDDING_MODEL=... neu bauen,
+# damit der Name mit dem runtime EMBEDDING_MODEL (DB/Env) uebereinstimmt.
+ARG EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+RUN python -c "from langchain_huggingface import HuggingFaceEmbeddings; \
+      HuggingFaceEmbeddings(model_name='${EMBEDDING_MODEL}', \
+      model_kwargs={'device':'cpu'}, encode_kwargs={'device':'cpu'})" \
+ && python -c "from langchain_qdrant import FastEmbedSparse; \
+      FastEmbedSparse(model_name='Qdrant/bm25')"
+
+# Standalone Tailwind-CLI v3 (kein Node noetig) in einem separaten, cachebaren
+# Layer laden. Ersetzt den render-blockierenden Play-CDN durch self-hosted CSS.
+RUN curl -sL -o /usr/local/bin/tailwindcss \
+      https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64 \
+ && chmod +x /usr/local/bin/tailwindcss
+
 # Copy rest of application
 COPY . .
 
-# Create directories
-RUN mkdir -p /app/files /app/summaries /app/data /app/flask_session
+# Vorkompiliertes Tailwind-CSS erzeugen: scannt Templates/JS und schreibt
+# app/static/css/tailwind.css. Laeuft bei jedem Build, damit die CSS zu den
+# Templates synchron bleibt (Binary aus dem Cache-Layer oben wird reused).
+# Danach Binary entfernen, um das Runtime-Image klein zu halten.
+RUN tailwindcss -i ./app/static/css/tailwind.input.css \
+               -o ./app/static/css/tailwind.css --minify \
+ && rm -f /usr/local/bin/tailwindcss
+
+# Create directories. Die Daten-Subdirs (files/processed_files/images/
+# summaries) legt ensure_directories zur Laufzeit unter /app/data an (das
+# app-data-Volume ueberlagert /app/data leer).
+RUN mkdir -p /app/data /app/flask_session
 
 # Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh

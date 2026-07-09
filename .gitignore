@@ -14,8 +14,13 @@ wheels/
 images/**
 files/**
 tools/poppler
+tools/*.exe
+tools/*.zip
+tools/*.traineddata
 processed_files
 local_qdrant.db
 flask_session/**
 summaries/**
-*.db
+app/data/*.db
+app/data/*.db-journal
+.claude/

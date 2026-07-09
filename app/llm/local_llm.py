@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Local LLM with vision - supports separate chat and vision models
 """
@@ -7,7 +23,7 @@ import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from src.utils.phase_logger import phase_logger, Phase
+from app.utils.phase_logger import phase_logger, Phase
 
 class VisionLLM:
 
@@ -15,26 +31,58 @@ class VisionLLM:
         """
         Initialisiert das LLM mit getrennten Chat- und Vision-Modellen.
 
+        Chat-/Vision-Konfiguration wird aus der Settings-DB gelesen (UI = Source of
+        Truth), mit Fallback auf env fuer den Standalone-Betrieb ohne App-Context.
+        API_KEY bleibt in der env (Secret).
+
         Args:
-            Chat-Modell: Für Agent-Interaktionen und normale Chats
-            Vision-Modell: Für Bildverarbeitung
+            Chat-Modell: Fuer Agent-Interaktionen und normale Chats
+            Vision-Modell: Fuer Bildverarbeitung
 
         Methods:
             initialize_llm: Initialisiert das llm in der Klasse
         """
 
-        # Chat model configuration (fallback to legacy MODEL env var)
-        self.chat_model = os.getenv("CHAT_MODEL", os.getenv("MODEL", "qwen3:8b"))
-        self.chat_base_url = os.getenv("CHAT_BASEURL", os.getenv("BASEURL", "http://192.168.1.35:11434/v1"))
-        self.chat_temperature = float(os.getenv("CHAT_TEMPERATURE", os.getenv("TEMPERATURE", "0.1")))
-        self.chat_top_p = float(os.getenv("CHAT_TOP_P", os.getenv("TOP_P", "0.2")))
+        # Defaults
+        chat_model = "qwen3:8b"
+        chat_base_url = "http://localhost:11434/v1"
+        chat_temperature = "0.1"
+        chat_top_p = "0.2"
+
+        try:
+            # Settings aus DB lesen (eigene Session, thread-safe via Engine)
+            from app.database_service import get_db_service
+            from app.settings_service import SettingsService
+            db = get_db_service()
+            session = db.get_session()
+            settings = SettingsService(session)
+            chat_model = settings.get("CHAT_MODEL", chat_model) or chat_model
+            chat_base_url = settings.get("CHAT_BASEURL", chat_base_url) or chat_base_url
+            chat_temperature = settings.get("CHAT_TEMPERATURE", chat_temperature) or chat_temperature
+            chat_top_p = settings.get("CHAT_TOP_P", chat_top_p) or chat_top_p
+            vision_model = settings.get("VISION_MODEL", chat_model) or chat_model
+            vision_base_url = settings.get("VISION_BASEURL", chat_base_url) or chat_base_url
+            session.close()
+        except Exception:
+            # Standalone-Fallback (kein DB-Kontext, z. B. Skripte): env
+            chat_model = os.getenv("CHAT_MODEL", chat_model)
+            chat_base_url = os.getenv("CHAT_BASEURL", chat_base_url)
+            chat_temperature = os.getenv("CHAT_TEMPERATURE", chat_temperature)
+            chat_top_p = os.getenv("CHAT_TOP_P", chat_top_p)
+            vision_model = os.getenv("VISION_MODEL", chat_model)
+            vision_base_url = os.getenv("VISION_BASEURL", chat_base_url)
+
+        self.chat_model = chat_model
+        self.chat_base_url = chat_base_url
+        self.chat_temperature = float(chat_temperature or "0.1")
+        self.chat_top_p = float(chat_top_p or "0.2")
 
         # Vision model configuration (fallback to chat model settings)
-        self.vision_model = os.getenv("VISION_MODEL", self.chat_model)
-        self.vision_base_url = os.getenv("VISION_BASEURL", self.chat_base_url)
+        self.vision_model = vision_model
+        self.vision_base_url = vision_base_url
 
-        # Common settings
-        self.api_key = os.getenv("API_KEY", "loc-123")
+        # API Key bleibt in der env (Secret, nicht in der DB)
+        self.api_key = os.getenv("API_KEY", "ollama")
 
         # Initialize LLMs
         self.llm = self._initialize_vision_llm()

@@ -1,390 +1,120 @@
 # AGENTS.md
 
-Guidelines for agentic coding agents working in this repository.
+High-signal guidance for OpenCode sessions in this repo.
 
-## Project Overview
+## Project in one line
 
-Local Document RAG - A German-language RAG (Retrieval-Augmented Generation) system with Flask web interface, SSE streaming, Pandas analytics, and multi-user management with SQLAlchemy.
+German Flask RAG app with SSE chat, SQLAlchemy multi-user management, Qdrant hybrid search (dense + sparse/BM25), Pandas analytics tools, and Ollama/OpenAI-compatible LLMs.
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Flask Application                        │
-├─────────────────────────────────────────────────────────────────┤
-│  Database: SQLAlchemy (SQLite) with Alembic Migrations        │
-│  Auth: Session-based (admin/user roles via SQLAlchemy)          │
-│  ORM Models: User, ChatSession, Message, UserDocument, etc.    │
-└────────────────────────────────────┬────────────────────────────┘
-                                     │
-                    ┌────────────────┼────────────────┐
-                    ▼                ▼                ▼
-              ┌─────────┐      ┌──────────┐     ┌──────────┐
-              │  Admin   │      │  User    │     │  Chat    │
-              │  Panel   │      │  Routes  │     │  (SSE)   │
-              └─────────┘      └──────────┘     └────┬─────┘
-                                                       │
-                                                       ▼
-                                              DocumentAgent
-                                                       │
-                                                       ▼
-                                              LLM (Ollama)
-```
-
-## Key Components
-
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| **Models** | `app/models.py` | SQLAlchemy ORM (User, ChatSession, Message, UserDocument, UserSummaryFile, Setting) |
-| **Database Service** | `app/database_service.py` | CRUD operations, DB singleton |
-| **Settings Service** | `app/settings_service.py` | Environment/DB settings with fallback |
-| **Admin Routes** | `app/admin_routes.py` | Admin panel (settings, users, summaries) |
-| **User Routes** | `app/user_routes.py` | User routes (documents, summaries) |
-| **File Manager** | `app/utils/file_manager.py` | File operations with Qdrant metadata |
-| **Qdrant Client** | `src/utils/qdrant_client.py` | Qdrant factory (local/remote) |
-| **Qdrant Manager** | `scripts/manage_qdrant.py` | Migration between local/remote Qdrant |
-| **Session Migrator** | `scripts/migrate_sessions.py` | Legacy chat_history.db migration |
-
-## Build/Lint/Test Commands
+## Entry points and run commands
 
 ```bash
-# Install dependencies (uses uv package manager)
+# Install dependencies (uses uv)
 uv sync
 
-# Windows (no admin required)
+# Windows (no admin required; auto-downloads qdrant.exe)
 start.bat
-# OR
-python run_windows.py
+# Or directly
+python run_windows.py              # with local Qdrant
+python run_windows.py --no-qdrant  # if you run Qdrant separately
 
-# Linux
+# Linux / Docker
 alembic upgrade head
 python run_linux.py
-
-# Docker
 docker-compose up --build
+```
 
-# Ingest documents
-uv run python ingest_documents.py
+- Windows default URL: `http://127.0.0.1:5000` (localhost only; no firewall prompt).
+- Linux/Docker default URL: `http://0.0.0.0:5000`.
+- Default admin login: `admin` / `secret123` (or `ADMIN_PASSWORD` from `.env`).
+- Both `run_windows.py` and `run_linux.py` run `alembic upgrade head` automatically before starting the server.
 
-# Qdrant migration (local ↔ remote)
-python scripts/manage_qdrant.py status
-python scripts/manage_qdrant.py migrate --from local --to-remote --dry-run
+## Important: Alembic baseline and existing app.db
 
-# Alembic migrations
-alembic upgrade head                    # Apply all migrations
-alembic revision --autogenerate -m "desc"  # Create new migration
-alembic downgrade -1                   # Rollback one
+- The initial migration (`alembic/versions/0001_initial_schema_and_admin_seed.py`) creates all tables from `app/models.py` and seeds an admin user (`admin` / `admin`).
+- `app.db` may already exist, created by `DatabaseService` calling `Base.metadata.create_all()` in `app/__init__.py` (not by Alembic). On an existing `app.db`, `alembic upgrade head` fails with "table already exists" — run `alembic stamp head` to mark it as migrated without executing DDL, or delete `app.db` to start fresh.
+- `run_windows.py` / `run_linux.py` run `alembic upgrade head` automatically before starting the server; on a fresh DB this creates the schema + admin seed.
+- For schema changes to `app/models.py`: `alembic revision --autogenerate -m "description"`; autogenerate sees the full schema (`env.py` sets `target_metadata = Base.metadata`).
 
-# Linting
+## Lint / format
+
+```bash
 uv run ruff check .
-uv run ruff check --fix .              # Auto-fix issues
+uv run ruff check --fix .
 uv run ruff format .
-
-# Run single test file (if tests exist)
-uv run pytest tests/test_file.py -v
-uv run pytest tests/test_file.py::test_function -v
 ```
 
-## Code Style Guidelines
+- Ruff is a project dependency but has **no `[tool.ruff]` config** in `pyproject.toml`; it runs with built-in defaults.
+- There is currently no test suite (`tests/` does not exist) and no type checker configured.
 
-### Imports
+## Key architecture facts
 
-Order imports in three sections separated by blank lines:
-1. Standard library (e.g., `import os`, `from pathlib import Path`)
-2. Third-party packages (e.g., `import pandas as pd`, `from langchain_core...`)
-3. Local modules (e.g., `from src.llm.local_llm import VisionLLM`)
+- App factory: `app/__init__.py:create_app()`.
+- Routes: `app/routes.py` (chat + SSE), `app/admin_routes.py`, `app/user_routes.py`.
+- Database service singleton: `app/database_service.py:init_db_service()` / `get_db_service()`. Always close sessions you open.
+- Models: `app/models.py`. Settings model is the source of truth for runtime config.
+- Settings resolution order: `settings_service.py` reads DB first, then `.env`/environment, then default.
+- Qdrant client factory: `app/utils/qdrant_client.py`. Connects to a running Qdrant server at `QDRANT_HOST:QDRANT_PORT` (default `localhost:6333`). No embedded/local file mode.
+- Vector collection name is hardcoded to `"local_rag"` and uses hybrid retrieval (`langchain_qdrant` dense + FastEmbedSparse BM25).
+- Default embedding dimension is `384`; must match the chosen `EMBEDDING_MODEL`.
 
-```python
-# Standard library
-import os
-import io
-from logging import getLogger
+## Document ingestion
 
-# Third party
-import pandas as pd
-from pydantic import BaseModel, Field
-from langchain_core.tools import create_retriever_tool
-from sqlalchemy.orm import Session
+Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates CLI-Skript mehr nötig.
 
-# Local imports
-from src.utils.phase_logger import phase_logger, Phase
-from app.database_service import get_db_service
-from app.settings_service import SettingsService
-```
+- Admin-Panel: **Upload** → Dateien hochladen → **Ingestion starten** (synchron, ruft `app.vector.DocumentIngestion` direkt auf).
+- User-Bereich: **Meine Dokumente** → Dateien hochladen → **Ingestion starten**.
+- Ingestion erfolgt aus `app/admin_routes.py` und `app/user_routes.py` heraus über `app.vector.DocumentIngestion`.
+- Unter Windows wird Qdrant als `qdrant.exe` von `run_windows.py` gestartet (Server-Modus auf `127.0.0.1:6333`), sodass Flask und Ingestion gleichzeitig laufen können.
 
-### Formatting
-
-- Line length: 120 characters maximum
-- Use double quotes for strings by convention
-- Run `uv run ruff format .` before committing
-
-### Naming Conventions
-
-- **Functions/variables**: `snake_case` (e.g., `list_files`, `get_dataframe`)
-- **Classes**: `PascalCase` (e.g., `DocumentAgent`, `CustomTools`)
-- **Constants**: `UPPER_SNAKE_CASE` (e.g., `DATA_DIR`, `SYSTEM_PROMPT`)
-- **Private methods**: prefix with underscore (e.g., `_get_dataframe`, `_detect_encoding`)
-
-### Type Hints
-
-Use Pydantic models for tool inputs with descriptive docstrings:
-
-```python
-class PreviewDataInput(BaseModel):
-    """Input model for preview_data tool."""
-    filename: str = Field(
-        description="Name der Datei aus der Dateiliste (z. B. 'sales_2024.xlsx')"
-    )
-    rows: int = Field(
-        default=5,
-        description="Anzahl der Zeilen für die Vorschau (Standard: 5)"
-    )
-```
-
-### SQLAlchemy Patterns
-
-**Database Access:**
-```python
-# Get database service
-db = get_db_service()
-
-# CRUD operations
-user = db.create_user("username", "password", is_admin=False)
-sessions = db.list_sessions(user.id)
-messages = db.get_messages(session_id)
-```
-
-**Session Handling:**
-```python
-# Always close sessions!
-db = get_db_service()
-try:
-    user = db.get_user_by_username(username)
-    # ... operations ...
-finally:
-    db.close()
-```
-
-### Error Handling
-
-Catch specific exceptions and return user-friendly error messages in German:
-
-```python
-try:
-    df = self._get_dataframe(filename)
-except Exception as e:
-    logger.error(f"Fehler beim Laden von {filename}: {e}")
-    return f"FEHLER beim Laden von '{filename}': {type(e).__name__}: {e}"
-```
-
-### Comments and Docstrings
-
-- Use triple quotes for module/class/method docstrings
-- Comments should be in German (matching the application language)
-- Keep docstrings concise but descriptive
-
-```python
-def list_files(self) -> list[str]:
-    """Listet alle xlsx/csv Dateien im Datenverzeichnis auf."""
-```
-
-### Logging
-
-Use the phase_logger for tool execution tracking and standard logging for errors:
-
-```python
-from src.utils.phase_logger import phase_logger, Phase
-
-phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: {tool_name}")
-logger = getLogger(__name__)
-logger.error(f"Fehler: {e}")
-```
-
-### Environment Variables
-
-Access configuration via SettingsService with fallback:
-
-```python
-# Good
-settings = SettingsService(db.get_session())
-data_dir = settings.get('DATA_DIR', './data')
-
-# Legacy fallback still supported
-import os
-data_dir = os.getenv("DATA_DIR", "./data")
-```
-
-### Security Considerations
-
-**When executing dynamic code (like `run_pandas`):**
-
-```python
-forbidden_keywords = [
-    "os.", "sys.", "subprocess", "__import__", "open(",
-    "to_csv", "to_sql", "to_json", "eval(", "exec("
-]
-```
-
-**File Path Security:**
-
-```python
-from pathlib import Path
-
-# Always validate paths
-file_path = Path(data_dir) / filename
-if not str(file_path).startswith(str(data_dir)):
-    raise ValueError("Ungültiger Pfad")
-```
-
-## Database Schema (SQLAlchemy)
-
-### Core Models
-
-```python
-class User(Base):
-    id: int
-    username: str (unique)
-    password_hash: str
-    is_admin: bool
-    created_at: datetime
-    
-class ChatSession(Base):
-    id: str (UUID)
-    user_id: int (FK → User)
-    title: str
-    created_at: datetime
-    updated_at: datetime
-    
-class Message(Base):
-    id: int
-    session_id: str (FK → ChatSession)
-    role: str ('user' | 'assistant')
-    content: str
-    created_at: datetime
-    
-class UserDocument(Base):
-    id: int
-    user_id: int (FK → User)
-    document_id: str (Qdrant ID)
-    filename: str
-    uploaded_at: datetime
-    
-class UserSummaryFile(Base):
-    id: int
-    user_id: int (FK → User)
-    filename: str
-    created_at: datetime
-    
-class Setting(Base):
-    key: str (primary)
-    value: str
-    default_value: str
-    category: str
-    is_sensitive: bool
-    description: str
-```
-
-## Deployment Patterns
-
-### Windows (No Admin)
-
-```python
-# run_windows.py
-from waitress import serve
-serve(app, host="127.0.0.1", port=5000, threads=4)
-```
-
-- Localhost only (no firewall prompt)
-- Auto-downloads qdrant.exe if missing
-- Runs Qdrant on localhost:6333
-
-### Linux/Docker
-
-```python
-# run_linux.py
-os.system("gunicorn -w 4 -b 0.0.0.0:5000 'app:create_app()'")
-```
-
-- Network accessible
-- Qdrant as Docker container
-- Entrypoint runs Alembic migrations
-
-## File Locations
+## File locations
 
 | Type | Location |
 |------|----------|
-| Database | `./app.db` (SQLite via SQLAlchemy) |
-| Legacy DB | `./chat_history.db` (old, for migration only) |
-| Session files | `./flask_session/` |
+| SQLite app DB | `./app/data/app.db` |
+| Legacy chat DB | `./app/data/chat_history.db` (migration target only) |
+| Session storage | `./flask_session/` |
 | Uploads | `./files/` |
-| Data (CSV/XLSX) | `./data/` |
-| Summaries (MD) | `./summaries/` |
-| Qdrant (local) | `./local_qdrant.db/` |
+| Analytics data | `./data/` |
+| Summaries | `./summaries/` |
 
-## German Language Requirements
+## Code conventions
 
-- System prompts must be in German
-- Tool descriptions should be in German
-- User-facing error messages must be in German
-- Variable names can be in German for domain-specific terms
-- Admin panel is in German
+- German UI, tool descriptions, system prompt, and user-facing errors.
+- Imports grouped: stdlib → third party → local, separated by blank lines.
+- Use `SettingsService` for config access; fall back to `os.getenv` only where the DB session is unavailable.
+- Use `get_db_service()` for DB access; close sessions explicitly.
+- Pydantic input models for LangChain tools, with German `description` fields.
+- Path validation: resolve with `Path` and assert the result stays under `DATA_DIR`/`SUMMARIES_DIR`.
 
-## Multi-User Permission Model
+## Security guardrails to preserve
 
-| Action | Admin | User |
-|--------|-------|------|
-| See all documents | ✅ | ❌ |
-| See own documents | ✅ | ✅ |
-| Delete all documents | ✅ | ❌ |
-| Delete own documents | ✅ | ✅ |
-| Edit all summaries | ✅ | ❌ |
-| Edit own summaries | ✅ | ✅ |
-| Manage users | ✅ | ❌ |
-| Change settings | ✅ | ❌ |
-| Access admin panel | ✅ | ❌ |
-| Use chat | ✅ | ✅ |
+- `run_pandas` tool blocks `os.`, `sys.`, `subprocess`, `__import__`, `open(`, `eval(`, `exec(`, and write methods like `to_csv`/`to_sql`/`to_json`.
+- Do not relax these blocks without explicit user approval.
 
-## Key Files for Agents
+## What to touch when changing...
 
-When making changes, check these files:
+| Change | Files |
+|--------|-------|
+| DB schema / models | `app/models.py` + create Alembic migration |
+| DB queries / CRUD | `app/database_service.py` |
+| Config/settings | `app/settings_service.py` (also check `env.example`) |
+| Admin features | `app/admin_routes.py` + `app/templates/admin/` |
+| User features | `app/user_routes.py` + `app/templates/user/` |
+| Qdrant wiring | `app/utils/qdrant_client.py`, `app/__init__.py` |
+| File operations | `app/utils/file_manager.py` |
+| Vector ingestion | `app/vector/ingestion.py`, `app/vector/retriever.py` |
+| Agent/system prompt | `app/agent/document_agent.py` |
+| LLM wrapper | `app/llm/local_llm.py` |
 
-1. **Models changed?** → Update `app/models.py` + create Alembic migration
-2. **Database access?** → Update `app/database_service.py`
-3. **Settings changed?** → Update `app/settings_service.py`
-4. **Admin features?** → Update `app/admin_routes.py` + templates
-5. **User features?** → Update `app/user_routes.py` + templates
-6. **Qdrant changes?** → Check `src/utils/qdrant_client.py`
-7. **File operations?** → Use `app/utils/file_manager.py`
+## Common gotchas
 
-## Troubleshooting Common Issues
+- **SQLite locked:** enable WAL mode or reduce concurrent writers.
+- **Settings drift:** Admin panel edits live in the `settings` table. Use `SettingsService(db_session)` to read current values, not stale `.env` defaults.
+- **Legacy `app/database.py`:** still called inside `create_app()` for compatibility; new code should use `app/database_service.py`.
+- **Embedding dimension mismatch** causes Qdrant collection creation to fail. Keep `EMBEDDING_DIMENSION` in sync with `EMBEDDING_MODEL`.
+- **Tesseract/Poppler paths on Windows** should be set via `.env` (`TESSERACT_CMD`, `POPPLER_PATH`) or configured in the PDF loader.
+- **Env var name mismatch:** `.env`/`env.example` use `EMBEDDING_DIMENSIONS` (plural), but the code reads `EMBEDDING_DIMENSION` (singular). The plural env value is silently ignored; dimension falls back to the DB setting or default `384`. Keep the singular name when setting it.
+- **Qdrant must be running** before starting the app (server mode only; no embedded file fallback). On Windows, `run_windows.py` auto-starts `qdrant.exe`; on Linux, use Docker Compose or run Qdrant separately.
+- **Qdrant server migration:** `scripts/manage_qdrant.py` (`uv run python scripts/manage_qdrant.py status|migrate|info`) can move a collection between two Qdrant server instances.
 
-### "database is locked" (SQLite)
-
-- Multiple simultaneous writes
-- **Solution:** Use WAL mode or migrate to PostgreSQL
-
-### Alembic Migration Failed
-
-```bash
-# Check current version
-alembic current
-
-# Manual SQL fix
-sqlite3 app.db "DELETE FROM alembic_version;"
-alembic stamp head
-```
-
-### Qdrant Connection
-
-```python
-# Test connection
-from src.utils.qdrant_client import test_connection
-client = get_qdrant_client()
-success, msg = test_connection(client)
-```
-
-### Settings Not Loading
-
-- Check DB: `SELECT * FROM settings;`
-- Check ENV: SettingsService falls back to os.getenv
-- Re-seed: `alembic downgrade 001 && alembic upgrade head`

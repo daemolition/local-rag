@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 import json
 import asyncio
 import queue
@@ -6,7 +22,8 @@ from flask import Blueprint, render_template, request, session, redirect, url_fo
 from werkzeug.security import check_password_hash
 
 from app.database_service import get_db_service
-from src.utils.phase_logger import phase_logger, Phase
+from app.utils.phase_logger import phase_logger, Phase
+from app import wait_for_resources, resources_ready
 
 bp = Blueprint('main', __name__)
 
@@ -129,8 +146,9 @@ def delete_session_route(session_id):
 
 @bp.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint for Docker"""
-    return {'status': 'healthy'}, 200
+    """Health check endpoint for Docker (Liveness). ready=False waehrend
+    die Embedding-Modelle im Hintergrund geladen werden."""
+    return {'status': 'healthy', 'ready': resources_ready()}, 200
 
 
 @bp.route('/', methods=['GET'])
@@ -237,7 +255,22 @@ def chat():
     phase_logger.log_phase(Phase.USER_INPUT, f"User-Query: {user_message[:100]}...")
     
     agent = current_app.extensions.get("agent")
-    
+    if not agent:
+        # Ressourcen werden noch im Hintergrund geladen (Embedding-Modell).
+        # Auf Bereitschaft warten (Fallback bei nicht eingebackenem Modell),
+        # sonst 503 an den Client.
+        try:
+            ready = wait_for_resources(timeout=180)
+        except RuntimeError as e:
+            return Response(f'data: {{\"error\": \"{e}\"}}\n\n',
+                           mimetype='text/event-stream')
+        if not ready:
+            return Response('data: {"error": "RAG-System wird noch initialisiert '
+                            '(Embedding-Modell lädt). Bitte in wenigen Sekunden '
+                            'erneut versuchen."}\n\n',
+                           mimetype='text/event-stream')
+        agent = current_app.extensions.get("agent")
+
     if not agent:
         return Response('data: {"error": "Agent nicht initialisiert"}\n\n',
                        mimetype='text/event-stream')

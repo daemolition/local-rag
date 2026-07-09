@@ -1,3 +1,19 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Document igenstion
 """
@@ -12,7 +28,7 @@ from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpointEmbe
 from qdrant_client import QdrantClient
 
 # Custom imports
-from src.utils.qdrant_client import get_qdrant_client
+from app.utils.qdrant_client import get_qdrant_client
 
 logger = getLogger(__name__)
 
@@ -28,7 +44,7 @@ class DocumentRetriever:
         
         embedding_source = os.getenv("EMBEDDING_SOURCE", "local")
         huggingface_enpoint_token = os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
-        embedding_endpoint = os.getenv("EMBEDDING_ENDPOINT", "http://192.168.1.35:8080/v1")
+        embedding_endpoint = os.getenv("EMBEDDING_ENDPOINT", "http://localhost:8080/v1")
         model_name = os.getenv("EMBEDDINGS_MODEL", "all-MiniLM-L6-v2")
         
         
