@@ -14,5 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from .ingestion import DocumentIngestion as DocumentIngestion
-from .retriever import DocumentRetriever as DocumentRetriever
+"""
+Authentifizierung für Single-User Betrieb
+"""
+from functools import wraps
+from flask import session, redirect, url_for, flash
+
+
+def auth_required(f):
+    """Decorator: Prüft ob User authentifiziert ist"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('authenticated'):
+            flash('Bitte zuerst anmelden')
+            return redirect(url_for('main.login'))
+        return f(*args, **kwargs)
+    return decorated

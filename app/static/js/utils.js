@@ -1,24 +1,10 @@
-// Dark Mode Toggle
-function toggleDarkMode() {
-    document.documentElement.classList.toggle('dark');
-    localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
-}
-
-// Init Dark Mode from localStorage or system preference
-(function() {
-    if (localStorage.getItem('darkMode') === 'true' || 
-        (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark');
-    }
-})();
-
 // Toast Notification
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = `fixed bottom-6 right-6 px-6 py-3 rounded-lg shadow-material-3 z-50 transform translate-x-0 transition-transform duration-300 ${
         type === 'success' 
-            ? 'bg-slate-700 dark:bg-slate-800 text-white' 
-            : 'bg-red-600 dark:bg-red-700 text-white'
+            ? 'bg-slate-700 text-white' 
+            : 'bg-red-600 text-white'
     }`;
     toast.textContent = message;
     toast.style.animation = 'slideIn 0.3s ease';
@@ -79,3 +65,27 @@ document.addEventListener('click', (e) => {
         menu.classList.add('hidden');
     }
 });
+
+// Ingestion-Indikator: pollt, ob gerade eine Ingestion laeuft, und
+// zeigt/versteckt den blinkenden Indikator in der Navbar entsprechend.
+(function pollIngestionStatus() {
+    const indicator = document.getElementById('ingestionIndicator');
+    if (!indicator) return;
+
+    async function check() {
+        try {
+            const res = await fetch('/api/ingestion-status');
+            if (!res.ok) {
+                indicator.style.display = 'none';
+                return;
+            }
+            const data = await res.json();
+            indicator.style.display = data.is_ingesting ? 'flex' : 'none';
+        } catch (e) {
+            indicator.style.display = 'none';
+        }
+    }
+
+    check();
+    setInterval(check, 5000);
+})();

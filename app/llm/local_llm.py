@@ -33,7 +33,6 @@ class VisionLLM:
 
         Chat-/Vision-Konfiguration wird aus der Settings-DB gelesen (UI = Source of
         Truth), mit Fallback auf env fuer den Standalone-Betrieb ohne App-Context.
-        API_KEY bleibt in der env (Secret).
 
         Args:
             Chat-Modell: Fuer Agent-Interaktionen und normale Chats
@@ -48,6 +47,7 @@ class VisionLLM:
         chat_base_url = "http://localhost:11434/v1"
         chat_temperature = "0.1"
         chat_top_p = "0.2"
+        api_key = "ollama"
 
         try:
             # Settings aus DB lesen (eigene Session, thread-safe via Engine)
@@ -62,6 +62,7 @@ class VisionLLM:
             chat_top_p = settings.get("CHAT_TOP_P", chat_top_p) or chat_top_p
             vision_model = settings.get("VISION_MODEL", chat_model) or chat_model
             vision_base_url = settings.get("VISION_BASEURL", chat_base_url) or chat_base_url
+            api_key = settings.get("API_KEY", api_key) or api_key
             session.close()
         except Exception:
             # Standalone-Fallback (kein DB-Kontext, z. B. Skripte): env
@@ -71,6 +72,7 @@ class VisionLLM:
             chat_top_p = os.getenv("CHAT_TOP_P", chat_top_p)
             vision_model = os.getenv("VISION_MODEL", chat_model)
             vision_base_url = os.getenv("VISION_BASEURL", chat_base_url)
+            api_key = os.getenv("API_KEY", api_key)
 
         self.chat_model = chat_model
         self.chat_base_url = chat_base_url
@@ -81,8 +83,7 @@ class VisionLLM:
         self.vision_model = vision_model
         self.vision_base_url = vision_base_url
 
-        # API Key bleibt in der env (Secret, nicht in der DB)
-        self.api_key = os.getenv("API_KEY", "ollama")
+        self.api_key = api_key
 
         # Initialize LLMs
         self.llm = self._initialize_vision_llm()
@@ -112,7 +113,6 @@ class VisionLLM:
         
     def generate_image_message(self, image: str, instruction: str = None) -> HumanMessage:
         """Generiert die Message für den Call ans Visionmodell"""
-        import base64
         
         img_size_kb = len(image) * 3 / 4 / 1024
         

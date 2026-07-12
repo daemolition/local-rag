@@ -24,8 +24,8 @@ from logging import getLogger
 
 # Third party imports
 from langchain_qdrant import QdrantVectorStore, RetrievalMode, FastEmbedSparse
-from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpointEmbeddings
-from qdrant_client import QdrantClient
+from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 # Custom imports
 from app.utils.qdrant_client import get_qdrant_client
@@ -43,20 +43,19 @@ class DocumentRetriever:
         self.score_threshold = float(os.getenv("RETRIEVER_SCORE_THRESHOLD", 0.2))
         
         embedding_source = os.getenv("EMBEDDING_SOURCE", "local")
-        huggingface_enpoint_token = os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
         embedding_endpoint = os.getenv("EMBEDDING_ENDPOINT", "http://localhost:8080/v1")
-        model_name = os.getenv("EMBEDDINGS_MODEL", "all-MiniLM-L6-v2")
-        
+        model_name = os.getenv("EMBEDDINGS_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+        api_key = os.getenv("API_KEY", "ollama")
         
         if embedding_source == "local":
-            self.embeddings = HuggingFaceEmbeddings(
+            self.embeddings = FastEmbedEmbeddings(
                 model_name=model_name
             )
         else:
-            self.embeddings = HuggingFaceEndpointEmbeddings(
-                client=embedding_endpoint,
+            self.embeddings = OpenAIEmbeddings(
+                base_url=embedding_endpoint,
+                api_key=api_key,
                 model=model_name,
-                huggingfacehub_api_token=huggingface_enpoint_token
             )
         
         # Sparse Embeddings

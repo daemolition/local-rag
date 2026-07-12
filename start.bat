@@ -19,7 +19,7 @@ if not exist "models" (
 REM Venv pruefen/erstellen
 if not exist ".venv" (
     echo [1/4] Erstelle virtuelle Umgebung...
-    python -m venv .venv
+    uv venv
     if errorlevel 1 (
         echo Fehler: Konnte keine virtuelle Umgebung erstellen.
         pause

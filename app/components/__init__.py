@@ -14,5 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from .preprocess_pdf import PreprocessPDF
-from .custom_pdf_loader import CustomPDFLoader
+from .preprocess_pdf import PreprocessPDF as PreprocessPDF
+from .preprocess_docx import PreprocessDOCX as PreprocessDOCX
+from .custom_pdf_loader import CustomPDFLoader as CustomPDFLoader
+from .custom_docx_loader import CustomDOCXLoader as CustomDOCXLoader

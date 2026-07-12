@@ -10,6 +10,7 @@ const messagesContainer = document.getElementById('messagesContainer');
 const chatForm = document.getElementById('chatForm');
 const userInput = document.getElementById('userInput');
 const sendBtn = document.getElementById('sendBtn');
+const micBtn = document.getElementById('micBtn');
 const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebarToggle');
 const sidebarOverlay = document.getElementById('sidebarOverlay');
@@ -29,6 +30,10 @@ userInput.addEventListener('keydown', function(e) {
 });
 
 let currentSessionId = null;
+let currentAbortController = null;
+let isStreaming = false;
+let mediaRecorder = null;
+let audioChunks = [];
 
 sidebarToggle.addEventListener('click', () => {
     const isOpen = sidebar.classList.contains('translate-x-0');
@@ -233,16 +238,23 @@ async function sendMessage(message) {
     const assistantMsgDiv = addLoadingMessage();
 
     userInput.disabled = true;
-    sendBtn.disabled = true;
+    sendBtn.textContent = 'Stop';
+    sendBtn.classList.add('from-red-600', 'to-red-700', 'hover:from-red-700', 'hover:to-red-800');
+    sendBtn.classList.remove('from-slate-700', 'to-slate-800');
 
     let fullResponse = '';
     let isFirstToken = true;
+    let wasAborted = false;
+
+    currentAbortController = new AbortController();
+    isStreaming = true;
 
     try {
         const response = await fetch('/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: message, session_id: currentSessionId })
+            body: JSON.stringify({ message: message, session_id: currentSessionId }),
+            signal: currentAbortController.signal
         });
 
         const reader = response.body.getReader();
@@ -291,9 +303,9 @@ async function sendMessage(message) {
                                 details.className = 'my-2 text-sm';
                                 const summary = document.createElement('summary');
                                 summary.textContent = `[Tool: ${toolResult.name}]`;
-                                summary.className = 'cursor-pointer text-slate-700 dark:text-slate-400 font-medium';
+                                summary.className = 'cursor-pointer text-slate-700 font-medium';
                                 const pre = document.createElement('pre');
-                                pre.className = 'bg-gray-100 dark:bg-gray-700 p-2 rounded mt-1 overflow-x-auto';
+                                pre.className = 'bg-gray-100 p-2 rounded mt-1 overflow-x-auto';
                                 pre.textContent = toolResult.output;
                                 details.appendChild(summary);
                                 details.appendChild(pre);
@@ -314,7 +326,7 @@ async function sendMessage(message) {
                             }
 
                             if (parsed.error) {
-                                assistantMsgDiv.innerHTML = `<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-red-700 dark:text-red-200">Fehler: ${parsed.error}</div>`;
+                                assistantMsgDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700">Fehler: ${parsed.error}</div>`;
                             }
                         } catch (e) {
                             // Ignore parse errors
@@ -324,25 +336,121 @@ async function sendMessage(message) {
             }
         }
     } catch (error) {
-        assistantMsgDiv.innerHTML = `<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-red-700 dark:text-red-200">Fehler: ${error.message}</div>`;
+        if (error.name === 'AbortError') {
+            wasAborted = true;
+            if (!fullResponse) {
+                assistantMsgDiv.innerHTML = '<div class="text-sm text-slate-500 italic">Antwort vom Benutzer abgebrochen.</div>';
+            }
+        } else {
+            assistantMsgDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700">Fehler: ${error.message}</div>`;
+        }
     }
 
-    if (!fullResponse && isFirstToken) {
-        assistantMsgDiv.innerHTML = '<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-red-700 dark:text-red-200">Keine Antwort erhalten. Bitte versuche es erneut.</div>';
+    if (!wasAborted && !fullResponse && isFirstToken) {
+        assistantMsgDiv.innerHTML = '<div class="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700">Keine Antwort erhalten. Bitte versuche es erneut.</div>';
     }
 
+    isStreaming = false;
+    currentAbortController = null;
     userInput.disabled = false;
-    sendBtn.disabled = false;
+    sendBtn.textContent = 'Senden';
+    sendBtn.classList.remove('from-red-600', 'to-red-700', 'hover:from-red-700', 'hover:to-red-800');
+    sendBtn.classList.add('from-slate-700', 'to-slate-800');
     userInput.focus();
 }
 
 chatForm.addEventListener('submit', (e) => {
     e.preventDefault();
+
+    if (isStreaming && currentAbortController) {
+        currentAbortController.abort();
+        if (currentSessionId) {
+            fetch('/chat/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: currentSessionId })
+            }).catch(() => {});
+        }
+        return;
+    }
+
     const message = userInput.value.trim();
     if (message) {
         userInput.value = '';
         userInput.style.height = 'auto';
         sendMessage(message);
+    }
+});
+
+let isRecording = false;
+
+micBtn.addEventListener('click', async () => {
+    if (isRecording && mediaRecorder) {
+        mediaRecorder.stop();
+        return;
+    }
+
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+        alert('Spracheingabe wird von diesem Browser nicht unterstützt.');
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = async () => {
+            const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+            audioChunks = [];
+            isRecording = false;
+            micBtn.classList.remove('text-red-600', 'animate-pulse');
+            micBtn.title = 'Spracheingabe';
+
+            try {
+                const formData = new FormData();
+                formData.append('audio', blob, 'recording.webm');
+                const response = await fetch('/api/stt', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                if (data.text) {
+                    userInput.value = data.text;
+                    userInput.style.height = 'auto';
+                    userInput.style.height = Math.min(userInput.scrollHeight, 200) + 'px';
+                    chatForm.dispatchEvent(new Event('submit'));
+                }
+            } catch (error) {
+                console.error('STT error:', error);
+                alert('Spracherkennung fehlgeschlagen: ' + error.message);
+            }
+
+            stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.onerror = () => {
+            isRecording = false;
+            micBtn.classList.remove('text-red-600', 'animate-pulse');
+            alert('Aufnahme fehlgeschlagen.');
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+        micBtn.classList.add('text-red-600', 'animate-pulse');
+        micBtn.title = 'Aufnahme stoppen';
+    } catch (error) {
+        console.error('Microphone access error:', error);
+        alert('Mikrofon-Zugriff verweigert oder nicht verfügbar.');
     }
 });
 

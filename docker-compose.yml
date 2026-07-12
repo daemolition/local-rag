@@ -11,7 +11,6 @@ services:
     ports:
       - "8083:5000"
     environment:
-      - API_KEY=${API_KEY:-}
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
       - QDRANT_PORT=${QDRANT_PORT:-6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}

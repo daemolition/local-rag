@@ -7,12 +7,12 @@ function updatePreview() {
 
 function switchTab(tab) {
     document.querySelectorAll('[id^="tab-"]').forEach(t => {
-        t.classList.remove('text-slate-700', 'dark:text-slate-400', 'bg-white', 'dark:bg-gray-800', 'border-slate-600', 'dark:border-slate-400');
+        t.classList.remove('text-slate-700', 'bg-white', 'border-slate-600');
     });
     
     const activeTab = document.getElementById('tab-' + tab);
-    activeTab.classList.remove('text-gray-600', 'dark:text-gray-400', 'border-transparent');
-    activeTab.classList.add('text-slate-700', 'dark:text-slate-400', 'bg-white', 'dark:bg-gray-800', 'border-slate-600', 'dark:border-slate-400');
+    activeTab.classList.remove('text-gray-600', 'border-transparent');
+    activeTab.classList.add('text-slate-700', 'bg-white', 'border-slate-600');
     
     document.getElementById('pane-edit').classList.toggle('hidden', tab !== 'edit');
     document.getElementById('pane-preview').classList.toggle('hidden', tab !== 'preview');

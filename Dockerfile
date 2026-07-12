@@ -30,14 +30,16 @@ COPY README.md ./
 # Install dependencies system-wide (no .venv!)
 RUN uv pip install --system -e .
 
-# Embedding- + Sparse-Modell zur Build-Zeit in den HF-Cache laden,
+# Embedding- + Sparse-Modell zur Build-Zeit in den Cache laden,
 # damit der Containerstart nicht auf einen Download wartet (Start-Timeout-Fix).
-# Wenn EMBEDDING_MODEL geaendert wird, mit --build-arg EMBEDDING_MODEL=... neu bauen,
-# damit der Name mit dem runtime EMBEDDING_MODEL (DB/Env) uebereinstimmt.
-ARG EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
-RUN python -c "from langchain_huggingface import HuggingFaceEmbeddings; \
-      HuggingFaceEmbeddings(model_name='${EMBEDDING_MODEL}', \
-      model_kwargs={'device':'cpu'}, encode_kwargs={'device':'cpu'})" \
+# Verwendet FastEmbed (ONNX) statt HuggingFace/Torch — schnellerer Start,
+# kein PyTorch-Overhead. Wenn EMBEDDING_MODEL geaendert wird, mit
+# --build-arg EMBEDDING_MODEL=... neu bauen, damit der Name mit dem
+# runtime EMBEDDING_MODEL (DB/Env) uebereinstimmt.
+# Hinweis: fastembed erwartet den HF-Org-Prefix (z. B. sentence-transformers/...).
+ARG EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+RUN python -c "from langchain_community.embeddings import FastEmbedEmbeddings; \
+      FastEmbedEmbeddings(model_name='${EMBEDDING_MODEL}')" \
  && python -c "from langchain_qdrant import FastEmbedSparse; \
       FastEmbedSparse(model_name='Qdrant/bm25')"
 
@@ -61,7 +63,7 @@ RUN tailwindcss -i ./app/static/css/tailwind.input.css \
 # Create directories. Die Daten-Subdirs (files/processed_files/images/
 # summaries) legt ensure_directories zur Laufzeit unter /app/data an (das
 # app-data-Volume ueberlagert /app/data leer).
-RUN mkdir -p /app/data /app/flask_session
+RUN mkdir -p /app/data
 
 # Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh

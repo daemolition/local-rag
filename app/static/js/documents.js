@@ -18,7 +18,7 @@ function closeModal() {
 function deleteDocument() {
     if (!currentDocId) return;
 
-    fetch(`/admin/documents/${currentDocId}/delete`, {
+    fetch(`/user/vectordb/${currentDocId}/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
     })
@@ -55,7 +55,7 @@ function closeBatchModal() {
 function batchDeleteDocument() {
     if (!currentFilename) return;
 
-    fetch('/admin/documents/batch-delete', {
+    fetch('/user/vectordb/batch-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: currentFilename })

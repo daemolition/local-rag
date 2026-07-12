@@ -4,7 +4,7 @@ High-signal guidance for OpenCode sessions in this repo.
 
 ## Project in one line
 
-German Flask RAG app with SSE chat, SQLAlchemy multi-user management, Qdrant hybrid search (dense + sparse/BM25), Pandas analytics tools, and Ollama/OpenAI-compatible LLMs.
+German Flask RAG app with SSE chat, single-user app-password login (no accounts), SQLAlchemy settings/chat/document tracking, Qdrant hybrid search (dense + sparse/BM25), Pandas analytics tools, and Ollama/OpenAI-compatible LLMs.
 
 ## Entry points and run commands
 
@@ -25,16 +25,17 @@ docker-compose up --build
 ```
 
 - Windows default URL: `http://127.0.0.1:5000` (localhost only; no firewall prompt).
-- Linux/Docker default URL: `http://0.0.0.0:5000`.
-- Default admin login: `admin` / `secret123` (or `ADMIN_PASSWORD` from `.env`).
+- Linux/Docker host port: `docker-compose up` maps `8083:5000` (host:container) — the app is on `http://localhost:8083`, not 5000. The README's "http://localhost:5000" Docker note is stale.
+- Linux manual (`python run_linux.py`, no Docker) binds `0.0.0.0:5000`.
+- Default app login: single app-password (no username). Default password `admin`, overridable via `ADMIN_PASSWORD` env on a fresh DB; afterwards managed via *Einstellungen → Passwort ändern*. Auth sets `session['authenticated']` (see `app/auth.py`); the hash lives in the `APP_PASSWORD_HASH` setting row.
 - Both `run_windows.py` and `run_linux.py` run `alembic upgrade head` automatically before starting the server.
 
 ## Important: Alembic baseline and existing app.db
 
-- The initial migration (`alembic/versions/0001_initial_schema_and_admin_seed.py`) creates all tables from `app/models.py` and seeds an admin user (`admin` / `admin`).
+- The initial migration (`alembic/versions/0001_initial_schema_and_admin_seed.py`) creates all tables and seeds an admin user (`admin` / `admin`).
+- Migration `0002_single_user_conversion.py` drops the `users` table, moves the admin password hash into the `APP_PASSWORD_HASH` setting row, and removes all `user_id` FKs (single-user). `0003_embedding_model_prefix.py` rewrites `EMBEDDING_MODEL` to the HF-org-prefixed form fastembed needs.
 - `app.db` may already exist, created by `DatabaseService` calling `Base.metadata.create_all()` in `app/__init__.py` (not by Alembic). On an existing `app.db`, `alembic upgrade head` fails with "table already exists" — run `alembic stamp head` to mark it as migrated without executing DDL, or delete `app.db` to start fresh.
 - `run_windows.py` / `run_linux.py` run `alembic upgrade head` automatically before starting the server; on a fresh DB this creates the schema + admin seed.
-- For schema changes to `app/models.py`: `alembic revision --autogenerate -m "description"`; autogenerate sees the full schema (`env.py` sets `target_metadata = Base.metadata`).
 
 ## Lint / format
 
@@ -49,34 +50,40 @@ uv run ruff format .
 
 ## Key architecture facts
 
-- App factory: `app/__init__.py:create_app()`.
-- Routes: `app/routes.py` (chat + SSE), `app/admin_routes.py`, `app/user_routes.py`.
-- Database service singleton: `app/database_service.py:init_db_service()` / `get_db_service()`. Always close sessions you open.
+- App factory: `app/__init__.py:create_app()`. Qdrant client + collection creation run synchronously (needed immediately by document routes); loading the embedding model and building the vectorstore/retriever/agent happens in a background thread (`init_resources` → `_load_resources`) so container startup doesn't block on a model download. Code needing `app.extensions["agent"]`/`"dense_embeddings"` must gate on `wait_for_resources(timeout=...)` first (see `user_routes.py:trigger_ingestion`).
+- Routes: `app/routes.py` (chat + SSE, no prefix), `app/user_routes.py` (`/user`). The former `/admin` blueprint was removed; dashboard, vector DB, settings, summaries, and uploads now live under `/user`.
+- Database service singleton: `app/database_service.py:init_db_service()` / `get_db_service()`. Every method opens its own session and closes it in `finally` before returning — see the DetachedInstanceError gotcha below.
 - Models: `app/models.py`. Settings model is the source of truth for runtime config.
-- Settings resolution order: `settings_service.py` reads DB first, then `.env`/environment, then default.
+- Settings resolution order: `settings_service.py` reads DB first, then `.env`/environment, then default. A stale DB row silently wins over a correct env var indefinitely — check the `settings` table first when an env var "doesn't take effect".
 - Qdrant client factory: `app/utils/qdrant_client.py`. Connects to a running Qdrant server at `QDRANT_HOST:QDRANT_PORT` (default `localhost:6333`). No embedded/local file mode.
-- Vector collection name is hardcoded to `"local_rag"` and uses hybrid retrieval (`langchain_qdrant` dense + FastEmbedSparse BM25).
+- Vector collection name is hardcoded to `"local_rag"` and uses hybrid retrieval (`langchain_qdrant` dense + FastEmbedSparse BM25). One Qdrant point per chunk; all chunks of one ingested file share a `file_group_id` payload value, which file-level list/delete operations filter on (a file is never one point).
 - Default embedding dimension is `384`; must match the chosen `EMBEDDING_MODEL`.
+- Shared knowledge base, not per-user silos: any document uploaded by anyone is retrievable by everyone in chat (intentional). `UserDocument`/`UserSummaryFile` rows are ownership bookkeeping for the "my documents"/"my analyses" management UI, not an access-control boundary — retrieval is never filtered by uploader.
+- `app/tools/custom_tools.py:CustomTools` is instantiated **once** at app startup and shared across every request — it has no per-request state. Summary tracking (`_track_summary_for_current_user`) calls `get_db_service()` directly (single-user, no Flask session inspection needed).
+- Linux/Docker runs `gunicorn -w 1 --threads 4 -k gthread` (`run_linux.py`). Worker count must stay at 1 — several module-level globals are process-wide, not per-worker-safe (`app/__init__.py`'s `_qdrant_client`/`_db_service`, `app/user_routes.py`'s shared ingestion status). Threads exist so a long-lived SSE chat stream doesn't block every other request app-wide.
+- Tailwind CSS is precompiled at Docker build time (standalone CLI against `app/templates/**`/`app/static/js/**` → `app/static/css/tailwind.css`, binary then deleted). No live watch/dev-server — new utility classes in templates only take effect after an image rebuild. Dark mode is **not** configured — `darkMode: 'class'` was removed from `tailwind.config.js`; do not add `dark:` variants to templates.
+- The embedding model is baked into the Docker image at build time (`ARG EMBEDDING_MODEL`, downloaded into the fastembed ONNX cache during build). Default `EMBEDDING_SOURCE=local` uses `FastEmbedEmbeddings` (ONNX) from `langchain_community` — no PyTorch overhead. Setting `EMBEDDING_SOURCE=endpoint` switches to `OpenAIEmbeddings` (langchain_openai) pointed at `EMBEDDING_ENDPOINT` with `API_KEY`. Changing the `EMBEDDING_MODEL` setting at runtime without rebuilding with a matching `--build-arg` means the new model downloads on demand instead of using the prebuilt cache. fastembed requires the HF-org-prefixed model name (e.g. `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, not the bare `paraphrase-multilingual-MiniLM-L12-v2`).
+- Image extraction with VisionLLM is not limited to PDF. DOCX/DOC/ODT use `CustomDOCXLoader` → `PreprocessDOCX` which opens the file as a ZIP, extracts images from `word/media/`, and processes them in paragraph order via `python-docx` so `[BILD-BESCHREIBUNG: ...]` markers land at the correct text-flow position. PDF uses `CustomPDFLoader` → `PreprocessPDF` with `partition_pdf(extract_images_in_pdf=True)`. Both inherit from `PreprocessBase` (`app/components/preprocess_base.py`) which holds the shared dedup/encode/VisionLLM/chunk-building logic. Markdown (`.md`) uses `UnstructuredMarkdownLoader` — images are links, not embedded binaries, so no VisionLLM processing.
+- `langchain-huggingface` is **not** a dependency. Local embedding is ONNX-based via `FastEmbedEmbeddings` + `FastEmbedSparse`; `EMBEDDING_SOURCE=endpoint` uses `OpenAIEmbeddings` (langchain_openai). The `retriever.py` standalone class still reads from env (not DB) — it's not in the active app path but kept for scripts.
 
 ## Document ingestion
 
 Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates CLI-Skript mehr nötig.
 
-- Admin-Panel: **Upload** → Dateien hochladen → **Ingestion starten** (synchron, ruft `app.vector.DocumentIngestion` direkt auf).
-- User-Bereich: **Meine Dokumente** → Dateien hochladen → **Ingestion starten**.
-- Ingestion erfolgt aus `app/admin_routes.py` und `app/user_routes.py` heraus über `app.vector.DocumentIngestion`.
+- Dokumente-Bereich (`/user/documents`) und Vektordatenbank-Bereich (`/user/vectordb`): Dateien hochladen → **Ingestion starten**. Ingestion läuft synchron (`app.vector.DocumentIngestion.ingest_documents()`, aufgerufen aus `app/user_routes.py`) — der Request blockiert bis Ingestion fertig ist, kein Hintergrund-Job/Queue.
+- Uploads landen zunächst flach in `data/files/<filename>`. Nach erfolgreicher Ingestion wandern PDF/DOCX nach `data/processed_files/<filename>`, CSV/XLSX nach `DATA_DIR` (Kollisionsschutz per Timestamp-Suffix).
 - Unter Windows wird Qdrant als `qdrant.exe` von `run_windows.py` gestartet (Server-Modus auf `127.0.0.1:6333`), sodass Flask und Ingestion gleichzeitig laufen können.
 
 ## File locations
 
 | Type | Location |
-|------|----------|
-| SQLite app DB | `./app/data/app.db` |
-| Legacy chat DB | `./app/data/chat_history.db` (migration target only) |
-| Session storage | `./flask_session/` |
-| Uploads | `./files/` |
-| Analytics data | `./data/` |
-| Summaries | `./summaries/` |
+| ---- | -------- |
+| SQLite app DB | `data/app.db` (not `app/data/app.db`) |
+| Session storage | Flask cookie sessions (client-side, signed via `SECRET_KEY`) |
+| Pending uploads | `data/files/` |
+| Ingested PDF/DOCX archive | `data/processed_files/` |
+| Ingested CSV/XLSX (`DATA_DIR` setting) | `data/` |
+| Markdown analyses (`SUMMARIES_DIR` setting) | `data/summaries/` |
 
 ## Code conventions
 
@@ -95,26 +102,29 @@ Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates C
 ## What to touch when changing...
 
 | Change | Files |
-|--------|-------|
+| ------ | ----- |
 | DB schema / models | `app/models.py` + create Alembic migration |
 | DB queries / CRUD | `app/database_service.py` |
 | Config/settings | `app/settings_service.py` (also check `env.example`) |
-| Admin features | `app/admin_routes.py` + `app/templates/admin/` |
-| User features | `app/user_routes.py` + `app/templates/user/` |
+| User features (documents, vector DB, settings, summaries, dashboard) | `app/user_routes.py` + `app/templates/user/` |
 | Qdrant wiring | `app/utils/qdrant_client.py`, `app/__init__.py` |
 | File operations | `app/utils/file_manager.py` |
 | Vector ingestion | `app/vector/ingestion.py`, `app/vector/retriever.py` |
+| Document preprocessing / image extraction | `app/components/preprocess_base.py`, `preprocess_pdf.py`, `preprocess_docx.py`, `custom_pdf_loader.py`, `custom_docx_loader.py` |
 | Agent/system prompt | `app/agent/document_agent.py` |
 | LLM wrapper | `app/llm/local_llm.py` |
 
 ## Common gotchas
 
 - **SQLite locked:** enable WAL mode or reduce concurrent writers.
-- **Settings drift:** Admin panel edits live in the `settings` table. Use `SettingsService(db_session)` to read current values, not stale `.env` defaults.
-- **Legacy `app/database.py`:** still called inside `create_app()` for compatibility; new code should use `app/database_service.py`.
-- **Embedding dimension mismatch** causes Qdrant collection creation to fail. Keep `EMBEDDING_DIMENSION` in sync with `EMBEDDING_MODEL`.
+- **Settings drift:** Admin panel edits live in the `settings` table and win over `.env`/environment variables silently and indefinitely — a stale DB row can override a correct env var forever. Check the `settings` table before trusting `.env` when something "doesn't take effect" (bit us with `QDRANT_HOST` stuck at `localhost` from an old run). `env.example` contains only Qdrant infra vars and OCR paths — all app config (LLM, embedding, retriever, storage, API keys, STT) lives in the `settings` table.
+- **API_KEY no longer needs `.env`:** `API_KEY` is read from the settings DB (like all other config), with `os.getenv` only as standalone fallback. The `docker-compose.yml` no longer passes `API_KEY` as an environment variable. The settings DB row is seeded with default `'ollama'` on first migration.
+- **Embedding dimension mismatch** causes Qdrant collection creation to fail. Keep `EMBEDDING_DIMENSION` in sync with `EMBEDDING_MODEL`. Embedding/LLM/retriever config lives entirely in the `settings` table now — `env.example` only has Qdrant infra vars and OCR paths, not model/dimension config.
+- **Embedding backend change requires re-ingestion:** switching from Torch (`HuggingFaceEmbeddings`) to ONNX (`FastEmbedEmbeddings`) changes vector values for the "same" model — old and new vectors coexist in the collection with slightly different geometries. Re-ingest all documents after swapping backends.
 - **Tesseract/Poppler paths on Windows** should be set via `.env` (`TESSERACT_CMD`, `POPPLER_PATH`) or configured in the PDF loader.
-- **Env var name mismatch:** `.env`/`env.example` use `EMBEDDING_DIMENSIONS` (plural), but the code reads `EMBEDDING_DIMENSION` (singular). The plural env value is silently ignored; dimension falls back to the DB setting or default `384`. Keep the singular name when setting it.
 - **Qdrant must be running** before starting the app (server mode only; no embedded file fallback). On Windows, `run_windows.py` auto-starts `qdrant.exe`; on Linux, use Docker Compose or run Qdrant separately.
 - **Qdrant server migration:** `scripts/manage_qdrant.py` (`uv run python scripts/manage_qdrant.py status|migrate|info`) can move a collection between two Qdrant server instances.
+- **DetachedInstanceError risk:** `DatabaseService` methods close their session before returning ORM objects. Any relationship on a returned object (e.g. `ChatSession.messages`, `Message.session`) not eager-loaded (`joinedload`) raises `DetachedInstanceError` the moment it's accessed later — already happened once with `get_summary_by_filename` (a relationship access). Plain columns are always safe; relationships are not unless eager-loaded.
+- **"Tracking" DB writes are easy to forget to wire up:** `add_document()`/`create_summary_file()` existed with zero callers for a while — files were written/ingested correctly but silently never appeared in the "my documents"/"my analyses" UI because nothing called the DB-row-creating method. When adding a "create X and track it" flow, grep for actual callers, don't assume it's wired in just because the method exists.
+- **Gunicorn worker count:** stay at `-w 1` (see architecture facts above) — multiple worker processes would each get their own copy of the module-level globals several routes depend on.
 

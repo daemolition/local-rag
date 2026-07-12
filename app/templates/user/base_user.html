@@ -3,7 +3,7 @@
 {% block content %}
 <div class="min-h-screen flex">
     <!-- Sidebar -->
-    <aside class="relative w-64 bg-gradient-to-b from-slate-700 to-slate-800 dark:from-slate-900 dark:to-slate-950 text-white shadow-material-2 flex-shrink-0 flex flex-col">
+    <aside class="relative w-64 bg-gradient-to-b from-slate-700 to-slate-800 text-white shadow-material-2 flex-shrink-0 flex flex-col">
         <div class="p-4 border-b border-white/10">
             <h2 class="text-lg font-semibold flex items-center gap-2">
                 <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -11,6 +11,13 @@
                 </svg>
                 Meine Dokumente
             </h2>
+            <div id="ingestionIndicator" style="display: none;" class="flex mt-2 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/80 animate-pulse text-white text-xs font-medium">
+                <svg class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <span>Dokumentenverarbeitung läuft</span>
+            </div>
         </div>
         <nav class="p-2 flex-1">
             <a href="{{ url_for('main.index') }}" class="block px-4 py-2 rounded-lg hover:bg-white/10 transition-colors text-sm">
@@ -23,25 +30,21 @@
             <a href="{{ url_for('user.my_summaries') }}" class="block px-4 py-2 rounded-lg {% if request.endpoint in ['user.my_summaries', 'user.edit_summary'] %}bg-white/25{% else %}hover:bg-white/10{% endif %} transition-colors text-sm">
                 Analysen
             </a>
+            <div class="my-2 border-t border-white/10"></div>
+            <a href="{{ url_for('user.dashboard') }}" class="block px-4 py-2 rounded-lg {% if request.endpoint == 'user.dashboard' %}bg-white/25{% else %}hover:bg-white/10{% endif %} transition-colors text-sm">
+                Dashboard
+            </a>
+            <a href="{{ url_for('user.vectordb') }}" class="block px-4 py-2 rounded-lg {% if request.endpoint in ['user.vectordb', 'user.vectordb_detail'] %}bg-white/25{% else %}hover:bg-white/10{% endif %} transition-colors text-sm">
+                Vektordatenbank
+            </a>
+            <a href="{{ url_for('user.settings') }}" class="block px-4 py-2 rounded-lg {% if request.endpoint == 'user.settings' %}bg-white/25{% else %}hover:bg-white/10{% endif %} transition-colors text-sm">
+                Einstellungen
+            </a>
         </nav>
-        
-        <!-- Dark Mode Toggle in Sidebar -->
-        <div class="p-2 border-t border-white/10">
-            <button onclick="toggleDarkMode()" class="w-full px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-sm flex items-center justify-center gap-2">
-                <svg class="w-4 h-4 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-                </svg>
-                <svg class="w-4 h-4 hidden dark:block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-                </svg>
-                <span class="dark:hidden">Light</span>
-                <span class="hidden dark:inline">Dark</span>
-            </button>
-        </div>
     </aside>
     
     <!-- Main Content -->
-    <main class="flex-1 p-6 bg-gray-50 dark:bg-gray-900 overflow-auto">
+    <main class="flex-1 p-6 bg-gray-50 overflow-auto">
         {% block user_content %}{% endblock %}
     </main>
 </div>

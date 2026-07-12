@@ -68,9 +68,9 @@ def check_data_file_exists(filename: str) -> bool:
             data_dir = settings.get('DATA_DIR', './data')
         else:
             data_dir = os.getenv('DATA_DIR', './data')
-    except:
+    except Exception:
         data_dir = os.getenv('DATA_DIR', './data')
-    
+
     file_path = Path(data_dir) / filename
     return file_path.exists() and file_path.is_file()
 
@@ -101,7 +101,7 @@ def delete_associated_file(payload: Dict[str, Any]) -> bool:
                 data_dir = settings.get('DATA_DIR', './data')
             else:
                 data_dir = os.getenv('DATA_DIR', './data')
-        except:
+        except Exception:
             data_dir = os.getenv('DATA_DIR', './data')
 
         candidates = [Path(data_dir) / filename]
@@ -157,9 +157,9 @@ def get_data_file_info(filename: str) -> Optional[Dict[str, Any]]:
             data_dir = settings.get('DATA_DIR', './data')
         else:
             data_dir = os.getenv('DATA_DIR', './data')
-    except:
+    except Exception:
         data_dir = os.getenv('DATA_DIR', './data')
-    
+
     file_path = Path(data_dir) / filename
     
     if not file_path.exists() or not file_path.is_file():

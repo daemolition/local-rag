@@ -19,8 +19,9 @@ tools/*.zip
 tools/*.traineddata
 processed_files
 local_qdrant.db
-flask_session/**
 summaries/**
 app/data/*.db
 app/data/*.db-journal
+data/
 .claude/
+.docs/
