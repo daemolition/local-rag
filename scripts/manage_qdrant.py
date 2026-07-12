@@ -46,9 +46,9 @@ from typing import Optional
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from qdrant_client import QdrantClient
-from qdrant_client.http import models as qdrant_models
-from tqdm import tqdm
+from qdrant_client import QdrantClient  # noqa: E402
+from qdrant_client.http import models as qdrant_models  # noqa: E402
+from tqdm import tqdm  # noqa: E402
 
 
 def create_remote_client(host: str, port: int, api_key: Optional[str] = None) -> QdrantClient:

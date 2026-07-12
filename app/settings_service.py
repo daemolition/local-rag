@@ -33,6 +33,9 @@ class SettingsService:
             'CHAT_MODEL', 'CHAT_BASEURL', 'CHAT_TEMPERATURE', 'CHAT_TOP_P',
             'VISION_MODEL', 'VISION_BASEURL', 'API_KEY',
         ],
+        'stt': [
+            'STT_MODEL', 'STT_BASEURL', 'STT_API_KEY',
+        ],
         'embedding': [
             'EMBEDDING_SOURCE', 'EMBEDDING_MODEL', 'EMBEDDING_ENDPOINT', 'EMBEDDING_DIMENSION'
         ],
@@ -44,14 +47,19 @@ class SettingsService:
         ],
         'qdrant': [
             'QDRANT_HOST', 'QDRANT_PORT', 'QDRANT_API_KEY'
+        ],
+        'auth': [
+            'APP_PASSWORD_HASH', 'SECRET_KEY',
         ]
     }
 
-    SENSITIVE_KEYS = {'API_KEY', 'QDRANT_API_KEY'}
+    SENSITIVE_KEYS = {'API_KEY', 'QDRANT_API_KEY', 'STT_API_KEY', 'APP_PASSWORD_HASH', 'SECRET_KEY'}
 
     # Veraltete Settings, die nicht mehr im Admin-Panel erscheinen und nicht aus
     # der env re-importiert werden. Bestehende DB-Zeilen werden beim Init geloescht.
+    # APP_PASSWORD_HASH wird separat vom Passwort-Formular verwaltet.
     DEPRECATED_KEYS = {'MODEL', 'BASEURL', 'TEMPERATURE', 'TOP_P', 'CHAT_DB_PATH'}
+    UI_EXCLUDED_KEYS = {'APP_PASSWORD_HASH'}
 
     DESCRIPTIONS = {
         'CHAT_MODEL': 'Modell für Chat-Interaktionen (z.B. qwen3:8b, buddy)',
@@ -61,7 +69,10 @@ class SettingsService:
         'VISION_MODEL': 'Vision-Modell für Bildverarbeitung in PDFs',
         'VISION_BASEURL': 'Vision API URL (falls anders als Chat)',
         'API_KEY': 'API Key für Authentifizierung',
-        'EMBEDDING_SOURCE': 'Quelle: "local" (HuggingFace) oder "endpoint"',
+        'STT_MODEL': 'Speech-to-Text Modell (z.B. whisper-1)',
+        'STT_BASEURL': 'STT API URL (z.B. OpenAI-compatible Whisper Endpoint)',
+        'STT_API_KEY': 'API Key für STT Endpoint',
+        'EMBEDDING_SOURCE': 'Quelle: "local" (ONNX/fastembed) oder "endpoint"',
         'EMBEDDING_MODEL': 'Embedding Modell Name',
         'EMBEDDING_ENDPOINT': 'URL für externen Embedding-Service',
         'EMBEDDING_DIMENSION': 'Vektor-Dimension (muss zum Modell passen)',
@@ -70,6 +81,7 @@ class SettingsService:
         'RETRIEVER_LAMBDA': 'MMR Balance: 0.0 = divers, 1.0 = relevant',
         'RETRIEVER_SCORE_THRESHOLD': 'Mindest-Ähnlichkeitsscore',
         'DATA_DIR': 'Verzeichnis für Excel/CSV Dateien',
+        'SECRET_KEY': 'Flask Secret Key (wird bei leerem Wert automatisch erzeugt)',
         'SUMMARIES_DIR': 'Verzeichnis für gespeicherte Analysen',
         'QDRANT_HOST': 'Qdrant Server Host',
         'QDRANT_PORT': 'Qdrant Server Port',
@@ -152,14 +164,17 @@ class SettingsService:
             self.set(key, value)
     
     def get_all_by_category(self) -> Dict[str, List[Setting]]:
-        """Alle Settings gruppiert nach Kategorie (für Admin-Panel).
-        Veraltete Settings (DEPRECATED_KEYS) werden ausgeblendet."""
+        """Alle Settings gruppiert nach Kategorie (für Settings-Panel).
+        Veraltete Settings (DEPRECATED_KEYS) und UI-exkludierte Keys
+        (z.B. APP_PASSWORD_HASH) werden ausgeblendet."""
         settings = self.db.query(Setting).order_by(Setting.key).all()
         result = {cat: [] for cat in self.CATEGORIES.keys()}
         result['other'] = []  # Für Settings ohne Kategorie
 
         for setting in settings:
             if setting.key in self.DEPRECATED_KEYS:
+                continue
+            if setting.key in self.UI_EXCLUDED_KEYS:
                 continue
             cat = setting.category if setting.category in result else 'other'
             result[cat].append(setting)
@@ -190,10 +205,12 @@ class SettingsService:
         """Deutsche Anzeigenamen für Kategorien"""
         names = {
             'llm': 'LLM Einstellungen',
+            'stt': 'Spracheingabe (STT)',
             'embedding': 'Embedding Einstellungen',
             'retriever': 'Retriever Einstellungen',
             'storage': 'Speicher Einstellungen',
             'qdrant': 'Qdrant Einstellungen',
+            'auth': 'Authentifizierung',
             'other': 'Sonstige Einstellungen'
         }
         return names.get(category, category.capitalize())
@@ -250,7 +267,6 @@ class SettingsService:
         return 'other'
     
     # === Convenience Methods für häufige Settings ===
-
     def get_data_dir(self) -> str:
         """Daten-Verzeichnis"""
         return self.get('DATA_DIR', './data')

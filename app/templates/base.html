@@ -8,24 +8,15 @@
     <!-- Vorkompiliertes Tailwind-CSS (self-hosted) + Inter-Font.
          Ersetzt den render-blockierenden Tailwind-Play-CDN + Google-Fonts-Request. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
-    <script>
-    function toggleDarkMode() {
-        document.documentElement.classList.toggle('dark');
-        localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
-    }
-    if (localStorage.getItem('darkMode') === 'true' || (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark');
-    }
-    </script>
 
     {% block extra_head %}{% endblock %}
 </head>
-<body class="h-full bg-gray-50 dark:bg-gray-900 font-sans antialiased">
+<body class="h-full bg-gray-50 font-sans antialiased">
     {% block content %}{% endblock %}
-    
+
     <!-- Utils JS -->
     <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
-    
+
     {% block extra_js %}{% endblock %}
 </body>
 </html>

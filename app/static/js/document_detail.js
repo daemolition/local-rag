@@ -9,14 +9,14 @@ function closeModal() {
 }
 
 function deleteDocument() {
-    fetch(`/admin/documents/${docId}/delete`, {
+    fetch(`/user/vectordb/${docId}/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
     })
     .then(res => res.json())
     .then(data => {
         if (data.success) {
-            window.location.href = '/admin/documents';
+            window.location.href = '/user/vectordb';
         } else {
             showToast('Fehler: ' + (data.error || 'Unbekannter Fehler'), 'error');
             closeModal();

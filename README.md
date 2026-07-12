@@ -1,19 +1,18 @@
 # Local Document RAG
 
-Ein lokales RAG-System (Retrieval-Augmented Generation) mit Flask-Webinterface, SSE-Streaming, Pandas-Datenanalyse, Multi-User-Verwaltung und hybrider Vektorsuche.
+Ein lokales RAG-System (Retrieval-Augmented Generation) mit Flask-Webinterface, SSE-Streaming, Pandas-Datenanalyse und hybrider Vektorsuche. Singleuser: ein einzelnes App-Passwort schützt den Zugriff, keine Accounts oder Rollen.
 
 > **Lizenz:** Dieses Projekt ist unter der **GNU Affero General Public License v3 oder später (AGPL-3.0-or-later)** veröffentlicht. Siehe [`LICENSE`](./LICENSE).
 
 ## Features
 
-- **Flask Webinterface** mit Login-Authentifizierung und Session-Management
-- **Multi-User Support** mit Admin-Panel und Berechtigungen
+- **Flask Webinterface** mit einfachem Passwortschutz und Session-Management
 - **SSE Streaming** für Echtzeit-Antworten
 - **Hybride Vektorsuche** (Dense + Sparse/BM25) mit Qdrant
 - **Multi-Format Dokumenten-Ingestion** (PDF, CSV, Excel, DOCX)
 - **Pandas Analytics Tools** für Datenanalyse
 - **Lokales LLM** via Ollama/OpenAI-kompatibler API
-- **Admin Panel** für Settings, User Management und Summaries
+- **Verwaltungsbereich** für Vektordatenbank-Einsicht und Settings
 - **Alembic Datenbank-Migrationen** für SQLAlchemy
 
 ---
@@ -45,13 +44,11 @@ python run_linux.py
 
 → Öffnet http://localhost:5000
 
-### Default Login
+### Default-Passwort
 
-| Benutzer | Passwort | Rolle |
-|---------|----------|-------|
-| admin | admin | Admin (alle Berechtigungen) |
+Beim ersten Start wird ein einzelnes App-Passwort gesetzt: **`admin`** (überschreibbar über `ADMIN_PASSWORD` in `.env` bei frischer DB). Es gibt keine Benutzernamen/Accounts mehr — nur das eine Passwort schützt die App.
 
-> **Wichtig:** Ändere das Admin-Passwort nach dem ersten Login! Setze `ADMIN_PASSWORD` in `.env` für einen benutzerdefinierten Default.
+> **Wichtig:** Ändere das Passwort nach dem ersten Login über **Einstellungen → Passwort ändern**.
 
 ---
 
@@ -111,15 +108,15 @@ Manuell: Starte Qdrant separat (Docker, Binary, etc.) und konfiguriere `QDRANT_H
    ```bash
    alembic upgrade head
    ```
-   → Erstellt `app/data/app.db` mit allen Tabellen + Admin-User (`admin`/`admin`).
+   → Erstellt `data/app.db` mit allen Tabellen + Default-Passwort (`admin`).
 
 4. **Umgebungsvariablen (`.env`):**
    ```bash
    cp env.example .env
-   # .env anpassen (LLM-URL, Qdrant-Host, etc.)
+   # .env anpassen (Qdrant-Host, OCR-Pfade)
    ```
 
-   Siehe [`env.example`](./env.example) für alle verfügbaren Variablen.
+   Siehe [`env.example`](./env.example) für alle verfügbaren Variablen. App-Konfiguration (LLM, Embedding, API-Keys etc.) wird über das Einstellungen-Panel in der UI gepflegt, nicht über `.env`.
 
 ---
 
@@ -129,11 +126,10 @@ Manuell: Starte Qdrant separat (Docker, Binary, etc.) und konfiguriere `QDRANT_H
 local-document-rag/
 ├── app/                          # Flask Application & RAG Pipeline
 │   ├── __init__.py               # App Factory & SQLAlchemy Init
-│   ├── routes.py                 # Main Routes (Chat, SSE)
-│   ├── admin_routes.py           # Admin Panel (Settings, Users, Upload/Ingestion)
-│   ├── user_routes.py            # User Routes (Documents, Summaries)
+│   ├── routes.py                 # Main Routes (Chat, SSE, Login, STT)
+│   ├── user_routes.py            # Dokumente, Analysen, Vektordatenbank, Settings, Dashboard
 │   ├── database_service.py       # SQLAlchemy CRUD Operations
-│   ├── settings_service.py       # Settings Management
+│   ├── settings_service.py       # Settings Management (inkl. App-Passwort)
 │   ├── models.py                 # SQLAlchemy Models
 │   ├── templates/                # Flask Templates
 │   ├── llm/local_llm.py          # VisionLLM Wrapper
@@ -141,14 +137,11 @@ local-document-rag/
 │   ├── agent/document_agent.py   # LangChain Agent mit Tools
 │   ├── tools/custom_tools.py     # Pandas & Document Tools
 │   ├── utils/                    # Qdrant Client, File Manager, Phase Logger
-│   ├── components/               # PDF Loader & Preprocessing
-│   └── data/                     # SQLite-Datenbanken (app.db, chat_history.db)
+│   └── components/               # PDF Loader & Preprocessing
 │
 ├── alembic/                      # Alembic Migrationen
 ├── scripts/                      # Qdrant Server-Migration
-├── files/                        # Upload-Ordner für Dokumente
-├── data/                         # Excel/CSV-Dateien für Analyse
-├── summaries/                    # Markdown Summary-Dateien
+├── data/                         # App-Daten (app.db, files/, processed_files/, summaries/)
 │
 ├── run_windows.py                # Windows Entry Point
 ├── run_linux.py                  # Linux Entry Point
@@ -191,7 +184,7 @@ python run_linux.py
 ```
 
 **Features:**
-- Gunicorn WSGI Server (1 Worker, SQLite-sicher)
+- Gunicorn WSGI Server (1 Worker + mehrere Threads via `gthread`) — ein Worker-Prozess, damit In-Memory-State (Qdrant-Client etc.) konsistent bleibt, mehrere Threads, damit ein langer SSE-Chat-Stream nicht jede andere Anfrage blockiert
 - Qdrant als Docker Container
 - Netzwerk-weit erreichbar (`0.0.0.0:5000`)
 
@@ -201,19 +194,10 @@ python run_linux.py
 
 Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates CLI-Skript mehr nötig.
 
-### Admin-Panel
-
-1. Als Admin einloggen.
-2. Unter **Upload** PDF-, DOCX-, XLSX-, XLS- oder CSV-Dateien hochladen.
+1. Einloggen.
+2. Unter **Dokumente** PDF-, DOCX-, XLSX-, XLS- oder CSV-Dateien hochladen.
 3. **Ingestion starten** klicken.
-4. Der Admin kann auch über **Dokumente** einzelne Einträge oder ganze Dateigruppen löschen.
-
-### User-Bereich
-
-1. Als normaler User einloggen.
-2. Unter **Meine Dokumente** Dateien hochladen.
-3. **Ingestion starten** klicken.
-4. Der User sieht und verwaltet nur seine eigenen Dokumente.
+4. Einzelne Dokumente oder ganze Dateigruppen lassen sich sowohl unter **Dokumente** (einfache Karten-Ansicht) als auch unter **Vektordatenbank** im Verwaltungsbereich (technische Chunk-Ansicht mit Filter/Pagination/Batch-Löschen) löschen.
 
 ### Was passiert im Hintergrund?
 
@@ -232,7 +216,7 @@ Die Ingestion nutzt `app.vector.DocumentIngestion`:
 ### Erste Installation
 
 ```bash
-# Erstellt app/data/app.db mit allen Tabellen + Admin-User
+# Erstellt data/app.db mit allen Tabellen + Default-Passwort
 alembic upgrade head
 ```
 
@@ -263,39 +247,36 @@ alembic stamp head
 
 ---
 
-## Admin Panel
+## Verwaltungsbereich
 
 ### Zugriff
 
 - URL: http://localhost:5000/admin/
-- Login: admin / admin (oder `ADMIN_PASSWORD` aus `.env`)
+- Login: einzelnes App-Passwort (Default `admin`, siehe [Default-Passwort](#default-passwort))
 
 ### Features
 
 | Bereich | Funktion |
 |---------|----------|
 | **Dashboard** | Qdrant-Statistiken, Collection-Info |
-| **Dokumente** | Alle Qdrant-Dokumente anzeigen/löschen |
-| **Upload** | Dateien für Ingestion hochladen |
-| **Settings** | Alle .env-Variablen im UI bearbeiten |
-| **Users** | User anlegen/löschen/Passwort zurücksetzen |
-| **Summaries** | Alle Markdown-Dateien bearbeiten/löschen |
+| **Vektordatenbank** | Alle Qdrant-Dokumente (Chunk-Ebene) anzeigen/löschen, Filter & Pagination |
+| **Settings** | Alle Konfiguration im UI bearbeiten (LLM, Embedding, Retriever, API-Keys, Storage), inkl. **Passwort ändern** |
 
 ---
 
-## User Features
+## Dokumente & Analysen
 
-### Meine Dokumente
+### Dokumente
 
-- Eigene Dokumente hochladen
-- Eigene Dokumente löschen
+- Dateien hochladen (Datei-Karten-Ansicht, eine Karte pro Datei)
+- Dokumente löschen
 - Bei Löschung: Automatische Löschung der zugehörigen Datei
 
-### Meine Summaries
+### Analysen (Summaries)
 
-- Eigene Markdown-Dateien bearbeiten (Inline-Editor mit Preview)
-- Eigene Markdown-Dateien löschen
-- Werden automatisch beim Speichern von Analysen erstellt
+- Markdown-Dateien bearbeiten (Inline-Editor mit Live-Preview inkl. Tabellen)
+- Markdown-Dateien löschen
+- Werden automatisch beim Speichern von Analysen im Chat erstellt
 
 ---
 
@@ -330,12 +311,12 @@ uv run python scripts/manage_qdrant.py info --host localhost --port 6333
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
 | `/` | GET | Chat-Interface |
-| `/login` | GET/POST | Login |
+| `/login` | GET/POST | Login (einzelnes App-Passwort) |
 | `/logout` | GET | Logout |
 | `/chat` | POST (SSE) | Streaming Chat |
 | `/api/sessions` | GET/POST | Session Management |
-| `/admin/*` | - | Admin Panel |
-| `/user/*` | - | User Routes |
+| `/admin/*` | - | Verwaltung (Vektordatenbank, Settings) |
+| `/user/*` | - | Dokumente & Analysen |
 | `/health` | GET | Health Check |
 
 ---
@@ -346,16 +327,17 @@ uv run python scripts/manage_qdrant.py info --host localhost --port 6333
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Flask App                                │
 ├─────────────────────────────────────────────────────────────────┤
-│  SQLAlchemy DB (Users, Sessions, Messages, Documents, ...)      │
-│  Auth: Session-based (admin/user roles)                          │
+│  SQLAlchemy DB (Sessions, Messages, Documents, Settings, ...)   │
+│  Auth: Session-based (einzelnes App-Passwort, keine Accounts)    │
 └────────────────────────────────────┬────────────────────────────┘
                                      │
                     ┌────────────────┼────────────────┐
                     ▼                ▼                ▼
-              ┌─────────┐      ┌──────────┐     ┌──────────┐
-              │  Admin   │      │  User    │     │  Chat    │
-              │  Panel   │      │  Routes  │     │  (SSE)   │
-              └─────────┘      └──────────┘     └────┬─────┘
+              ┌──────────┐    ┌──────────┐     ┌──────────┐
+              │Verwaltung│    │Dokumente/│     │  Chat    │
+              │(Vektor-DB│    │ Analysen │     │  (SSE)   │
+              │/Settings)│    │          │     │          │
+              └──────────┘    └──────────┘     └────┬─────┘
                                                        │
                                                        ▼
 ┌──────────────────────────────────────────────────────────────────┐
@@ -423,16 +405,13 @@ curl http://localhost:6333/health
 alembic stamp head
 
 # Oder von vorne beginnen (Achtung: Daten gehen verloren!)
-rm app/data/app.db
+rm data/app.db
 alembic upgrade head
 ```
 
 ### Session-Probleme
 
-```bash
-# Session-Verzeichnis löschen
-rm -rf flask_session/
-```
+Sessions werden als signierte Cookies clientseitig gespeichert. Bei merkwürdigem Verhalten `SECRET_KEY` in den Einstellungen zurücksetzen (neuer Schlüssel wird beim nächsten Start generiert).
 
 ---
 

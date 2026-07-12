@@ -22,9 +22,8 @@ import signal
 import threading
 from pathlib import Path
 from flask import Flask
-from flask_session import Session
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 from qdrant_client import models as qdrant_models
 
 from app.llm.local_llm import VisionLLM
@@ -149,7 +148,7 @@ def init_resources(app):
     # thread-safe) und als Captures in den Hintergrund-Thread reichen.
     embedding_model = settings.get(
         'EMBEDDING_MODEL',
-        'paraphrase-multilingual-MiniLM-L12-v2'
+        'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
     )
     retriever_k = settings.get_int('RETRIEVER_K', 5)
     retriever_fetch_k = settings.get_int('RETRIEVER_FETCH_K', 30)
@@ -163,10 +162,8 @@ def init_resources(app):
         global _resources_error
         try:
             logger.info(f"Lade Embedding-Modell im Hintergrund: {embedding_model}")
-            dense_embeddings = HuggingFaceEmbeddings(
+            dense_embeddings = FastEmbedEmbeddings(
                 model_name=embedding_model,
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"device": "cpu"}
             )
             sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
 
@@ -214,24 +211,74 @@ def init_resources(app):
 
 
 def ensure_directories(settings):
-    """Stellt sicher, dass alle benötigten Verzeichnisse existieren."""
+    """Stellt sicher, dass alle benötigten Verzeichnisse existieren.
+
+    Migriert außerdem einmalig Dateien aus den alten
+    data/files/<user_id>/... und data/processed_files/<user_id>/...
+    Unterordnern in die neue flache Struktur (Single-User)."""
     data_dir = settings.get('DATA_DIR', './data')
     summaries_dir = settings.get('SUMMARIES_DIR', './data/summaries')
 
-    # Alle Arbeits-Verzeichnisse liegen als Subdirs unter data_dir (dem
-    # app-data-Volume-Mountpoint /app/data). Nur /app/data selbst ist ein
-    # Mountpoint; diese Subdirs sind normale Verzeichnisse.
     directories = [
         data_dir,
         summaries_dir,
         os.path.join(data_dir, "files"),
         os.path.join(data_dir, "processed_files"),
         os.path.join(data_dir, "images"),
-        "./flask_session",
     ]
     for d in directories:
         Path(d).mkdir(parents=True, exist_ok=True)
         logger.info(f"Verzeichnis sichergestellt: {d}")
+
+    _flatten_user_subdirs(os.path.join(data_dir, "files"))
+    _flatten_user_subdirs(os.path.join(data_dir, "processed_files"))
+
+
+def _flatten_user_subdirs(base_dir: str):
+    """Verschiebt Dateien aus numerischen Unterordnern eine Ebene nach oben.
+
+    Überschreibt bei Namenskollisionen die ältere Datei (Single-User, daher
+    spielt die Herkunft keine Rolle mehr). Löscht danach leere Unterordner."""
+    base = Path(base_dir)
+    if not base.exists():
+        return
+
+    moved_any = False
+    for subdir in base.iterdir():
+        if not subdir.is_dir():
+            continue
+        try:
+            int(subdir.name)
+        except ValueError:
+            continue
+
+        for file_path in subdir.rglob("*"):
+            if not file_path.is_file():
+                continue
+            target = base / file_path.name
+            try:
+                file_path.rename(target)
+                moved_any = True
+            except FileExistsError:
+                file_path.unlink()
+                moved_any = True
+            except Exception as e:
+                logger.warning(f"Konnte {file_path} nicht migrieren: {e}")
+
+        if moved_any:
+            try:
+                _remove_empty_dirs(subdir)
+            except Exception as e:
+                logger.warning(f"Konnte leere Ordner unter {subdir} nicht entfernen: {e}")
+
+
+def _remove_empty_dirs(path: Path):
+    """Löscht leere Verzeichnisse rekursiv von innen nach außen."""
+    for child in sorted(path.rglob("*"), reverse=True):
+        if child.is_dir() and not any(child.iterdir()):
+            child.rmdir()
+    if path.is_dir() and not any(path.iterdir()):
+        path.rmdir()
 
 
 def create_app():
@@ -250,35 +297,30 @@ def create_app():
     ensure_directories(settings)
     
     # Flask Konfiguration
-    app.config['SECRET_KEY'] = os.urandom(24)
-    app.config['SESSION_TYPE'] = 'filesystem'
-    app.config['SESSION_FILE_DIR'] = './flask_session/'
-    
+    # SECRET_KEY wird persistiert (Settings DB → env → neu generiert), damit
+    # Sessions App-Neustarts überleben und sich nicht bei jedem Start vermehren.
+    secret_key = settings.get('SECRET_KEY')
+    if not secret_key:
+        secret_key = os.urandom(32).hex()
+        settings.set('SECRET_KEY', secret_key)
+    app.config['SECRET_KEY'] = secret_key
+
     app.extensions = {}
     app.extensions['db'] = _db_service
     app.extensions['settings'] = settings
-    
-    Session(app)
-    
+    # Geteilter Ingestion-Status, fuer den Navbar-Indikator per Polling
+    # ueber /api/ingestion-status.
+    app.extensions['ingestion_status'] = {'is_ingesting': False}
+
     init_resources(app)
     
     # Blueprints registrieren
     from app.routes import bp
     app.register_blueprint(bp)
 
-    from app.admin_routes import admin_bp
-    app.register_blueprint(admin_bp)
-    
-    # User Routes (für normale User - Dokumentenverwaltung)
+    # User Routes enthalten jetzt auch die ehemaligen Admin-Funktionen
+    # (Dashboard, Vektordatenbank, Settings, Summaries).
     from app.user_routes import user_bp
     app.register_blueprint(user_bp)
-    
-    # Legacy database.py init_db() aufrufen für Migration
-    # (wird in Phase 2 entfernt)
-    from app.database import init_db as legacy_init_db
-    try:
-        legacy_init_db()
-    except Exception as e:
-        logger.warning(f"Legacy DB Init (für Migration): {e}")
 
     return app

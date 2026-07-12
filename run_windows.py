@@ -33,7 +33,6 @@ import signal
 import atexit
 from pathlib import Path
 import urllib.request
-import os
 
 _qdrant_process = None
 

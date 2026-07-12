@@ -543,11 +543,11 @@ class CustomTools:
             
             if not report:
                 duration = time.time() - start_time
-                phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Kein Ergebnis zurückgegeben", duration=duration)
+                phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: run_pandas | Kein Ergebnis zurückgegeben", duration=duration)
                 return "Code wurde ausgeführt, aber kein Ergebnis zurückgegeben.\nTipp: Weise das Ergebnis der Variable 'result' zu, z. B.: result = df['Spalte'].sum()"
             
             duration = time.time() - start_time
-            phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Ergebnis zurückgegeben", duration=duration)
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: run_pandas | Ergebnis zurückgegeben", duration=duration)
             
             return "\n\n".join(report)
             
@@ -613,28 +613,16 @@ class CustomTools:
             return f"FEHLER beim Lesen von '{filename}': {type(e).__name__}: {e}"
     
     def _track_summary_for_current_user(self, filename: str) -> None:
-        """Verknuepft die geschriebene Summary-Datei mit dem aktuell eingeloggten
-        Nutzer, damit sie unter "Meine Analysen" erscheint. CustomTools ist eine
-        einzige, prozessweit geteilte Instanz (siehe init_resources in
-        app/__init__.py) ohne eigenen Nutzerkontext, daher wird der Nutzer hier
-        ueber die Flask-Session des gerade laufenden Requests aufgeloest.
+        """Verknuepft die geschriebene Summary-Datei mit der App, damit sie unter
+        "Analysen" erscheint (Single-User).
         """
         try:
-            from flask import session
             from app.database_service import get_db_service
 
-            username = session.get('user')
-            if not username:
-                return
-
             db = get_db_service()
-            user = db.get_user_by_username(username)
-            if not user:
-                return
-
-            existing = {s.filename for s in db.get_user_summaries(user.id)}
+            existing = {s.filename for s in db.get_all_summaries()}
             if filename not in existing:
-                db.create_summary_file(user_id=user.id, filename=filename)
+                db.create_summary_file(filename=filename)
         except Exception as e:
             logger.error(f"Konnte Summary-Zuordnung fuer {filename} nicht anlegen: {e}")
 

@@ -26,8 +26,8 @@ Usage:
     python run_linux.py              # Normaler Start (mit Alembic)
 """
 
+import os
 import subprocess
-import sys
 
 
 def main():
@@ -60,7 +60,6 @@ def main():
     # bleibt. --threads/-k gthread sorgt dafuer, dass innerhalb dieses einen
     # Prozesses mehrere Requests parallel bedient werden koennen, damit ein
     # lang laufender SSE-Chat-Stream nicht jede andere Anfrage blockiert.
-    import os
     os.system("gunicorn -w 1 --threads 4 -k gthread -b 0.0.0.0:5000 --timeout 240 'app:create_app()'")
 
 

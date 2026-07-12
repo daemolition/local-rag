@@ -34,20 +34,22 @@ from tqdm import tqdm
 # Third party imports
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
-    UnstructuredWordDocumentLoader,
-    DirectoryLoader
+    DirectoryLoader,
+    UnstructuredMarkdownLoader
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 from qdrant_client import models as qdrant_models
 from langchain_openai import OpenAIEmbeddings
 
 # Custom imports
-from app.components import CustomPDFLoader
+from app.components import CustomPDFLoader, CustomDOCXLoader
 from app.llm.local_llm import VisionLLM
 from app.utils.phase_logger import phase_logger, Phase
 from app.utils.qdrant_client import get_qdrant_client
+from app.database_service import get_db_service
+from app.settings_service import SettingsService
 
 logger = getLogger(__name__)
 
@@ -60,15 +62,14 @@ class DocumentIngestion:
         # Defaults (Standalone-Fallback, falls kein DB-Kontext)
         embedding_source = "local"
         embedding_endpoint = "http://localhost:8080/v1"
-        model_name = "paraphrase-multilingual-MiniLM-L12-v2"
+        model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
         embedding_dim = 384
         data_dir = "./data"
+        api_key = "ollama"
 
         try:
             # Settings aus DB lesen (UI = Source of Truth); eigene Session,
             # thread-safe via Engine.
-            from app.database_service import get_db_service
-            from app.settings_service import SettingsService
             db = get_db_service()
             session = db.get_session()
             settings = SettingsService(session)
@@ -77,6 +78,7 @@ class DocumentIngestion:
             model_name = settings.get("EMBEDDING_MODEL", model_name) or model_name
             embedding_dim = settings.get_int("EMBEDDING_DIMENSION", embedding_dim)
             data_dir = settings.get("DATA_DIR", data_dir) or data_dir
+            api_key = settings.get("API_KEY", api_key) or api_key
             session.close()
         except Exception:
             # Standalone-Fallback: env
@@ -88,6 +90,7 @@ class DocumentIngestion:
             except (ValueError, TypeError):
                 pass
             data_dir = os.getenv("DATA_DIR", data_dir)
+            api_key = os.getenv("API_KEY", api_key)
 
         # Collectoin Settings
         self.collection_name = "local_rag"
@@ -103,11 +106,11 @@ class DocumentIngestion:
             if embeddings is not None:
                 self.embeddings = embeddings
             else:
-                self.embeddings = HuggingFaceEmbeddings(model_name=model_name)
+                self.embeddings = FastEmbedEmbeddings(model_name=model_name)
         else:
             self.embeddings = OpenAIEmbeddings(
                 base_url=embedding_endpoint,
-                api_key=os.getenv("API_KEY", "ollama"),
+                api_key=api_key,
                 model=model_name,
                 dimensions=self.dimensions,
                 chunk_size=32,
@@ -119,8 +122,10 @@ class DocumentIngestion:
             ".csv": None,  # Wird in _process_file direkt verarbeitet
             ".xlsx": None,  # Wird in _process_file direkt verarbeitet
             ".xls": None,  # Wird in _process_file direkt verarbeitet
-            ".docx": UnstructuredWordDocumentLoader,
-            ".doc": UnstructuredWordDocumentLoader,
+            ".docx": CustomDOCXLoader,
+            ".doc": CustomDOCXLoader,
+            ".odt": CustomDOCXLoader,
+            ".md": UnstructuredMarkdownLoader,
         }
 
         # Qdrant client wird erst bei Bedarf geöffnet
@@ -392,10 +397,16 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         # Payload-Filter statt einer einzelnen Punkt-ID finden.
         file_group_id = str(uuid.uuid4())
 
-        # 1. Datei laden (PDF mit Bildern, andere ohne)
+        # 1. Datei laden
+        # PDF, DOCX, DOC, ODT nutzen Custom Loader mit Bildextraktion (VisionLLM).
+        # CSV/XLSX/XLS werden als tabellarische Übersicht verarbeitet.
+        # MD nutzt UnstructuredMarkdownLoader (keine eingebetteten Bilder).
         try:
             if extension == '.pdf':
                 loader = CustomPDFLoader(file_path, model=self.model)
+                chunks = list(loader.lazy_load())
+            elif extension in ['.docx', '.doc', '.odt']:
+                loader = CustomDOCXLoader(file_path, model=self.model)
                 chunks = list(loader.lazy_load())
             elif extension == '.csv':
                 # Nur Übersichts-Chunk, keine Zeilen-Chunks
@@ -413,8 +424,8 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                     metadata={"source": file_path, "filename": filename, "type": "tabular_overview"}
                 )
                 chunks = [overview_chunk]
-            elif extension in ['.docx', '.doc']:
-                loader = UnstructuredWordDocumentLoader(file_path)
+            elif extension == '.md':
+                loader = UnstructuredMarkdownLoader(file_path)
                 chunks = loader.load()
             else:
                 logger.warning(f"Unbekannter Dateityp: {extension}")
@@ -427,8 +438,9 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
             logger.info(f"Keine Chunks für {filename}")
             return False
         
-        # 2. Chunks splitten (nur bei Nicht-PDFs)
-        if extension != '.pdf':
+        # 2. Chunks splitten (nur bei Formaten ohne Custom Loader)
+        # PDF, DOCX, DOC, ODT werden bereits vom Custom Loader gechunkt
+        if extension not in ['.pdf', '.docx', '.doc', '.odt']:
             chunks = self.text_splitter.split_documents(chunks)
         
         # 3. Context anreichern
@@ -497,21 +509,12 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         else:
             self._move_processed_files(chunks)
 
-        # 7. UserDocument-Zuordnung anlegen, damit "Meine Dokumente" und das
-        # Loeschen eigener Dokumente das ingestierte Dokument finden. Der
-        # Uploader (User oder Admin) steckt als erstes Pfadsegment unter
-        # data/files/<user_id>/... (siehe user_routes.upload_document).
+        # 7. Dokument-Zuordnung anlegen, damit die Datei-Liste das ingestierte
+        # Dokument findet und es per file_group_id gelöscht werden kann.
         try:
-            rel_path = os.path.relpath(file_path, "./data/files")
-            user_id = int(rel_path.split(os.sep)[0])
             from app.database_service import get_db_service
             get_db_service().add_document(
-                user_id=user_id, document_id=file_group_id, filename=filename
-            )
-        except (ValueError, IndexError):
-            logger.warning(
-                f"Konnte Uploader fuer {filename} nicht bestimmen "
-                f"(keine Nutzer-Unterordner-Struktur) - kein UserDocument-Eintrag."
+                document_id=file_group_id, filename=filename
             )
         except Exception as e:
             logger.error(f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}")
