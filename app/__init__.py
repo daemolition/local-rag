@@ -20,6 +20,7 @@ import logging
 import atexit
 import signal
 import threading
+import warnings
 from pathlib import Path
 from flask import Flask
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
@@ -32,6 +33,18 @@ from app.agent.document_agent import DocumentAgent
 from app.utils.qdrant_client import get_qdrant_client
 from app.database_service import init_db_service
 from app.settings_service import SettingsService
+
+# fastembed >=0.6 emits a UserWarning that the paraphrase-multilingual-MiniLM-L12-v2
+# model now uses mean pooling instead of CLS embedding. The new behaviour is correct
+# and intended; the warning is purely informational. Suppress only this specific
+# warning so the log stays clean. Vectors embedded with the old CLS pooling (fastembed
+# <=0.5.1) are NOT compatible with the new mean pooling — re-ingest all documents after
+# upgrading fastembed.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*now uses mean pooling instead of CLS embedding.*",
+    category=UserWarning,
+)
 
 logger = logging.getLogger(__name__)
 
