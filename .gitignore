@@ -25,3 +25,4 @@ app/data/*.db-journal
 data/
 .claude/
 .docs/
+docs/
