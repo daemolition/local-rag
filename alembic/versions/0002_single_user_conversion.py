@@ -53,8 +53,8 @@ def upgrade() -> None:
         sa.text(
             "INSERT INTO settings (key, value, default_value, category, is_sensitive, description) "
             "VALUES "
-            "('STT_MODEL', 'whisper-1', 'whisper-1', 'stt', 0, 'STT Modell'), "
-            "('STT_BASEURL', 'http://localhost:11434/v1', 'http://localhost:11434/v1', 'stt', 0, 'STT API URL'), "
+            "('STT_MODEL', 'nemo-parakeet-tdt-0.6b-v3', 'nemo-parakeet-tdt-0.6b-v3', 'stt', 0, 'STT Modell'), "
+            "('STT_BASEURL', 'http://parakeet:5001/v1', 'http://parakeet:5001/v1', 'stt', 0, 'STT API URL'), "
             "('STT_API_KEY', 'ollama', 'ollama', 'stt', 1, 'STT API Key') "
             "ON CONFLICT(key) DO NOTHING"
         )
