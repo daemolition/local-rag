@@ -17,16 +17,19 @@
 """
 Authentifizierung für Single-User Betrieb
 """
+
 from functools import wraps
 from flask import session, redirect, url_for, flash
 
 
 def auth_required(f):
     """Decorator: Prüft ob User authentifiziert ist"""
+
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('authenticated'):
-            flash('Bitte zuerst anmelden')
-            return redirect(url_for('main.login'))
+        if not session.get("authenticated"):
+            flash("Bitte zuerst anmelden")
+            return redirect(url_for("main.login"))
         return f(*args, **kwargs)
+
     return decorated

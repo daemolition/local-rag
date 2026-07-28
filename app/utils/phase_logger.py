@@ -17,6 +17,7 @@
 """
 Phase Logger for tracking Agent execution phases
 """
+
 import time
 import logging
 from enum import Enum
@@ -43,15 +44,17 @@ class PhaseLogger:
     def __init__(self, name: str = "PhaseLogger"):
         self.name = name
         self.logger = logging.getLogger(name)
-        
+
         if not self.logger.handlers:
             self.logger.setLevel(logging.INFO)
             handler = logging.StreamHandler()
             handler.setLevel(logging.INFO)
-            formatter = logging.Formatter("[%(asctime)s] [%(phase)s] %(message)s | Duration: %(duration)s")
+            formatter = logging.Formatter(
+                "[%(asctime)s] [%(phase)s] %(message)s | Duration: %(duration)s"
+            )
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
-    
+
     @contextmanager
     def phase(self, phase: Phase, message: str, **kwargs):
         start_time = time.time()
@@ -61,28 +64,24 @@ class PhaseLogger:
         finally:
             duration = time.time() - start_time
             self._log(phase, message, duration, **kwargs, end=True)
-    
-    def log_phase(self, phase: Phase, message: str, duration: Optional[float] = None, **kwargs):
+
+    def log_phase(
+        self, phase: Phase, message: str, duration: Optional[float] = None, **kwargs
+    ):
         self._log(phase, message, duration, **kwargs)
-    
+
     def _log(self, phase: Phase, message: str, duration: Optional[float], **kwargs):
         duration_str = f"{duration:.2f}s" if duration is not None else "N/A"
-        
+
         record = self.logger.makeRecord(
-            self.logger.name,
-            logging.INFO,
-            None,
-            None,
-            message,
-            (),
-            None
+            self.logger.name, logging.INFO, None, None, message, (), None
         )
         record.phase = phase.value
         record.duration = duration_str
-        
+
         for key, value in kwargs.items():
             setattr(record, key, value)
-        
+
         self.logger.handle(record)
 
 

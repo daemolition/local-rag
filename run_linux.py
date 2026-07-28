@@ -38,29 +38,33 @@ def main():
     print("   Gunicorn: http://0.0.0.0:5000")
     print("   Qdrant: Separat (docker-compose)")
     print()
-    
+
     # Alembic Migration (immer ausführen)
     print("📊 Alembic Migration...")
-    result = subprocess.run(["alembic", "upgrade", "head"], capture_output=True, text=True)
+    result = subprocess.run(
+        ["alembic", "upgrade", "head"], capture_output=True, text=True
+    )
     if result.returncode == 0:
         print("✅ Migration erfolgreich")
     else:
         print("⚠️  Migration Fehler:")
         print(result.stderr)
     print()
-    
+
     print("=" * 50)
     print("🚀 Starte Gunicorn...")
     print("=" * 50)
     print()
-    
+
     # Gunicorn starten
     # -w 1: ein Worker-Prozess, damit In-Memory-State (Qdrant-Client,
     # Ressourcen-Init-Status, Upload-Status) prozessuebergreifend konsistent
     # bleibt. --threads/-k gthread sorgt dafuer, dass innerhalb dieses einen
     # Prozesses mehrere Requests parallel bedient werden koennen, damit ein
     # lang laufender SSE-Chat-Stream nicht jede andere Anfrage blockiert.
-    os.system("gunicorn -w 1 --threads 4 -k gthread -b 0.0.0.0:5000 --timeout 240 'app:create_app()'")
+    os.system(
+        "gunicorn -w 1 --threads 4 -k gthread -b 0.0.0.0:5000 --timeout 240 'app:create_app(preload=True)'"
+    )
 
 
 if __name__ == "__main__":

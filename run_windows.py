@@ -42,14 +42,14 @@ QDRANT_DOWNLOAD_URL = "https://github.com/qdrant/qdrant/releases/latest/download
 def download_qdrant():
     """Download qdrant.exe wenn nicht vorhanden"""
     qdrant_exe = Path("qdrant.exe")
-    
+
     if qdrant_exe.exists():
         return True
-    
+
     print("📥 qdrant.exe nicht gefunden. Download wird gestartet...")
     print(f"   URL: {QDRANT_DOWNLOAD_URL}")
     print("   (Dies kann einen Moment dauern...)")
-    
+
     try:
         urllib.request.urlretrieve(QDRANT_DOWNLOAD_URL, str(qdrant_exe))
         print(f"✅ Download complete: {qdrant_exe.absolute()}")
@@ -64,18 +64,18 @@ def download_qdrant():
 def start_qdrant():
     """Startet qdrant.exe auf localhost (keine Firewall-Abfrage)"""
     qdrant_exe = Path("qdrant.exe")
-    
+
     if not qdrant_exe.exists():
         if not download_qdrant():
             return None
-    
+
     try:
         # WICHTIG: --uri für localhost-only (keine Firewall-Abfrage)
         process = subprocess.Popen(
             [str(qdrant_exe), "--uri", "http://127.0.0.1:6333"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         )
         print(f"✅ Qdrant gestartet (localhost:6333, PID: {process.pid})")
         time.sleep(3)  # Warte auf Start
@@ -96,15 +96,15 @@ def cleanup():
 
 def main():
     global _qdrant_process
-    
+
     args = sys.argv[1:]
     no_qdrant = "--no-qdrant" in args
-    
+
     print("=" * 50)
     print("Local Document RAG - Windows Mode")
     print("=" * 50)
     print()
-    
+
     if no_qdrant:
         print("   Flask: http://127.0.0.1:5000")
         print("   Qdrant: Manuell/Docker (nicht automatisch)")
@@ -113,7 +113,7 @@ def main():
         print("   Qdrant: http://127.0.0.1:6333")
         print("   (Nur localhost - keine Firewall-Abfrage!)")
     print()
-    
+
     # Qdrant starten (außer --no-qdrant)
     if not no_qdrant:
         _qdrant_process = start_qdrant()
@@ -125,25 +125,27 @@ def main():
             print("WARNUNG: Qdrant konnte nicht gestartet werden.")
             print("   Starte trotzdem Flask...")
             print()
-    
+
     # Migration
     print("Alembic Migration...")
-    result = subprocess.run(["alembic", "upgrade", "head"], capture_output=True, text=True)
+    result = subprocess.run(
+        ["alembic", "upgrade", "head"], capture_output=True, text=True
+    )
     if result.returncode == 0:
         print("Migration erfolgreich")
     else:
         print("Migration Fehler (kann ignoriert werden wenn bereits aktuell):")
         print(result.stderr)
     print()
-    
+
     # Waitress starten (nur localhost!)
     from waitress import serve
-    
+
     # Import app nach Alembic (wegen DB-Initialisierung)
     from app import create_app
-    
+
     app = create_app()
-    
+
     print("=" * 50)
     print("Server läuft!")
     print("   http://127.0.0.1:5000")
@@ -151,7 +153,7 @@ def main():
     print("   (Nur auf diesem PC erreichbar)")
     print("   Drücken Sie Ctrl+C zum Beenden")
     print()
-    
+
     serve(app, host="127.0.0.1", port=5000, threads=4)
 
 

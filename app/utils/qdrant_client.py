@@ -18,6 +18,7 @@
 Qdrant Client Factory - Server-Modus (remote)
 Verbindet sich zu einem laufenden Qdrant-Server (exe, docker, remote).
 """
+
 import os
 from typing import Optional
 from qdrant_client import QdrantClient
@@ -28,7 +29,7 @@ def get_qdrant_client(
     collection_name: str = "local_rag",
     custom_host: Optional[str] = None,
     custom_port: Optional[int] = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
 ) -> "QdrantClient":
     """
     Erstellt einen Qdrant-Client fuer einen laufenden Qdrant-Server.
@@ -51,9 +52,9 @@ def get_qdrant_client(
         db_session = db.get_session()
         settings = SettingsService(db_session)
 
-        host = custom_host or settings.get('QDRANT_HOST', 'localhost')
-        port = custom_port or settings.get_int('QDRANT_PORT', 6333)
-        key = api_key or settings.get('QDRANT_API_KEY')
+        host = custom_host or settings.get("QDRANT_HOST", "localhost")
+        port = custom_port or settings.get_int("QDRANT_PORT", 6333)
+        key = api_key or settings.get("QDRANT_API_KEY")
 
         db_session.close()
 
@@ -88,12 +89,17 @@ def test_connection(client: QdrantClient, timeout: int = 5) -> tuple[bool, str]:
     """
     try:
         collections = client.get_collections()
-        return True, f"Verbunden. {len(collections.collections)} Collection(s) gefunden."
+        return (
+            True,
+            f"Verbunden. {len(collections.collections)} Collection(s) gefunden.",
+        )
     except Exception as e:
         return False, f"Verbindungsfehler: {str(e)}"
 
 
-def get_collection_info(client: QdrantClient, collection_name: str = "local_rag") -> Optional[dict]:
+def get_collection_info(
+    client: QdrantClient, collection_name: str = "local_rag"
+) -> Optional[dict]:
     """
     Holt Informationen ueber eine Collection.
 
@@ -114,14 +120,20 @@ def get_collection_info(client: QdrantClient, collection_name: str = "local_rag"
             points_count = collection.points_count
 
         return {
-            'name': collection_name,
-            'points_count': points_count,
-            'vectors_count': getattr(collection, 'indexed_vectors_count', collection.points_count),
-            'status': str(collection.status),
-            'vector_size': collection.config.params.vectors.size if hasattr(collection.config.params, 'vectors') else None,
-            'distance': str(collection.config.params.vectors.distance) if hasattr(collection.config.params, 'vectors') else None,
+            "name": collection_name,
+            "points_count": points_count,
+            "vectors_count": getattr(
+                collection, "indexed_vectors_count", collection.points_count
+            ),
+            "status": str(collection.status),
+            "vector_size": collection.config.params.vectors.size
+            if hasattr(collection.config.params, "vectors")
+            else None,
+            "distance": str(collection.config.params.vectors.distance)
+            if hasattr(collection.config.params, "vectors")
+            else None,
         }
     except UnexpectedResponse:
         return None
     except Exception as e:
-        return {'error': str(e)}
+        return {"error": str(e)}

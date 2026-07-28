@@ -20,6 +20,10 @@ services:
       # Mounts (./files etc.) entfallen; nur /app/data ist ein Mountpoint,
       # die Subdirs sind normale Verzeichnisse (kein EBUSY bei rmtree/move).
       - app-data:/app/data
+      # ONNX-Modell-Cache (FastEmbed). Beim ersten Start werden die zur Build-Zeit
+      # vorgeladenen Modelle aus dem Image ins Volume kopiert und persistieren
+      # danach ueber Image-Rebuilds hinweg.
+      - fastembed-cache:/root/.cache/fastembed
     networks:
       - local-rag-network
     depends_on:
@@ -58,3 +62,4 @@ networks:
 volumes:
   qdrant:
   app-data:
+  fastembed-cache:

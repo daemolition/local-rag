@@ -26,8 +26,10 @@ def upgrade() -> None:
             "UPDATE settings SET value = :new "
             "WHERE key = 'EMBEDDING_MODEL' AND value = :old"
         ),
-        {"new": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-         "old": "paraphrase-multilingual-MiniLM-L12-v2"},
+        {
+            "new": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            "old": "paraphrase-multilingual-MiniLM-L12-v2",
+        },
     )
 
 
@@ -38,6 +40,8 @@ def downgrade() -> None:
             "UPDATE settings SET value = :old "
             "WHERE key = 'EMBEDDING_MODEL' AND value = :new"
         ),
-        {"old": "paraphrase-multilingual-MiniLM-L12-v2",
-         "new": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"},
+        {
+            "old": "paraphrase-multilingual-MiniLM-L12-v2",
+            "new": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        },
     )

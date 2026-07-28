@@ -52,22 +52,23 @@ class PreprocessDOCX(PreprocessBase):
 
         rel_to_path = {}
         try:
-            with zipfile.ZipFile(file_path, 'r') as zf:
+            with zipfile.ZipFile(file_path, "r") as zf:
                 # Relationships laden: r:embed ID → media/Dateiname
-                rels_xml = zf.read('word/_rels/document.xml.rels').decode()
+                rels_xml = zf.read("word/_rels/document.xml.rels").decode()
                 import re
+
                 rel_matches = re.findall(
                     r'Id="(rId\d+)"[^>]*Type="[^"]*image"[^>]*Target="([^"]+)"',
-                    rels_xml
+                    rels_xml,
                 )
 
                 for rel_id, target in rel_matches:
-                    media_path = f'word/{target}'
+                    media_path = f"word/{target}"
                     try:
                         image_data = zf.read(media_path)
                         out_name = os.path.basename(target)
                         out_path = os.path.join(images_dir, out_name)
-                        with open(out_path, 'wb') as f:
+                        with open(out_path, "wb") as f:
                             f.write(image_data)
                         rel_to_path[rel_id] = out_path
                     except KeyError:
@@ -105,39 +106,37 @@ class PreprocessDOCX(PreprocessBase):
         current_image = 0
 
         chunks: list[LangChainDocument] = []
-        current_chunk: dict = {
-            'title': filename,
-            'content': [],
-            'metadata': {}
-        }
+        current_chunk: dict = {"title": filename, "content": [], "metadata": {}}
 
         def flush_chunk():
-            if current_chunk['content']:
+            if current_chunk["content"]:
                 text_parts = []
-                for item in current_chunk['content']:
-                    if isinstance(item, dict) and 'image' in item:
+                for item in current_chunk["content"]:
+                    if isinstance(item, dict) and "image" in item:
                         text_parts.append(f"[BILD-BESCHREIBUNG: {item['image']}]")
                     else:
                         text_parts.append(str(item))
 
-                chunks.append(LangChainDocument(
-                    page_content="\n".join(text_parts),
-                    metadata={
-                        "source": file_path,
-                        "filename": filename,
-                        "title": current_chunk.get('title', 'kein Titel'),
-                        "type": "document_chunk",
-                        **current_chunk.get('metadata', {})
-                    }
-                ))
-                current_chunk['content'] = []
+                chunks.append(
+                    LangChainDocument(
+                        page_content="\n".join(text_parts),
+                        metadata={
+                            "source": file_path,
+                            "filename": filename,
+                            "title": current_chunk.get("title", "kein Titel"),
+                            "type": "document_chunk",
+                            **current_chunk.get("metadata", {}),
+                        },
+                    )
+                )
+                current_chunk["content"] = []
 
         # Über Body-Elemente iterieren (Absätze + Tabellen in Reihenfolge)
         body = doc.element.body
         for child in body:
-            tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
 
-            if tag == 'p':
+            if tag == "p":
                 # Absatz verarbeiten
                 para = None
                 for p in doc.paragraphs:
@@ -148,19 +147,21 @@ class PreprocessDOCX(PreprocessBase):
                     continue
 
                 # Heading-Erkennung
-                style_name = para.style.name if para.style else ''
-                is_heading = style_name.startswith('Heading') or style_name.startswith('Titel')
+                style_name = para.style.name if para.style else ""
+                is_heading = style_name.startswith("Heading") or style_name.startswith(
+                    "Titel"
+                )
 
                 if is_heading and para.text.strip():
                     flush_chunk()
-                    current_chunk['title'] = para.text.strip()
+                    current_chunk["title"] = para.text.strip()
                     continue
 
                 # Bilder im Absatz finden
-                blips = child.findall('.//' + qn('a:blip'))
+                blips = child.findall(".//" + qn("a:blip"))
                 embed_ids = []
                 for blip in blips:
-                    embed = blip.get(qn('r:embed'))
+                    embed = blip.get(qn("r:embed"))
                     if embed:
                         embed_ids.append(embed)
 
@@ -168,21 +169,24 @@ class PreprocessDOCX(PreprocessBase):
                     img_path = unique_images.get(embed_id)
                     if img_path and os.path.exists(img_path):
                         current_image += 1
-                        print(f"Verarbeite Bild {current_image}/{unique_image_count}", flush=True)
+                        print(
+                            f"Verarbeite Bild {current_image}/{unique_image_count}",
+                            flush=True,
+                        )
                         b64image = self.encode_image(img_path)
                         result = self.process_image_with_retry(
                             b64image, img_path, current_image, unique_image_count
                         )
-                        if 'image' in result:
-                            current_chunk['content'].append({'image': result['image']})
-                        elif 'error' in result:
+                        if "image" in result:
+                            current_chunk["content"].append({"image": result["image"]})
+                        elif "error" in result:
                             pass
 
                 # Text nach dem Bild im gleichen Absatz
                 if para.text.strip():
-                    current_chunk['content'].append(para.text)
+                    current_chunk["content"].append(para.text)
 
-            elif tag == 'tbl':
+            elif tag == "tbl":
                 # Tabelle als Markdown rendern
                 table = None
                 for t in doc.tables:
@@ -195,17 +199,17 @@ class PreprocessDOCX(PreprocessBase):
                 rows = []
                 for row in table.rows:
                     cells = [cell.text.strip() for cell in row.cells]
-                    rows.append('| ' + ' | '.join(cells) + ' |')
+                    rows.append("| " + " | ".join(cells) + " |")
 
                 if rows:
                     # Header-Trennzeile einfügen
                     if len(rows) > 0:
                         col_count = len(table.rows[0].cells)
-                        separator = '| ' + ' | '.join(['---'] * col_count) + ' |'
+                        separator = "| " + " | ".join(["---"] * col_count) + " |"
                         rows.insert(1, separator)
 
                     flush_chunk()
-                    current_chunk['content'].append('\n'.join(rows))
+                    current_chunk["content"].append("\n".join(rows))
                     flush_chunk()
 
         flush_chunk()

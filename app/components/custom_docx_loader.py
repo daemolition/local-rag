@@ -17,6 +17,7 @@
 """
 DOCX/DOC/ODT Loader wrapper
 """
+
 from typing import Iterator
 
 from langchain_core.documents import Document
