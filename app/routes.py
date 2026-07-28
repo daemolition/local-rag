@@ -20,7 +20,18 @@ import asyncio
 import queue
 import threading
 import logging
-from flask import Blueprint, render_template, request, session, redirect, url_for, flash, Response, current_app, jsonify
+from flask import (
+    Blueprint,
+    render_template,
+    request,
+    session,
+    redirect,
+    url_for,
+    flash,
+    Response,
+    current_app,
+    jsonify,
+)
 from werkzeug.security import check_password_hash
 import openai
 
@@ -30,7 +41,7 @@ from app.settings_service import SettingsService
 from app.utils.phase_logger import phase_logger, Phase
 from app import wait_for_resources, resources_ready
 
-bp = Blueprint('main', __name__)
+bp = Blueprint("main", __name__)
 logger = logging.getLogger(__name__)
 
 # Globale Cancel-Events für laufende Chat-Streams, keyed by session_id.
@@ -65,7 +76,8 @@ def _clear_cancelled(session_id):
 
 # === Session Management API ===
 
-@bp.route('/api/sessions', methods=['GET'])
+
+@bp.route("/api/sessions", methods=["GET"])
 @auth_required
 def get_sessions():
     """List all sessions"""
@@ -74,32 +86,40 @@ def get_sessions():
 
     result = []
     for sess in sessions:
-        result.append({
-            'id': sess.id,
-            'title': sess.title,
-            'created_at': sess.created_at.isoformat() if sess.created_at else None,
-            'updated_at': sess.updated_at.isoformat() if sess.updated_at else None
-        })
+        result.append(
+            {
+                "id": sess.id,
+                "title": sess.title,
+                "created_at": sess.created_at.isoformat() if sess.created_at else None,
+                "updated_at": sess.updated_at.isoformat() if sess.updated_at else None,
+            }
+        )
 
     return jsonify(result)
 
 
-@bp.route('/api/sessions', methods=['POST'])
+@bp.route("/api/sessions", methods=["POST"])
 @auth_required
 def new_session():
     """Create a new session"""
     db = get_db_service()
     new_sess = db.create_session()
 
-    return jsonify({
-        'id': new_sess.id,
-        'title': new_sess.title,
-        'created_at': new_sess.created_at.isoformat() if new_sess.created_at else None,
-        'updated_at': new_sess.updated_at.isoformat() if new_sess.updated_at else None
-    })
+    return jsonify(
+        {
+            "id": new_sess.id,
+            "title": new_sess.title,
+            "created_at": new_sess.created_at.isoformat()
+            if new_sess.created_at
+            else None,
+            "updated_at": new_sess.updated_at.isoformat()
+            if new_sess.updated_at
+            else None,
+        }
+    )
 
 
-@bp.route('/api/sessions/<session_id>', methods=['GET'])
+@bp.route("/api/sessions/<session_id>", methods=["GET"])
 @auth_required
 def get_session_messages(session_id):
     """Get session with messages"""
@@ -107,28 +127,32 @@ def get_session_messages(session_id):
     sess = db.get_chat_session(session_id)
 
     if not sess:
-        return jsonify({'error': 'Session nicht gefunden'}), 404
+        return jsonify({"error": "Session nicht gefunden"}), 404
 
     messages = db.get_messages(session_id)
 
     message_dicts = []
     for msg in messages:
-        message_dicts.append({
-            'role': msg.role,
-            'content': msg.content,
-            'created_at': msg.created_at.isoformat() if msg.created_at else None
-        })
+        message_dicts.append(
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            }
+        )
 
-    return jsonify({
-        'id': sess.id,
-        'title': sess.title,
-        'created_at': sess.created_at.isoformat() if sess.created_at else None,
-        'updated_at': sess.updated_at.isoformat() if sess.updated_at else None,
-        'messages': message_dicts
-    })
+    return jsonify(
+        {
+            "id": sess.id,
+            "title": sess.title,
+            "created_at": sess.created_at.isoformat() if sess.created_at else None,
+            "updated_at": sess.updated_at.isoformat() if sess.updated_at else None,
+            "messages": message_dicts,
+        }
+    )
 
 
-@bp.route('/api/sessions/<session_id>', methods=['DELETE'])
+@bp.route("/api/sessions/<session_id>", methods=["DELETE"])
 @auth_required
 def delete_session_route(session_id):
     """Delete a session"""
@@ -136,87 +160,90 @@ def delete_session_route(session_id):
     deleted = db.delete_session(session_id)
 
     if not deleted:
-        return jsonify({'error': 'Session nicht gefunden'}), 404
+        return jsonify({"error": "Session nicht gefunden"}), 404
 
-    return jsonify({'success': True})
+    return jsonify({"success": True})
 
 
-@bp.route('/health', methods=['GET'])
+@bp.route("/health", methods=["GET"])
 def health():
     """Health check endpoint for Docker (Liveness). ready=False waehrend
     die Embedding-Modelle im Hintergrund geladen werden."""
-    return {'status': 'healthy', 'ready': resources_ready()}, 200
+    return {"status": "healthy", "ready": resources_ready()}, 200
 
 
-@bp.route('/api/ingestion-status', methods=['GET'])
+@bp.route("/api/ingestion-status", methods=["GET"])
 @auth_required
 def ingestion_status():
     """Geteilter Ingestion-Status fuer den Navbar-Indikator per Polling."""
-    return jsonify(current_app.extensions['ingestion_status'])
+    return jsonify(current_app.extensions["ingestion_status"])
 
 
-@bp.route('/', methods=['GET'])
+@bp.route("/", methods=["GET"])
 @auth_required
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
 
-@bp.route('/login', methods=['GET', 'POST'])
+@bp.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == 'POST':
-        password = request.form.get('password', '')
+    if request.method == "POST":
+        password = request.form.get("password", "")
 
         db = get_db_service()
         settings = SettingsService(db.get_session())
-        password_hash = settings.get('APP_PASSWORD_HASH')
+        password_hash = settings.get("APP_PASSWORD_HASH")
 
         if password_hash and check_password_hash(password_hash, password):
-            session['authenticated'] = True
-            return redirect(url_for('main.index'))
+            session["authenticated"] = True
+            return redirect(url_for("main.index"))
 
-        flash('Ungültiges Passwort')
+        flash("Ungültiges Passwort")
 
-    return render_template('login.html')
+    return render_template("login.html")
 
 
-@bp.route('/logout', methods=['GET'])
+@bp.route("/logout", methods=["GET"])
 def logout():
     session.clear()
-    return redirect(url_for('main.login'))
+    return redirect(url_for("main.login"))
 
 
-@bp.route('/history/<session_id>', methods=['GET'])
+@bp.route("/history/<session_id>", methods=["GET"])
 @auth_required
 def history(session_id):
     db = get_db_service()
     sess = db.get_chat_session(session_id)
 
     if not sess:
-        return {'error': 'Session nicht gefunden'}, 404
+        return {"error": "Session nicht gefunden"}, 404
 
     messages = db.get_messages(session_id)
 
     message_dicts = []
     for msg in messages:
-        message_dicts.append({
-            'role': msg.role,
-            'content': msg.content,
-            'created_at': msg.created_at.isoformat() if msg.created_at else None
-        })
+        message_dicts.append(
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            }
+        )
 
-    return {'history': message_dicts}
+    return {"history": message_dicts}
 
 
-@bp.route('/chat', methods=['POST'])
+@bp.route("/chat", methods=["POST"])
 @auth_required
 def chat():
     data = request.get_json()
-    user_message = data.get('message', '')
-    session_id = data.get('session_id')
+    user_message = data.get("message", "")
+    session_id = data.get("session_id")
 
     if not user_message:
-        return Response('data: {"error": "Keine Nachricht"}\n\n',
-                       mimetype='text/event-stream')
+        return Response(
+            'data: {"error": "Keine Nachricht"}\n\n', mimetype="text/event-stream"
+        )
 
     db = get_db_service()
     final_session_id = session_id
@@ -225,15 +252,16 @@ def chat():
     if session_id:
         sess = db.get_chat_session(session_id)
         if not sess:
-            return Response('data: {"error": "Ungültige Session"}\n\n',
-                           mimetype='text/event-stream')
+            return Response(
+                'data: {"error": "Ungültige Session"}\n\n', mimetype="text/event-stream"
+            )
     else:
         new_sess = db.create_session()
         final_session_id = new_sess.id
         sess = new_sess
 
     if not sess.title:
-        title = user_message[:50] + ('...' if len(user_message) > 50 else '')
+        title = user_message[:50] + ("..." if len(user_message) > 50 else "")
         db.update_session_title(final_session_id, title)
 
     phase_logger.log_phase(Phase.USER_INPUT, f"User-Query: {user_message[:100]}...")
@@ -243,30 +271,57 @@ def chat():
         try:
             ready = wait_for_resources(timeout=180)
         except RuntimeError as e:
-            return Response(f'data: {{"error": "{e}"}}\n\n',
-                           mimetype='text/event-stream')
+            return Response(
+                f'data: {{"error": "{e}"}}\n\n', mimetype="text/event-stream"
+            )
         if not ready:
-            return Response('data: {"error": "RAG-System wird noch initialisiert '
-                            '(Embedding-Modell lädt). Bitte in wenigen Sekunden '
-                            'erneut versuchen."}\n\n',
-                           mimetype='text/event-stream')
+            return Response(
+                'data: {"error": "RAG-System wird noch initialisiert '
+                "(Embedding-Modell lädt). Bitte in wenigen Sekunden "
+                'erneut versuchen."}\n\n',
+                mimetype="text/event-stream",
+            )
         agent = current_app.extensions.get("agent")
 
     if not agent:
-        return Response('data: {"error": "Agent nicht initialisiert"}\n\n',
-                       mimetype='text/event-stream')
+        return Response(
+            'data: {"error": "Agent nicht initialisiert"}\n\n',
+            mimetype="text/event-stream",
+        )
 
     messages = db.get_messages(final_session_id, limit=10)
     message_list = []
 
     for msg in messages[-10:]:
-        role = "user" if msg.role == 'user' else "assistant"
+        role = "user" if msg.role == "user" else "assistant"
         message_list.append({"role": role, "content": msg.content})
 
-    message_list.append({"role": "user", "content": user_message})
+    # User-Nachricht durch PII-Filter schicken (vor LLM-Call)
+    pii_filter = current_app.extensions.get("pii_filter")
+    settings = SettingsService(db.get_session())
+    pii_filter_enabled = settings.get_bool("PII_FILTER_ENABLED", True)
 
-    from logging import getLogger
-    logger = getLogger(__name__)
+    filtered_user_message = user_message
+    pii_mapping = []  # Mapping für spätere Demaskierung der Antwort speichern
+
+    if pii_filter and pii_filter_enabled:
+        try:
+            from app.utils.pii_filter_client import PIIFilterResult
+
+            result: PIIFilterResult = pii_filter.filter_text(user_message)
+            if result.error:
+                logger.warning(
+                    f"PII-Filter Fehler: {result.error} - verwende Original-Nachricht"
+                )
+            elif result.filtered != result.original:
+                logger.info(f"PII-Filter: {len(result.mapping)} Entitäten maskiert")
+                filtered_user_message = result.filtered
+                pii_mapping = result.mapping  # Mapping für Demaskierung merken
+        except Exception as e:
+            logger.warning(f"PII-Filter Exception: {e} - verwende Original-Nachricht")
+
+    message_list.append({"role": "user", "content": filtered_user_message})
+
     logger.info(f"[DEBUG] Messages an Agent: {len(message_list)} Nachrichten")
 
     input_data = {"messages": message_list}
@@ -278,6 +333,9 @@ def chat():
         cancel_event = _get_cancel_event(final_session_id)
         cancel_event.clear()
 
+        # Mapping für Demaskierung in Closure verfügbar machen
+        demask_context = {"mapping": pii_mapping}
+
         async def run_agent_async():
             nonlocal full_response
             try:
@@ -285,7 +343,7 @@ def chat():
 
                 async for event in agent.astream_events(input_data, version="v2"):
                     if cancel_event.is_set():
-                        result_queue.put(('cancelled', None))
+                        result_queue.put(("cancelled", None))
                         break
 
                     kind = event.get("event")
@@ -295,33 +353,40 @@ def chat():
                         content = chunk.content
 
                         reasoning = None
-                        if hasattr(chunk, 'additional_kwargs') and chunk.additional_kwargs:
+                        if (
+                            hasattr(chunk, "additional_kwargs")
+                            and chunk.additional_kwargs
+                        ):
                             reasoning = chunk.additional_kwargs.get("reasoning_content")
 
                         if content:
                             full_response += content
-                            result_queue.put(('token', content))
+                            result_queue.put(("token", content))
 
                         if reasoning:
-                            result_queue.put(('reasoning', reasoning))
+                            result_queue.put(("reasoning", reasoning))
 
                     elif kind == "on_tool_start":
                         tool_name = event.get("name", "unknown")
                         tool_input = event.get("data", {}).get("input", {})
-                        phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool gestartet: {tool_name}")
-                        result_queue.put(('tool_start', tool_name))
-                        tool_calls.append({
-                            "name": tool_name,
-                            "input": tool_input,
-                            "output": None
-                        })
+                        phase_logger.log_phase(
+                            Phase.TOOL_EXECUTION, f"Tool gestartet: {tool_name}"
+                        )
+                        result_queue.put(("tool_start", tool_name))
+                        tool_calls.append(
+                            {"name": tool_name, "input": tool_input, "output": None}
+                        )
 
                     elif kind == "on_tool_end":
                         tool_name = event.get("name", "unknown")
                         tool_output = event.get("data", {}).get("output", "")
-                        phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool beendet: {tool_name}")
-                        result_queue.put(('tool_end', tool_name))
-                        result_queue.put(('tool_result', (tool_name, str(tool_output)[:2000])))
+                        phase_logger.log_phase(
+                            Phase.TOOL_EXECUTION, f"Tool beendet: {tool_name}"
+                        )
+                        result_queue.put(("tool_end", tool_name))
+                        result_queue.put(
+                            ("tool_result", (tool_name, str(tool_output)[:2000]))
+                        )
                         if tool_calls:
                             for tc in tool_calls:
                                 if tc["name"] == tool_name and tc["output"] is None:
@@ -329,16 +394,24 @@ def chat():
                                     break
 
                 if cancel_event.is_set():
-                    phase_logger.log_phase(Phase.AGENT_RESPONSE, "Antwort vom Benutzer abgebrochen")
+                    phase_logger.log_phase(
+                        Phase.AGENT_RESPONSE, "Antwort vom Benutzer abgebrochen"
+                    )
                 else:
-                    phase_logger.log_phase(Phase.AGENT_RESPONSE, f"Antwort gestreamt | Tokens: {len(full_response)}")
-                    result_queue.put(('done', full_response))
+                    phase_logger.log_phase(
+                        Phase.AGENT_RESPONSE,
+                        f"Antwort gestreamt | Tokens: {len(full_response)}",
+                    )
+                    result_queue.put(("done", full_response))
 
             except Exception as e:
                 import traceback
+
                 traceback.print_exc()
-                phase_logger.log_phase(Phase.AGENT_RESPONSE, f"Fehler: {str(e)[:100]}", duration=0.0)
-                result_queue.put(('error', str(e)))
+                phase_logger.log_phase(
+                    Phase.AGENT_RESPONSE, f"Fehler: {str(e)[:100]}", duration=0.0
+                )
+                result_queue.put(("error", str(e)))
 
         def run_in_thread():
             loop = asyncio.new_event_loop()
@@ -355,34 +428,50 @@ def chat():
             while True:
                 msg_type, msg_data = result_queue.get()
 
-                if msg_type == 'done':
+                if msg_type == "done":
+                    # Antwort demaskieren bevor sie gespeichert wird
                     db = get_db_service()
-                    db.save_message(final_session_id, 'user', user_message)
-                    db.save_message(final_session_id, 'assistant', msg_data)
+                    demasked_response = msg_data
+                    if demask_context["mapping"] and pii_filter:
+                        try:
+                            demasked_response = pii_filter.demask(
+                                msg_data, demask_context["mapping"]
+                            )
+                            if demasked_response != msg_data:
+                                logger.info(
+                                    f"PII-Demaskierung: {len(demask_context['mapping'])} Platzhalter ersetzt"
+                                )
+                        except Exception as e:
+                            logger.warning(f"PII-Demaskierung fehlgeschlagen: {e}")
+
+                    db.save_message(final_session_id, "user", user_message)
+                    db.save_message(final_session_id, "assistant", demasked_response)
                     yield f"data: {json.dumps({'done': True, 'session_id': final_session_id})}\n\n"
                     break
 
-                elif msg_type == 'cancelled':
+                elif msg_type == "cancelled":
                     break
 
-                elif msg_type == 'reasoning':
+                elif msg_type == "reasoning":
                     yield f"data: {json.dumps({'reasoning': msg_data})}\n\n"
 
-                elif msg_type == 'token':
+                elif msg_type == "token":
                     yield f"data: {json.dumps({'token': msg_data})}\n\n"
 
-                elif msg_type == 'tool_start':
+                elif msg_type == "tool_start":
                     yield f"data: {json.dumps({'tool_start': msg_data})}\n\n"
 
-                elif msg_type == 'tool_end':
+                elif msg_type == "tool_end":
                     yield f"data: {json.dumps({'tool_end': msg_data})}\n\n"
 
-                elif msg_type == 'tool_result':
+                elif msg_type == "tool_result":
                     tool_name, tool_output = msg_data
-                    payload = {'tool_result': {'name': tool_name, 'output': tool_output}}
+                    payload = {
+                        "tool_result": {"name": tool_name, "output": tool_output}
+                    }
                     yield f"data: {json.dumps(payload)}\n\n"
 
-                elif msg_type == 'error':
+                elif msg_type == "error":
                     yield f"data: {json.dumps({'error': msg_data})}\n\n"
                     break
         except GeneratorExit:
@@ -391,46 +480,46 @@ def chat():
             thread.join(timeout=1)
             _clear_cancelled(final_session_id)
 
-    return Response(generate(), mimetype='text/event-stream')
+    return Response(generate(), mimetype="text/event-stream")
 
 
-@bp.route('/chat/stop', methods=['POST'])
+@bp.route("/chat/stop", methods=["POST"])
 @auth_required
 def stop_chat():
     """Bricht den laufenden Chat-Stream für eine Session ab."""
     data = request.get_json() or {}
-    session_id = data.get('session_id')
+    session_id = data.get("session_id")
     if session_id:
         _set_cancelled(session_id)
-    return jsonify({'success': True})
+    return jsonify({"success": True})
 
 
-@bp.route('/api/stt', methods=['POST'])
+@bp.route("/api/stt", methods=["POST"])
 @auth_required
 def stt():
     """Wandelt ein aufgenommenes Audio-Blob in Text um (OpenAI-kompatibles STT)."""
-    if 'audio' not in request.files:
-        return jsonify({'error': 'Keine Audiodatei'}), 400
+    if "audio" not in request.files:
+        return jsonify({"error": "Keine Audiodatei"}), 400
 
-    audio_file = request.files['audio']
-    if not audio_file or audio_file.filename == '':
-        return jsonify({'error': 'Leere Audiodatei'}), 400
+    audio_file = request.files["audio"]
+    if not audio_file or audio_file.filename == "":
+        return jsonify({"error": "Leere Audiodatei"}), 400
 
     db = get_db_service()
     settings = SettingsService(db.get_session())
 
-    base_url = settings.get('STT_BASEURL', 'http://localhost:11434/v1')
-    api_key = settings.get('STT_API_KEY', 'ollama')
-    model = settings.get('STT_MODEL', 'whisper-1')
+    base_url = settings.get("STT_BASEURL", "http://localhost:11434/v1")
+    api_key = settings.get("STT_API_KEY", "ollama")
+    model = settings.get("STT_MODEL", "whisper-1")
 
     try:
         audio_bytes = audio_file.read()
         file_obj = io.BytesIO(audio_bytes)
-        file_obj.name = audio_file.filename or 'recording.webm'
+        file_obj.name = audio_file.filename or "recording.webm"
 
         client = openai.OpenAI(base_url=base_url, api_key=api_key)
         transcript = client.audio.transcriptions.create(model=model, file=file_obj)
-        return jsonify({'text': transcript.text})
+        return jsonify({"text": transcript.text})
     except Exception as e:
         logger.exception("STT Transkription fehlgeschlagen")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500

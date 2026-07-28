@@ -35,7 +35,7 @@ from tqdm import tqdm
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     DirectoryLoader,
-    UnstructuredMarkdownLoader
+    UnstructuredMarkdownLoader,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
@@ -73,8 +73,13 @@ class DocumentIngestion:
             db = get_db_service()
             session = db.get_session()
             settings = SettingsService(session)
-            embedding_source = settings.get("EMBEDDING_SOURCE", embedding_source) or embedding_source
-            embedding_endpoint = settings.get("EMBEDDING_ENDPOINT", embedding_endpoint) or embedding_endpoint
+            embedding_source = (
+                settings.get("EMBEDDING_SOURCE", embedding_source) or embedding_source
+            )
+            embedding_endpoint = (
+                settings.get("EMBEDDING_ENDPOINT", embedding_endpoint)
+                or embedding_endpoint
+            )
             model_name = settings.get("EMBEDDING_MODEL", model_name) or model_name
             embedding_dim = settings.get_int("EMBEDDING_DIMENSION", embedding_dim)
             data_dir = settings.get("DATA_DIR", data_dir) or data_dir
@@ -243,17 +248,23 @@ class DocumentIngestion:
             shutil.move(file_path, target_path)
             logger.info(f"Verschoben nach DATA_DIR: {filename}")
         except Exception as e:
-            logger.error(f"Konnte Datei nicht nach DATA_DIR verschieben {filename}: {e}")
+            logger.error(
+                f"Konnte Datei nicht nach DATA_DIR verschieben {filename}: {e}"
+            )
 
     def _generate_content_description(self, df: pd.DataFrame, filename: str) -> str:
         """Generiert eine LLM-basierte Inhaltsbeschreibung für Tabellendaten."""
         from langchain_core.messages import HumanMessage
 
         start_time = time.time()
-        phase_logger.log_phase(Phase.LLM_CALL, f"Content-Beschreibung gestartet | Datei: {filename}")
+        phase_logger.log_phase(
+            Phase.LLM_CALL, f"Content-Beschreibung gestartet | Datei: {filename}"
+        )
 
         # Daten für LLM aufbereiten (limitiert um Token zu sparen)
-        columns_info = ", ".join([f"{col} ({df[col].dtype})" for col in df.columns[:10]])
+        columns_info = ", ".join(
+            [f"{col} ({df[col].dtype})" for col in df.columns[:10]]
+        )
         sample_rows = df.head(5).to_string(index=False)
 
         prompt = f"""Du bist ein Datenanalyst. Analysiere die folgende Tabelle und erstelle eine kurze Inhaltsbeschreibung.
@@ -278,13 +289,21 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
             description = self.model.generate(message)
 
             duration = time.time() - start_time
-            phase_logger.log_phase(Phase.LLM_CALL, f"Content-Beschreibung abgeschlossen | Datei: {filename}", duration=duration)
+            phase_logger.log_phase(
+                Phase.LLM_CALL,
+                f"Content-Beschreibung abgeschlossen | Datei: {filename}",
+                duration=duration,
+            )
 
             return description.strip()
         except Exception as e:
             logger.warning(f"LLM-Beschreibung fehlgeschlagen fuer {filename}: {e}")
             duration = time.time() - start_time
-            phase_logger.log_phase(Phase.LLM_CALL, f"Content-Beschreibung fehlgeschlagen | Datei: {filename}", duration=duration)
+            phase_logger.log_phase(
+                Phase.LLM_CALL,
+                f"Content-Beschreibung fehlgeschlagen | Datei: {filename}",
+                duration=duration,
+            )
             return ""
 
     def _get_tabular_overview(self, file_path: str) -> str:
@@ -298,19 +317,19 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         # Helper für Encoding-Erkennung (wird unten definiert)
         def detect_encoding(fp: str) -> str:
             try:
-                with open(fp, 'rb') as f:
+                with open(fp, "rb") as f:
                     raw_data = f.read(10000)
                     result = chardet.detect(raw_data)
-                    encoding = result.get('encoding', 'cp1252')
-                    confidence = result.get('confidence', 0)
+                    encoding = result.get("encoding", "cp1252")
+                    confidence = result.get("confidence", 0)
                     if confidence < 0.7:
-                        encoding = 'cp1252'
+                        encoding = "cp1252"
                     return encoding
             except Exception:
-                return 'cp1252'
+                return "cp1252"
 
         try:
-            if extension == '.csv':
+            if extension == ".csv":
                 encoding = detect_encoding(file_path)
                 df = pd.read_csv(file_path, encoding=encoding)
             else:  # xlsx, xls
@@ -324,7 +343,11 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
 
             # LLM-Inhaltsbeschreibung generieren
             content_description = self._generate_content_description(df, filename)
-            description_section = f"\n\n### Inhaltsbeschreibung:\n{content_description}" if content_description else ""
+            description_section = (
+                f"\n\n### Inhaltsbeschreibung:\n{content_description}"
+                if content_description
+                else ""
+            )
 
             overview = f"""## Datei: {filename}
 
@@ -355,9 +378,12 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
     def _enrich_with_context(self, full_document_text: str, chunk_text: str) -> str:
         """Enrich the chunks for contextual RAG"""
         from langchain_core.messages import HumanMessage
-        
+
         start_time = time.time()
-        phase_logger.log_phase(Phase.CONTEXT_ENRICHMENT, f"Context-Anreicherung gestartet | Chunk-Text: {len(chunk_text)} Zeichen")
+        phase_logger.log_phase(
+            Phase.CONTEXT_ENRICHMENT,
+            f"Context-Anreicherung gestartet | Chunk-Text: {len(chunk_text)} Zeichen",
+        )
 
         prompt = (
             "Du bist ein Dokumenten-Indexierer. "
@@ -369,27 +395,33 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
 
         message = HumanMessage(content=prompt)
         context = self.model.generate(message)
-        
+
         duration = time.time() - start_time
-        phase_logger.log_phase(Phase.CONTEXT_ENRICHMENT, f"Context angereichert | Result: {len(context)} Zeichen", duration=duration)
+        phase_logger.log_phase(
+            Phase.CONTEXT_ENRICHMENT,
+            f"Context angereichert | Result: {len(context)} Zeichen",
+            duration=duration,
+        )
 
         return f"Kontext: {context}\n\nInhalt: {chunk_text}"
 
     def _process_file(self, file_path: str, sparse_model) -> bool:
         """
         Verarbeitet eine einzelne Datei komplett (sequentiell).
-        
+
         Args:
             file_path: Pfad zur Datei
             sparse_model: BM25 Sparse Embedding Model
-            
+
         Returns:
             bool: True wenn erfolgreich, False bei Fehler/leer
         """
         filename = os.path.basename(file_path)
         extension = Path(file_path).suffix.lower()
         start_time = time.time()
-        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename}")
+        phase_logger.log_phase(
+            Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename}"
+        )
 
         # Gruppen-ID fuer alle Chunks dieser einen Datei (eine Datei erzeugt
         # i.d.R. mehrere Qdrant-Punkte/Chunks). Wird als UserDocument.document_id
@@ -402,29 +434,37 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         # CSV/XLSX/XLS werden als tabellarische Übersicht verarbeitet.
         # MD nutzt UnstructuredMarkdownLoader (keine eingebetteten Bilder).
         try:
-            if extension == '.pdf':
+            if extension == ".pdf":
                 loader = CustomPDFLoader(file_path, model=self.model)
                 chunks = list(loader.lazy_load())
-            elif extension in ['.docx', '.doc', '.odt']:
+            elif extension in [".docx", ".doc", ".odt"]:
                 loader = CustomDOCXLoader(file_path, model=self.model)
                 chunks = list(loader.lazy_load())
-            elif extension == '.csv':
+            elif extension == ".csv":
                 # Nur Übersichts-Chunk, keine Zeilen-Chunks
                 overview = self._get_tabular_overview(file_path)
                 overview_chunk = Document(
                     page_content=overview,
-                    metadata={"source": file_path, "filename": filename, "type": "tabular_overview"}
+                    metadata={
+                        "source": file_path,
+                        "filename": filename,
+                        "type": "tabular_overview",
+                    },
                 )
                 chunks = [overview_chunk]
-            elif extension in ['.xlsx', '.xls']:
+            elif extension in [".xlsx", ".xls"]:
                 # Nur Übersichts-Chunk, keine Zeilen-Chunks
                 overview = self._get_tabular_overview(file_path)
                 overview_chunk = Document(
                     page_content=overview,
-                    metadata={"source": file_path, "filename": filename, "type": "tabular_overview"}
+                    metadata={
+                        "source": file_path,
+                        "filename": filename,
+                        "type": "tabular_overview",
+                    },
                 )
                 chunks = [overview_chunk]
-            elif extension == '.md':
+            elif extension == ".md":
                 loader = UnstructuredMarkdownLoader(file_path)
                 chunks = loader.load()
             else:
@@ -433,44 +473,55 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         except Exception as e:
             logger.error(f"Fehler beim Laden von {filename}: {e}")
             return False
-        
+
         if not chunks:
             logger.info(f"Keine Chunks für {filename}")
             return False
-        
+
         # 2. Chunks splitten (nur bei Formaten ohne Custom Loader)
         # PDF, DOCX, DOC, ODT werden bereits vom Custom Loader gechunkt
-        if extension not in ['.pdf', '.docx', '.doc', '.odt']:
+        if extension not in [".pdf", ".docx", ".doc", ".odt"]:
             chunks = self.text_splitter.split_documents(chunks)
-        
+
         # 3. Context anreichern
         full_text_context = " ".join([c.page_content for c in chunks])[:2500]
-        
+
         texts_to_embed = []
         metadatas = []
-        
+
         total_chunks = len(chunks)
         for i, chunk in enumerate(chunks, 1):
             logger.info(f"  [{i}/{total_chunks}] Context anreichern: {filename}")
-            
-            enriched_text = self._enrich_with_context(full_text_context, chunk.page_content)
-            
-            if "[Bild-BESCHREIBUNG:" in chunk.page_content or "[Bildbeschreibung:" in chunk.page_content:
-                phase_logger.log_phase(Phase.VISION_PROCESSING, f"Bild-Kontext extrahiert | Datei: {filename}")
+
+            enriched_text = self._enrich_with_context(
+                full_text_context, chunk.page_content
+            )
+
+            if (
+                "[Bild-BESCHREIBUNG:" in chunk.page_content
+                or "[Bildbeschreibung:" in chunk.page_content
+            ):
+                phase_logger.log_phase(
+                    Phase.VISION_PROCESSING,
+                    f"Bild-Kontext extrahiert | Datei: {filename}",
+                )
                 logger.info(f"  Bild-Kontext verarbeitet für: {filename}")
-            
+
             texts_to_embed.append(enriched_text)
             meta = chunk.metadata.copy()
             meta["filename"] = filename
             meta["file_group_id"] = file_group_id
             metadatas.append(meta)
-        
+
         # 4. Vektoren berechnen
-        phase_logger.log_phase(Phase.RETRIEVAL, f"Embeddings berechnen | Datei: {filename} | Vektoren: {len(texts_to_embed)}")
-        
+        phase_logger.log_phase(
+            Phase.RETRIEVAL,
+            f"Embeddings berechnen | Datei: {filename} | Vektoren: {len(texts_to_embed)}",
+        )
+
         dense_vectors = self.embeddings.embed_documents(texts_to_embed)
         sparse_vectors = sparse_model.embed_documents(texts_to_embed)
-        
+
         # 5. Upload Qdrant
         points = []
         for i in range(len(texts_to_embed)):
@@ -479,7 +530,7 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                 indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
                 values=sv.values if hasattr(sv, "values") else sv["values"],
             )
-            
+
             points.append(
                 qdrant_models.PointStruct(
                     id=str(uuid.uuid4()),
@@ -494,17 +545,17 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                     },
                 )
             )
-        
+
         client = self._get_client()
-        
+
         # Batch-Upsert (max 100 Punkte pro Batch)
         BATCH_SIZE = 500
         for i in range(0, len(points), BATCH_SIZE):
-            batch = points[i:i + BATCH_SIZE]
+            batch = points[i : i + BATCH_SIZE]
             client.upsert(collection_name=self.collection_name, points=batch)
-        
+
         # 6. Datei verschieben
-        if extension in ['.csv', '.xlsx', '.xls']:
+        if extension in [".csv", ".xlsx", ".xls"]:
             self._move_to_data_dir(file_path)
         else:
             self._move_processed_files(chunks)
@@ -513,43 +564,51 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         # Dokument findet und es per file_group_id gelöscht werden kann.
         try:
             from app.database_service import get_db_service
-            get_db_service().add_document(
-                document_id=file_group_id, filename=filename
-            )
+
+            get_db_service().add_document(document_id=file_group_id, filename=filename)
         except Exception as e:
-            logger.error(f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}")
+            logger.error(
+                f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}"
+            )
 
         duration = time.time() - start_time
-        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Datei fertig: {filename} | Dauer: {duration:.2f}s")
-        
+        phase_logger.log_phase(
+            Phase.DOCUMENT_PROCESSING,
+            f"Datei fertig: {filename} | Dauer: {duration:.2f}s",
+        )
+
         return True
 
     def ingest_documents(self):
         """Sequentielle Ingestion pro Datei"""
-        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Dokument-Ingestion gestartet")
-        
+        phase_logger.log_phase(
+            Phase.DOCUMENT_PROCESSING, "Dokument-Ingestion gestartet"
+        )
+
         # Dateien sammeln
         all_files = []
         for extension in self.loaders.keys():
             pattern = os.path.join("./data/files", f"**/*{extension}")
             files = glob.glob(pattern, recursive=True)
             all_files.extend(files)
-        
+
         if not all_files:
             logger.info("Keine Dateien gefunden.")
-            phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, "Keine Dateien gefunden", duration=0.0)
+            phase_logger.log_phase(
+                Phase.DOCUMENT_PROCESSING, "Keine Dateien gefunden", duration=0.0
+            )
             return
-        
+
         sparse_model = self._shared_sparse or FastEmbedSparse(model_name="Qdrant/bm25")
         pbar = tqdm(all_files, desc="Processing Files", unit="file")
-        
+
         success_count = 0
         error_count = 0
-        
+
         for file_path in pbar:
             filename = os.path.basename(file_path)
             pbar.set_description(f"Processing: {filename}")
-            
+
             try:
                 success = self._process_file(file_path, sparse_model)
                 if success:
@@ -563,7 +622,12 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                 logger.error(f"Fehler bei {filename}: {e}")
                 pbar.write(f"✗ {filename} fehlgeschlagen: {str(e)[:50]}")
                 continue
-        
+
         self._close_client()
-        phase_logger.log_phase(Phase.DOCUMENT_PROCESSING, f"Dokument-Ingestion abgeschlossen | Erfolgreich: {success_count} | Fehler: {error_count}")
-        logger.info(f"Fertig! {success_count} Dateien erfolgreich verarbeitet, {error_count} Fehler.")
+        phase_logger.log_phase(
+            Phase.DOCUMENT_PROCESSING,
+            f"Dokument-Ingestion abgeschlossen | Erfolgreich: {success_count} | Fehler: {error_count}",
+        )
+        logger.info(
+            f"Fertig! {success_count} Dateien erfolgreich verarbeitet, {error_count} Fehler."
+        )

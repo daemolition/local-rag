@@ -70,7 +70,9 @@ class PreprocessBase:
     mit den unstructured-Elementen auf.
     """
 
-    def __init__(self, model: VisionLLM = None, max_retries: int = 3, retry_delay: float = 2.0):
+    def __init__(
+        self, model: VisionLLM = None, max_retries: int = 3, retry_delay: float = 2.0
+    ):
         self.model = model or VisionLLM()
         self.duplicate_images: set = set()
         self.max_retries = max_retries
@@ -86,10 +88,13 @@ class PreprocessBase:
         if not os.path.exists(images_dir):
             return duplicates
 
-        image_files = sorted([
-            f for f in os.listdir(images_dir)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif'))
-        ])
+        image_files = sorted(
+            [
+                f
+                for f in os.listdir(images_dir)
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif"))
+            ]
+        )
 
         for img_file in image_files:
             img_path = os.path.join(images_dir, img_file)
@@ -108,8 +113,13 @@ class PreprocessBase:
 
         return duplicates
 
-    def process_image_with_retry(self, b64image: str, image_path: str,
-                                  current_image: int, unique_image_count: int) -> dict:
+    def process_image_with_retry(
+        self,
+        b64image: str,
+        image_path: str,
+        current_image: int,
+        unique_image_count: int,
+    ) -> dict:
         """Verarbeitet ein Bild mit Retry-Logik für LLM-Timeouts."""
         message = self.model.generate_image_message(b64image)
 
@@ -119,8 +129,12 @@ class PreprocessBase:
         while retry_count < self.max_retries:
             try:
                 description = self.model.generate(message)
-                desc_text = description.content if hasattr(description, 'content') else str(description)
-                return {'image': desc_text}
+                desc_text = (
+                    description.content
+                    if hasattr(description, "content")
+                    else str(description)
+                )
+                return {"image": desc_text}
             except Exception as e:
                 retry_count += 1
                 last_error = e
@@ -135,17 +149,20 @@ class PreprocessBase:
             f"Bild {current_image}/{unique_image_count} - "
             f"Alle {self.max_retries} Versuche fehlgeschlagen: {image_path}"
         )
-        return {'error': f"LLM-Error nach {self.max_retries} Versuchen: {str(last_error)[:100]}"}
+        return {
+            "error": f"LLM-Error nach {self.max_retries} Versuchen: {str(last_error)[:100]}"
+        }
 
     def encode_image(self, image_path: str) -> str:
         """Helferfunktion zum Encodieren des Bildes in Base64."""
-        with open(image_path, 'rb') as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8').replace("\n", "")
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode("utf-8").replace("\n", "")
 
     # ---- Chunk-Building (formatunabhängig) ----
 
-    def build_chunks(self, elements: list, file_path: str,
-                     image_map: dict | None = None) -> list[Document]:
+    def build_chunks(
+        self, elements: list, file_path: str, image_map: dict | None = None
+    ) -> list[Document]:
         """Baut LangChain-Dokumente aus unstructured-Elementen.
 
         Args:
@@ -173,11 +190,13 @@ class PreprocessBase:
         # Anzahl einzigartiger Bilder (für Progress-Anzeige)
         if image_map is None:
             unique_image_count = sum(
-                1 for el in elements
-                if el.category == 'Image'
+                1
+                for el in elements
+                if el.category == "Image"
                 and getattr(el.metadata, "image_path", None)
                 and os.path.exists(getattr(el.metadata, "image_path", None))
-                and getattr(el.metadata, "image_path", None) not in self.duplicate_images
+                and getattr(el.metadata, "image_path", None)
+                not in self.duplicate_images
             )
         else:
             unique_image_count = len(image_map)
@@ -185,16 +204,12 @@ class PreprocessBase:
         current_image = 0
 
         chunks: list[Document] = []
-        current_chunk: dict = {
-            'title': filename,
-            'content': [],
-            'metadata': {}
-        }
+        current_chunk: dict = {"title": filename, "content": [], "metadata": {}}
 
         def create_langchain_doc(chunk_dict: dict) -> Document:
             text_parts = []
-            for item in chunk_dict['content']:
-                if isinstance(item, dict) and 'image' in item:
+            for item in chunk_dict["content"]:
+                if isinstance(item, dict) and "image" in item:
                     text_parts.append(f"[BILD-BESCHREIBUNG: {item['image']}]")
                 else:
                     text_parts.append(str(item))
@@ -204,48 +219,53 @@ class PreprocessBase:
                 metadata={
                     "source": file_path,
                     "filename": filename,
-                    "title": chunk_dict.get('title', 'kein Titel'),
+                    "title": chunk_dict.get("title", "kein Titel"),
                     "type": "document_chunk",
-                    **chunk_dict.get('metadata', {})
-                }
+                    **chunk_dict.get("metadata", {}),
+                },
             )
 
         for idx, el in enumerate(elements):
             # Bild aus image_map (DOCX-Pfad: Position über XML ermittelt)
             if image_map is not None and idx in image_map:
                 current_image += 1
-                print(f"Verarbeite Bild {current_image}/{unique_image_count}", flush=True)
-                current_chunk['content'].append({'image': image_map[idx]})
+                print(
+                    f"Verarbeite Bild {current_image}/{unique_image_count}", flush=True
+                )
+                current_chunk["content"].append({"image": image_map[idx]})
                 continue
 
-            if el.category == 'Title':
-                if current_chunk['content']:
+            if el.category == "Title":
+                if current_chunk["content"]:
                     chunks.append(create_langchain_doc(current_chunk))
                 current_chunk = {
-                    'title': el.text,
-                    'content': [],
-                    'metadata': el.metadata.to_dict()
+                    "title": el.text,
+                    "content": [],
+                    "metadata": el.metadata.to_dict(),
                 }
-            elif el.category == 'Image':
+            elif el.category == "Image":
                 image_path = getattr(el.metadata, "image_path", None)
                 if image_path and os.path.exists(image_path):
                     if image_path in self.duplicate_images:
                         continue
                     current_image += 1
-                    print(f"Verarbeite Bild {current_image}/{unique_image_count}", flush=True)
+                    print(
+                        f"Verarbeite Bild {current_image}/{unique_image_count}",
+                        flush=True,
+                    )
                     b64image = self.encode_image(image_path)
                     result = self.process_image_with_retry(
                         b64image, image_path, current_image, unique_image_count
                     )
-                    if 'image' in result:
-                        current_chunk['content'].append({'image': result['image']})
-                    elif 'error' in result:
+                    if "image" in result:
+                        current_chunk["content"].append({"image": result["image"]})
+                    elif "error" in result:
                         logger.error(f"Bild übersprungen: {result['error']}")
             else:
                 if el.text.strip():
-                    current_chunk['content'].append(el.text)
+                    current_chunk["content"].append(el.text)
 
-        if current_chunk['content']:
+        if current_chunk["content"]:
             chunks.append(create_langchain_doc(current_chunk))
 
         return chunks

@@ -17,11 +17,9 @@
 """
 SQLAlchemy Models für Local Document RAG (Single-User)
 """
+
 from datetime import datetime
-from sqlalchemy import (
-    Column, Integer, String, Text, Boolean,
-    DateTime, ForeignKey
-)
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -29,7 +27,8 @@ Base = declarative_base()
 
 class ChatSession(Base):
     """Chat-Sessions"""
-    __tablename__ = 'sessions'
+
+    __tablename__ = "sessions"
 
     id = Column(String(36), primary_key=True)
     title = Column(String(255))
@@ -37,7 +36,9 @@ class ChatSession(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
+    messages = relationship(
+        "Message", back_populates="session", cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<ChatSession(id='{self.id}', title='{self.title}')>"
@@ -45,10 +46,16 @@ class ChatSession(Base):
 
 class Message(Base):
     """Chat-Nachrichten"""
-    __tablename__ = 'messages'
+
+    __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True)
-    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_id = Column(
+        String(36),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     role = Column(String(20), nullable=False)  # 'user' oder 'assistant'
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -62,10 +69,13 @@ class Message(Base):
 
 class UserDocument(Base):
     """Dokument-Tracking (eine Datei → mehrere Qdrant Chunks)"""
-    __tablename__ = 'user_documents'
+
+    __tablename__ = "user_documents"
 
     id = Column(Integer, primary_key=True)
-    document_id = Column(String(100), nullable=False, index=True)  # Qdrant file_group_id
+    document_id = Column(
+        String(100), nullable=False, index=True
+    )  # Qdrant file_group_id
     filename = Column(String(255), nullable=False)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
 
@@ -75,12 +85,15 @@ class UserDocument(Base):
 
 class Setting(Base):
     """Key-Value Settings mit Metadaten"""
-    __tablename__ = 'settings'
+
+    __tablename__ = "settings"
 
     key = Column(String(100), primary_key=True)
     value = Column(Text)
     default_value = Column(Text)
-    category = Column(String(50), index=True)  # 'llm', 'embedding', 'retriever', 'storage', 'qdrant', 'auth'
+    category = Column(
+        String(50), index=True
+    )  # 'llm', 'embedding', 'retriever', 'storage', 'qdrant', 'auth'
     is_sensitive = Column(Boolean, default=False)  # Für API_KEY Maskierung
     description = Column(Text)
 
@@ -90,13 +103,14 @@ class Setting(Base):
     def get_display_value(self):
         """Maskierte Anzeige für sensitive Werte"""
         if self.is_sensitive and self.value:
-            return '*' * min(len(self.value), 20)
+            return "*" * min(len(self.value), 20)
         return self.value
 
 
 class UserSummaryFile(Base):
     """Summary Markdown-Datei-Tracking"""
-    __tablename__ = 'user_summary_files'
+
+    __tablename__ = "user_summary_files"
 
     id = Column(Integer, primary_key=True)
     filename = Column(String(255), nullable=False)

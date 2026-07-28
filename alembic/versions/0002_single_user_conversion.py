@@ -5,6 +5,7 @@ Revises: 0001
 Create Date: 2026-07-09
 
 """
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -85,7 +86,11 @@ def downgrade() -> None:
     with op.batch_alter_table("sessions") as batch_op:
         batch_op.add_column(sa.Column("user_id", sa.Integer(), nullable=True))
         batch_op.create_foreign_key(
-            "fk_sessions_user_id_users", "users", ["user_id"], ["id"], ondelete="CASCADE"
+            "fk_sessions_user_id_users",
+            "users",
+            ["user_id"],
+            ["id"],
+            ondelete="CASCADE",
         )
     conn.execute(sa.text("UPDATE sessions SET user_id = :uid"), {"uid": admin_id})
     with op.batch_alter_table("sessions") as batch_op:
@@ -94,7 +99,11 @@ def downgrade() -> None:
     with op.batch_alter_table("user_documents") as batch_op:
         batch_op.add_column(sa.Column("user_id", sa.Integer(), nullable=True))
         batch_op.create_foreign_key(
-            "fk_user_documents_user_id_users", "users", ["user_id"], ["id"], ondelete="CASCADE"
+            "fk_user_documents_user_id_users",
+            "users",
+            ["user_id"],
+            ["id"],
+            ondelete="CASCADE",
         )
     conn.execute(sa.text("UPDATE user_documents SET user_id = :uid"), {"uid": admin_id})
     with op.batch_alter_table("user_documents") as batch_op:
@@ -103,9 +112,15 @@ def downgrade() -> None:
     with op.batch_alter_table("user_summary_files") as batch_op:
         batch_op.add_column(sa.Column("user_id", sa.Integer(), nullable=True))
         batch_op.create_foreign_key(
-            "fk_user_summary_files_user_id_users", "users", ["user_id"], ["id"], ondelete="CASCADE"
+            "fk_user_summary_files_user_id_users",
+            "users",
+            ["user_id"],
+            ["id"],
+            ondelete="CASCADE",
         )
-    conn.execute(sa.text("UPDATE user_summary_files SET user_id = :uid"), {"uid": admin_id})
+    conn.execute(
+        sa.text("UPDATE user_summary_files SET user_id = :uid"), {"uid": admin_id}
+    )
     with op.batch_alter_table("user_summary_files") as batch_op:
         batch_op.alter_column("user_id", nullable=False)
 

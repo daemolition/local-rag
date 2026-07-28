@@ -45,7 +45,7 @@ class PreprocessPDF(PreprocessBase):
             extract_images_in_pdf=True,
             extract_image_block_output_dir=images_dir,
             infer_table_structure=False,
-            pdf_image_dpi=150
+            pdf_image_dpi=150,
         )
 
         chunks = self.build_chunks(elements, file_path, image_map=None)

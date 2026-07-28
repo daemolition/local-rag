@@ -24,7 +24,7 @@ from langchain_core.language_models import BaseLanguageModel
 
 class DocumentAgent:
     """Agent for document data analysis"""
-    
+
     SYSTEM_PROMPT = """
         # System-Prompt: Senior Document AI Analyst
  
@@ -67,25 +67,19 @@ class DocumentAgent:
         3. **Deutsch**: Immer auf Deutsch antworten!
         4. **Quellennachweise**: Dateinamen bei Aussagen nennen
     """
-    
-    def __init__(
-        self,
-        llm: BaseLanguageModel,
-        tools: list
-    ):
+
+    def __init__(self, llm: BaseLanguageModel, tools: list):
         self.llm = llm
         self.tools = tools
         self._agent = create_agent(
-            model=self.llm,
-            tools=self.tools,
-            system_prompt=self.SYSTEM_PROMPT
+            model=self.llm, tools=self.tools, system_prompt=self.SYSTEM_PROMPT
         )
-    
+
     @property
     def agent(self):
         """Return the cached compiled agent graph."""
         return self._agent
-    
+
     def stream(self, input_data: dict, config: dict = None):
         """Stream the agent's response."""
         if config is None:
@@ -93,9 +87,13 @@ class DocumentAgent:
         config["recursion_limit"] = 500
         return self.agent.astream(input_data, config, stream_mode="messages")
 
-    def astream_events(self, input_data: dict, config: dict = None, version: str = "v2", **kwargs):
+    def astream_events(
+        self, input_data: dict, config: dict = None, version: str = "v2", **kwargs
+    ):
         """Stream agent events."""
         if config is None:
             config = {}
         config["recursion_limit"] = 500
-        return self.agent.astream_events(input_data, config=config, version=version, **kwargs)
+        return self.agent.astream_events(
+            input_data, config=config, version=version, **kwargs
+        )

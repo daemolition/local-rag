@@ -17,6 +17,7 @@
 """
 Database Service mit SQLAlchemy (Single-User)
 """
+
 import os
 import uuid
 from datetime import datetime
@@ -26,7 +27,14 @@ from werkzeug.security import generate_password_hash
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session as SQLAlchemySession
 
-from app.models import Base, ChatSession, Message, UserDocument, UserSummaryFile, Setting
+from app.models import (
+    Base,
+    ChatSession,
+    Message,
+    UserDocument,
+    UserSummaryFile,
+    Setting,
+)
 
 
 class DatabaseService:
@@ -34,9 +42,9 @@ class DatabaseService:
 
     def __init__(self, db_path: str = "./data/app.db"):
         self.engine = create_engine(
-            f'sqlite:///{db_path}',
+            f"sqlite:///{db_path}",
             echo=False,
-            connect_args={"check_same_thread": False}
+            connect_args={"check_same_thread": False},
         )
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
@@ -62,29 +70,45 @@ class DatabaseService:
         """Settings mit .env-Werten initialisieren"""
 
         all_settings = {
-            'CHAT_MODEL': ('llm', 'qwen3:8b', 'Modell für Chat-Interaktionen'),
-            'CHAT_BASEURL': ('llm', 'http://localhost:11434/v1', 'Ollama/OpenAI API URL'),
-            'CHAT_TEMPERATURE': ('llm', '0.1', 'Temperatur für Chat (0.0-1.0)'),
-            'CHAT_TOP_P': ('llm', '0.2', 'Top-P Sampling'),
-            'VISION_MODEL': ('llm', 'qwen3-vl:8b', 'Vision-Modell für Bilder'),
-            'VISION_BASEURL': ('llm', 'http://localhost:11434/v1', 'Vision API URL'),
-            'API_KEY': ('llm', 'ollama', 'API Key', True),
-            'STT_MODEL': ('stt', 'whisper-1', 'STT Modell'),
-            'STT_BASEURL': ('stt', 'http://localhost:11434/v1', 'STT API URL'),
-            'STT_API_KEY': ('stt', 'ollama', 'STT API Key', True),
-            'EMBEDDING_SOURCE': ('embedding', 'local', 'Quelle: local oder endpoint'),
-            'EMBEDDING_MODEL': ('embedding', 'paraphrase-multilingual-MiniLM-L12-v2', 'Embedding Modell'),
-            'EMBEDDING_ENDPOINT': ('embedding', 'http://localhost:8080/v1', 'Embedding Endpoint URL'),
-            'EMBEDDING_DIMENSION': ('embedding', '384', 'Vektor-Dimension'),
-            'RETRIEVER_K': ('retriever', '5', 'Anzahl Ergebnisse'),
-            'RETRIEVER_FETCH_K': ('retriever', '30', 'Anzahl zum Fetchen'),
-            'RETRIEVER_LAMBDA': ('retriever', '0.5', 'MMR Lambda (0.0-1.0)'),
-            'RETRIEVER_SCORE_THRESHOLD': ('retriever', '0.2', 'Mindest-Score'),
-            'SECRET_KEY': ('auth', '', 'Flask Secret Key (wird bei leerem Wert automatisch erzeugt)'),
-            'DATA_DIR': ('storage', './data', 'Daten-Verzeichnis'),
-            'SUMMARIES_DIR': ('storage', './data/summaries', 'Summaries-Verzeichnis'),
-            'QDRANT_HOST': ('qdrant', 'localhost', 'Qdrant Host'),
-            'QDRANT_PORT': ('qdrant', '6333', 'Qdrant Port'),
+            "CHAT_MODEL": ("llm", "qwen3:8b", "Modell für Chat-Interaktionen"),
+            "CHAT_BASEURL": (
+                "llm",
+                "http://localhost:11434/v1",
+                "Ollama/OpenAI API URL",
+            ),
+            "CHAT_TEMPERATURE": ("llm", "0.1", "Temperatur für Chat (0.0-1.0)"),
+            "CHAT_TOP_P": ("llm", "0.2", "Top-P Sampling"),
+            "VISION_MODEL": ("llm", "qwen3-vl:8b", "Vision-Modell für Bilder"),
+            "VISION_BASEURL": ("llm", "http://localhost:11434/v1", "Vision API URL"),
+            "API_KEY": ("llm", "ollama", "API Key", True),
+            "STT_MODEL": ("stt", "whisper-1", "STT Modell"),
+            "STT_BASEURL": ("stt", "http://localhost:11434/v1", "STT API URL"),
+            "STT_API_KEY": ("stt", "ollama", "STT API Key", True),
+            "EMBEDDING_SOURCE": ("embedding", "local", "Quelle: local oder endpoint"),
+            "EMBEDDING_MODEL": (
+                "embedding",
+                "paraphrase-multilingual-MiniLM-L12-v2",
+                "Embedding Modell",
+            ),
+            "EMBEDDING_ENDPOINT": (
+                "embedding",
+                "http://localhost:8080/v1",
+                "Embedding Endpoint URL",
+            ),
+            "EMBEDDING_DIMENSION": ("embedding", "384", "Vektor-Dimension"),
+            "RETRIEVER_K": ("retriever", "5", "Anzahl Ergebnisse"),
+            "RETRIEVER_FETCH_K": ("retriever", "30", "Anzahl zum Fetchen"),
+            "RETRIEVER_LAMBDA": ("retriever", "0.5", "MMR Lambda (0.0-1.0)"),
+            "RETRIEVER_SCORE_THRESHOLD": ("retriever", "0.2", "Mindest-Score"),
+            "SECRET_KEY": (
+                "auth",
+                "",
+                "Flask Secret Key (wird bei leerem Wert automatisch erzeugt)",
+            ),
+            "DATA_DIR": ("storage", "./data", "Daten-Verzeichnis"),
+            "SUMMARIES_DIR": ("storage", "./data/summaries", "Summaries-Verzeichnis"),
+            "QDRANT_HOST": ("qdrant", "localhost", "Qdrant Host"),
+            "QDRANT_PORT": ("qdrant", "6333", "Qdrant Port"),
         }
 
         for key, config in all_settings.items():
@@ -105,29 +129,28 @@ class DatabaseService:
                     default_value=default,
                     category=category,
                     is_sensitive=is_sensitive,
-                    description=description
+                    description=description,
                 )
                 db.add(setting)
 
-        deprecated_keys = {'MODEL', 'BASEURL', 'TEMPERATURE', 'TOP_P', 'CHAT_DB_PATH'}
+        deprecated_keys = {"MODEL", "BASEURL", "TEMPERATURE", "TOP_P", "CHAT_DB_PATH"}
         db.query(Setting).filter(Setting.key.in_(deprecated_keys)).delete(
             synchronize_session=False
         )
 
-        old_summaries = db.query(Setting).filter_by(key='SUMMARIES_DIR').first()
-        if old_summaries and old_summaries.value == './summaries':
-            old_summaries.value = './data/summaries'
+        old_summaries = db.query(Setting).filter_by(key="SUMMARIES_DIR").first()
+        if old_summaries and old_summaries.value == "./summaries":
+            old_summaries.value = "./data/summaries"
 
     def _init_app_password(self, db: SQLAlchemySession):
         """APP_PASSWORD_HASH sicherstellen (Default aus .env oder 'admin')."""
         from app.settings_service import SettingsService
 
         settings_service = SettingsService(db)
-        if not settings_service.get('APP_PASSWORD_HASH'):
-            default_password = os.getenv('ADMIN_PASSWORD', 'admin')
+        if not settings_service.get("APP_PASSWORD_HASH"):
+            default_password = os.getenv("ADMIN_PASSWORD", "admin")
             settings_service.set(
-                'APP_PASSWORD_HASH',
-                generate_password_hash(default_password)
+                "APP_PASSWORD_HASH", generate_password_hash(default_password)
             )
 
     # === ChatSession Methods ===
@@ -136,10 +159,7 @@ class DatabaseService:
         """Neue Session erstellen"""
         db = self.get_session()
         try:
-            session = ChatSession(
-                id=str(uuid.uuid4()),
-                title=title
-            )
+            session = ChatSession(id=str(uuid.uuid4()), title=title)
             db.add(session)
             db.commit()
             db.refresh(session)
@@ -162,9 +182,7 @@ class DatabaseService:
         """Alle Sessions auflisten"""
         db = self.get_session()
         try:
-            return db.query(ChatSession).order_by(
-                ChatSession.updated_at.desc()
-            ).all()
+            return db.query(ChatSession).order_by(ChatSession.updated_at.desc()).all()
         finally:
             db.close()
 
@@ -207,11 +225,7 @@ class DatabaseService:
         """Nachricht speichern"""
         db = self.get_session()
         try:
-            message = Message(
-                session_id=session_id,
-                role=role,
-                content=content
-            )
+            message = Message(session_id=session_id, role=role, content=content)
             db.add(message)
 
             session = db.query(ChatSession).filter_by(id=session_id).first()
@@ -231,9 +245,13 @@ class DatabaseService:
         """Nachrichten einer Session"""
         db = self.get_session()
         try:
-            return db.query(Message).filter_by(session_id=session_id).order_by(
-                Message.created_at.asc()
-            ).limit(limit).all()
+            return (
+                db.query(Message)
+                .filter_by(session_id=session_id)
+                .order_by(Message.created_at.asc())
+                .limit(limit)
+                .all()
+            )
         finally:
             db.close()
 
@@ -241,9 +259,7 @@ class DatabaseService:
         """Letzte Session"""
         db = self.get_session()
         try:
-            return db.query(ChatSession).order_by(
-                ChatSession.updated_at.desc()
-            ).first()
+            return db.query(ChatSession).order_by(ChatSession.updated_at.desc()).first()
         finally:
             db.close()
 
@@ -253,10 +269,7 @@ class DatabaseService:
         """Dokument-Zuordnung erstellen"""
         db = self.get_session()
         try:
-            doc = UserDocument(
-                document_id=document_id,
-                filename=filename
-            )
+            doc = UserDocument(document_id=document_id, filename=filename)
             db.add(doc)
             db.commit()
             db.refresh(doc)
@@ -271,9 +284,9 @@ class DatabaseService:
         """Alle Dokumente auflisten"""
         db = self.get_session()
         try:
-            return db.query(UserDocument).order_by(
-                UserDocument.uploaded_at.desc()
-            ).all()
+            return (
+                db.query(UserDocument).order_by(UserDocument.uploaded_at.desc()).all()
+            )
         finally:
             db.close()
 
@@ -307,9 +320,7 @@ class DatabaseService:
         """Neue Summary-Datei-Eintrag erstellen"""
         db = self.get_session()
         try:
-            summary = UserSummaryFile(
-                filename=filename
-            )
+            summary = UserSummaryFile(filename=filename)
             db.add(summary)
             db.commit()
             db.refresh(summary)
@@ -325,9 +336,12 @@ class DatabaseService:
         db = self.get_session()
         try:
             from app.models import UserSummaryFile
-            return db.query(UserSummaryFile).order_by(
-                UserSummaryFile.created_at.desc()
-            ).all()
+
+            return (
+                db.query(UserSummaryFile)
+                .order_by(UserSummaryFile.created_at.desc())
+                .all()
+            )
         finally:
             db.close()
 
@@ -360,6 +374,7 @@ class DatabaseService:
         db = self.get_session()
         try:
             from app.models import UserSummaryFile
+
             summary = db.query(UserSummaryFile).filter_by(filename=filename).first()
             if summary:
                 db.delete(summary)
@@ -389,5 +404,7 @@ def get_db_service() -> DatabaseService:
     """Bestehenden Database Service zurückgeben"""
     global db_service
     if db_service is None:
-        raise RuntimeError("Database Service nicht initialisiert. Zuerst init_db_service() aufrufen.")
+        raise RuntimeError(
+            "Database Service nicht initialisiert. Zuerst init_db_service() aufrufen."
+        )
     return db_service
