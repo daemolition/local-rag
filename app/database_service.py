@@ -81,8 +81,8 @@ class DatabaseService:
             "VISION_MODEL": ("llm", "qwen3-vl:8b", "Vision-Modell für Bilder"),
             "VISION_BASEURL": ("llm", "http://localhost:11434/v1", "Vision API URL"),
             "API_KEY": ("llm", "ollama", "API Key", True),
-            "STT_MODEL": ("stt", "whisper-1", "STT Modell"),
-            "STT_BASEURL": ("stt", "http://localhost:11434/v1", "STT API URL"),
+            "STT_MODEL": ("stt", "large-v3-turbo", "STT Modell"),
+            "STT_BASEURL": ("stt", "http://whisper:9000/v1", "STT API URL"),
             "STT_API_KEY": ("stt", "ollama", "STT API Key", True),
             "EMBEDDING_SOURCE": ("embedding", "local", "Quelle: local oder endpoint"),
             "EMBEDDING_MODEL": (

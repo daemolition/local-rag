@@ -638,6 +638,8 @@ DEPENDENT_FIELDS = {
     "EMBEDDING_SOURCE": {"show_when": "endpoint", "fields": ["EMBEDDING_ENDPOINT"]}
 }
 
+TOGGLE_KEYS = {"SEARCH_SEARXNG_ENABLED", "PII_FILTER_ENABLED"}
+
 
 @user_bp.route("/settings")
 @auth_required
@@ -658,6 +660,7 @@ def settings():
         category_names=category_names,
         select_options=SELECT_OPTIONS,
         dependent_fields=DEPENDENT_FIELDS,
+        toggle_keys=TOGGLE_KEYS,
     )
 
 

@@ -173,7 +173,8 @@ def init_resources(app, preload=False):
     summaries_dir = settings.get("SUMMARIES_DIR", "./data/summaries")
 
     # Search & PII-Filter Settings
-    searxng_url = settings.get("SEARCH_SEARXNG_URL")
+    searxng_enabled = settings.get_bool("SEARCH_SEARXNG_ENABLED", True)
+    searxng_url = settings.get("SEARCH_SEARXNG_URL") if searxng_enabled else None
     searxng_categories = settings.get("SEARCH_SEARXNG_CATEGORIES", "general")
     pii_filter_url = settings.get("PII_FILTER_URL")
     pii_filter_api_key = settings.get("PII_FILTER_API_KEY")

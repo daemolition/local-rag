@@ -29,7 +29,7 @@ async function saveCategory(category) {
     const settings = {};
 
     inputs.forEach(input => {
-        settings[input.name] = input.value;
+        settings[input.name] = input.type === 'checkbox' ? String(input.checked) : input.value;
     });
 
     try {
