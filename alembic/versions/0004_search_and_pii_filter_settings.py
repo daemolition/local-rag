@@ -21,7 +21,7 @@ def upgrade() -> None:
         # Search Settings (SearXNG)
         (
             "SEARCH_SEARXNG_URL",
-            "",
+            "http://searxng:8080",
             "search",
             False,
             "SearXNG Metasuchmaschine URL (z.B. http://localhost:8080)",
@@ -33,10 +33,17 @@ def upgrade() -> None:
             False,
             "Durchsuchbare Kategorien (Komma-getrennt, z.B. general,news,science)",
         ),
+        (
+            "SEARCH_SEARXNG_ENABLED",
+            "true",
+            "search",
+            False,
+            "Websuche aktivieren (true/false)",
+        ),
         # PII-Filter Settings
         (
             "PII_FILTER_URL",
-            "",
+            "http://entityguard:9500/api/v1/sanitize",
             "pii_filter",
             False,
             "Vollständige PII-Filter Endpoint URL (z.B. http://localhost:9500/api/v1/sanitize)",
@@ -79,7 +86,7 @@ def downgrade() -> None:
     conn.execute(
         sa.text(
             "DELETE FROM settings WHERE key IN "
-            "('SEARCH_SEARXNG_URL', 'SEARCH_SEARXNG_CATEGORIES', "
+            "('SEARCH_SEARXNG_URL', 'SEARCH_SEARXNG_CATEGORIES', 'SEARCH_SEARXNG_ENABLED', "
             "'PII_FILTER_URL', 'PII_FILTER_API_KEY', 'PII_FILTER_ENABLED')"
         )
     )

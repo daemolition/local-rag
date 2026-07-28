@@ -65,6 +65,7 @@ class SettingsService:
         "search": [
             "SEARCH_SEARXNG_URL",
             "SEARCH_SEARXNG_CATEGORIES",
+            "SEARCH_SEARXNG_ENABLED",
         ],
         "pii_filter": [
             "PII_FILTER_URL",
@@ -96,7 +97,7 @@ class SettingsService:
         "VISION_MODEL": "Vision-Modell für Bildverarbeitung in PDFs",
         "VISION_BASEURL": "Vision API URL (falls anders als Chat)",
         "API_KEY": "API Key für Authentifizierung",
-        "STT_MODEL": "Speech-to-Text Modell (z.B. whisper-1)",
+        "STT_MODEL": "Speech-to-Text Modell (z.B. large-v3-turbo)",
         "STT_BASEURL": "STT API URL (z.B. OpenAI-compatible Whisper Endpoint)",
         "STT_API_KEY": "API Key für STT Endpoint",
         "EMBEDDING_SOURCE": 'Quelle: "local" (ONNX/fastembed) oder "endpoint"',
@@ -114,6 +115,7 @@ class SettingsService:
         "QDRANT_PORT": "Qdrant Server Port",
         "SEARCH_SEARXNG_URL": "SearXNG Metasuchmaschine URL (z.B. http://localhost:8080)",
         "SEARCH_SEARXNG_CATEGORIES": "Durchsuchbare Kategorien (Komma-getrennt, z.B. general,news,science)",
+        "SEARCH_SEARXNG_ENABLED": "Websuche aktivieren (true/false)",
         "PII_FILTER_URL": "Vollständige PII-Filter Endpoint URL (z.B. http://localhost:9500/api/v1/sanitize)",
         "PII_FILTER_API_KEY": "API Key für PII-Filter Service",
         "PII_FILTER_ENABLED": "PII-Filter aktivieren (true/false)",

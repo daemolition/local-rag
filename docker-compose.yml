@@ -36,6 +36,50 @@ services:
       retries: 3
       start_period: 40s
 
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: local-document-rag-searxng
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8081/
+    networks:
+      - local-rag-network
+
+  entityguard:
+    image: registry.nutsolution.de/entityguard:latest
+    container_name: local-document-rag-entityguard
+    restart: always
+    volumes:
+      - entityguard-data:/app/data
+    networks:
+      - local-rag-network
+
+  whisper:
+    build:
+      context: ./whisper
+      args:
+        WHISPER_MODEL: large-v3-turbo
+    image: local-document-rag-whisper
+    container_name: local-document-rag-whisper
+    restart: unless-stopped
+    environment:
+      - WHISPER_MODEL=large-v3-turbo
+      - WHISPER_DEVICE=cuda
+      - WHISPER_COMPUTE_TYPE=float16
+    networks:
+      - local-rag-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: local-document-rag-qdrant
@@ -63,3 +107,4 @@ volumes:
   qdrant:
   app-data:
   fastembed-cache:
+  entityguard-data:

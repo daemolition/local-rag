@@ -79,6 +79,34 @@ Manuell: Starte Qdrant separat (Docker, Binary, etc.) und konfiguriere `QDRANT_H
 
 ---
 
+## Websuche (SearXNG) & PII-Filter (entityguard)
+
+Docker Compose startet zusätzlich zwei Container:
+
+- **`searxng`** (`searxng/searxng:latest`) macht dem Chat-Agenten das `web_search_tool` verfügbar. Die App verbindet sich intern über `http://searxng:8080` (Setting `SEARCH_SEARXNG_URL`, bei frischer DB bereits vorbelegt). Die Web-UI ist zum Debuggen unter http://localhost:8081 erreichbar.
+- **`entityguard`** (`registry.nutsolution.de/entityguard:latest`) ist der PII-Filter-Service, der Suchanfragen (und Chat-Nachrichten) vor dem Versand maskiert und die Antwort anschließend wieder demaskiert. Die App verbindet sich intern über `http://entityguard:9500/api/v1/sanitize` (Setting `PII_FILTER_URL`, bei frischer DB bereits vorbelegt). Kein Host-Port gemappt — nur aus dem `local-rag-network` erreichbar.
+
+Konfiguration von SearXNG liegt in `searxng/settings.yml` (wird eingecheckt mitgeliefert). Zwei Einstellungen darin sind notwendig, damit die App die JSON-API nutzen kann:
+
+- `search.formats` enthält `json` (Default liefert nur HTML aus).
+- `server.limiter: false` (sonst blockt SearXNGs Bot-Schutz die serverseitigen Anfragen aus dem App-Container).
+
+Der mitgelieferte `secret_key` in `searxng/settings.yml` ist ein zufällig generierter Platzhalter — für einen produktiven Betrieb mit mehreren Deployments solltest du einen eigenen erzeugen (`openssl rand -hex 32`) und eintragen. Der Wert `ultrasecretkey` (SearXNGs eigener Default) funktioniert **nicht** — SearXNG verweigert damit explizit den Start.
+
+Beide Features sind optional: Ist `SEARCH_SEARXNG_URL` leer, wird `web_search_tool` gar nicht erst registriert; ist `PII_FILTER_URL` leer oder `PII_FILTER_ENABLED=false`, läuft die Filterung als No-Op durch.
+
+---
+
+## Speech-to-Text (whisper)
+
+Docker Compose startet zusätzlich einen `whisper`-Container (eigenes Image, gebaut aus `whisper/Dockerfile`) mit `faster-whisper` auf GPU (Modell `large-v3-turbo`, `float16`). **Benötigt eine NVIDIA-GPU mit installiertem NVIDIA Container Toolkit** — ohne GPU-Reservierung startet der Container nicht.
+
+Die App spricht den Service über den `openai`-SDK-kompatiblen Endpunkt `/v1/audio/transcriptions` an (Setting `STT_BASEURL=http://whisper:9000/v1`, bei frischer DB bereits vorbelegt). Kein Host-Port gemappt — nur aus dem `local-rag-network` erreichbar. Das Modell wird beim Image-Build auf CPU vorgeladen (in den HF-Cache im Image gebacken), damit der Containerstart nicht auf einen Download wartet; die eigentliche Inferenz läuft zur Laufzeit auf GPU.
+
+Anderes Modell verwenden: `WHISPER_MODEL` sowohl im `build.args` als auch in `environment` in `docker-compose.yml` anpassen und neu bauen (`docker-compose build whisper`), damit der vorgeladene Cache zum Laufzeit-Modell passt.
+
+---
+
 ## Installation
 
 ### Voraussetzungen

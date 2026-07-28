@@ -19,7 +19,7 @@ PII-Filter Client für externen PII-Maskierungs-Service
 """
 
 from logging import getLogger
-from typing import List, Optional
+from typing import Optional
 import requests
 
 logger = getLogger(__name__)
@@ -32,14 +32,14 @@ class PIIFilterResult:
         self,
         original: str,
         filtered: str,
-        mapping: Optional[List[dict]] = None,
+        mapping=None,
         error: Optional[str] = None,
     ):
         self.original = original
         self.filtered = filtered
         self.mapping = (
-            mapping or []
-        )  # [{"placeholder": "[NAME_1]", "original": "Max Mustermann", "type": "person"}, ...]
+            mapping if mapping is not None else {}
+        )  # entityguard-Format: {"[NAME_1]": "Max Mustermann", ...}
         self.error = error
 
     def __repr__(self):
@@ -62,13 +62,14 @@ class PIIFilterClient:
         self.api_key = api_key
         self.timeout = timeout
 
-    def demask(self, text: str, mapping: list) -> str:
+    def demask(self, text: str, mapping) -> str:
         """
         Ersetzt Platzhalter im Text mit den originalen Werten aus dem Mapping.
 
         Args:
             text: Der gefilterte Text mit Platzhaltern (z.B. "[NAME_1]")
-            mapping: Liste von Mapping-Objekten mit "placeholder" und "original"
+            mapping: entweder {"placeholder": "original", ...} (entityguard-Format)
+                oder eine Liste von Objekten mit "placeholder"/"original" (legacy)
 
         Returns:
             Demaskierter Text mit originalen PII-Werten
@@ -77,12 +78,18 @@ class PIIFilterClient:
             return text
 
         result = text
-        for entry in mapping:
-            placeholder = entry.get("placeholder")
-            original = entry.get("original")
 
-            if placeholder and original:
-                result = result.replace(placeholder, original)
+        if isinstance(mapping, dict):
+            for placeholder, original in mapping.items():
+                if placeholder and original:
+                    result = result.replace(placeholder, original)
+        else:
+            for entry in mapping:
+                placeholder = entry.get("placeholder")
+                original = entry.get("original")
+
+                if placeholder and original:
+                    result = result.replace(placeholder, original)
 
         return result
 
