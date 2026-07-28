@@ -58,18 +58,16 @@ services:
     networks:
       - local-rag-network
 
-  whisper:
+  parakeet:
     build:
-      context: ./whisper
+      context: ./parakeet
       args:
-        WHISPER_MODEL: large-v3-turbo
-    image: local-document-rag-whisper
-    container_name: local-document-rag-whisper
+        DEVICE: gpu
+    image: local-document-rag-parakeet
+    container_name: local-document-rag-parakeet
     restart: unless-stopped
     environment:
-      - WHISPER_MODEL=large-v3-turbo
-      - WHISPER_DEVICE=cuda
-      - WHISPER_COMPUTE_TYPE=float16
+      - PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
     networks:
       - local-rag-network
     deploy:

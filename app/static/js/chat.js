@@ -32,8 +32,11 @@ userInput.addEventListener('keydown', function(e) {
 let currentSessionId = null;
 let currentAbortController = null;
 let isStreaming = false;
-let mediaRecorder = null;
-let audioChunks = [];
+let sttWebSocket = null;
+let sttAudioContext = null;
+let sttWorkletNode = null;
+let sttMediaStream = null;
+let sttCommittedText = '';
 
 sidebarToggle.addEventListener('click', () => {
     const isOpen = sidebar.classList.contains('translate-x-0');
@@ -384,73 +387,132 @@ chatForm.addEventListener('submit', (e) => {
 
 let isRecording = false;
 
+function updateUserInputValue(value) {
+    userInput.value = value;
+    userInput.style.height = 'auto';
+    userInput.style.height = Math.min(userInput.scrollHeight, 200) + 'px';
+}
+
+function stopSttRecording() {
+    isRecording = false;
+    micBtn.classList.remove('text-red-600', 'animate-pulse');
+    micBtn.title = 'Spracheingabe';
+
+    if (sttWorkletNode) {
+        sttWorkletNode.disconnect();
+        sttWorkletNode = null;
+    }
+    if (sttAudioContext) {
+        sttAudioContext.close();
+        sttAudioContext = null;
+    }
+    if (sttMediaStream) {
+        sttMediaStream.getTracks().forEach(track => track.stop());
+        sttMediaStream = null;
+    }
+}
+
 micBtn.addEventListener('click', async () => {
-    if (isRecording && mediaRecorder) {
-        mediaRecorder.stop();
+    if (isRecording) {
+        // Aufnahme stoppen: Stop-Signal an den Server, Audio-Pfad sofort
+        // trennen (Mikrofon freigeben), auf die finale Transkription warten
+        // - die kommt ueber das websocket 'onmessage' (final-Event unten).
+        if (sttWebSocket && sttWebSocket.readyState === WebSocket.OPEN) {
+            sttWebSocket.send(JSON.stringify({ event: 'stop' }));
+        }
+        stopSttRecording();
         return;
     }
 
-    if (!navigator.mediaDevices || !window.MediaRecorder) {
-        alert('Spracheingabe wird von diesem Browser nicht unterstützt.');
+    if (!navigator.mediaDevices || !window.AudioContext || !window.AudioWorkletNode) {
+        alert('Live-Spracheingabe wird von diesem Browser nicht unterstützt.');
         return;
     }
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
+        sttMediaStream = stream;
 
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                audioChunks.push(event.data);
+        const audioContext = new AudioContext({ sampleRate: 16000 });
+        sttAudioContext = audioContext;
+        await audioContext.audioWorklet.addModule('/static/js/pcm-worklet-processor.js');
+
+        const source = audioContext.createMediaStreamSource(stream);
+        const workletNode = new AudioWorkletNode(audioContext, 'pcm-worklet-processor');
+        sttWorkletNode = workletNode;
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/stt-stream`);
+        ws.binaryType = 'arraybuffer';
+        sttWebSocket = ws;
+        sttCommittedText = '';
+
+        ws.onopen = () => {
+            // AudioWorkletNode.process() wird nur zuverlaessig aufgerufen, wenn der
+            // Knoten (mittelbar) mit destination verbunden ist - ueber einen
+            // stummgeschalteten Gain-Node, damit das Mikrofon nicht hoerbar
+            // durchgeschleift wird (kein Echo/Feedback).
+            const silentGain = audioContext.createGain();
+            silentGain.gain.value = 0;
+            source.connect(workletNode);
+            workletNode.connect(silentGain);
+            silentGain.connect(audioContext.destination);
+        };
+
+        workletNode.port.onmessage = (event) => {
+            // event.data ist ein Float32Array (Kopie aus dem Worklet) - .buffer
+            // liefert die rohen Float32-LE-Bytes, exakt das Format, das der
+            // Parakeet-Server über /v1/audio/stream erwartet.
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(event.data.buffer);
             }
         };
 
-        mediaRecorder.onstop = async () => {
-            const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-            audioChunks = [];
-            isRecording = false;
-            micBtn.classList.remove('text-red-600', 'animate-pulse');
-            micBtn.title = 'Spracheingabe';
-
+        ws.onmessage = (event) => {
+            let msg;
             try {
-                const formData = new FormData();
-                formData.append('audio', blob, 'recording.webm');
-                const response = await fetch('/api/stt', {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await response.json();
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                if (data.text) {
-                    userInput.value = data.text;
-                    userInput.style.height = 'auto';
-                    userInput.style.height = Math.min(userInput.scrollHeight, 200) + 'px';
+                msg = JSON.parse(event.data);
+            } catch (e) {
+                return;
+            }
+
+            if (msg.error) {
+                console.error('STT-Stream error:', msg.error);
+                alert('Spracherkennung fehlgeschlagen: ' + msg.error);
+                stopSttRecording();
+                ws.close();
+                return;
+            }
+            if (msg.committed !== undefined) {
+                sttCommittedText = msg.committed;
+                updateUserInputValue(sttCommittedText);
+            }
+            if (msg.partial) {
+                const combined = sttCommittedText ? `${sttCommittedText} ${msg.partial}` : msg.partial;
+                updateUserInputValue(combined.trim());
+            }
+            if (msg.final !== undefined) {
+                updateUserInputValue(msg.final);
+                ws.close();
+                if (msg.final) {
                     chatForm.dispatchEvent(new Event('submit'));
                 }
-            } catch (error) {
-                console.error('STT error:', error);
-                alert('Spracherkennung fehlgeschlagen: ' + error.message);
             }
-
-            stream.getTracks().forEach(track => track.stop());
         };
 
-        mediaRecorder.onerror = () => {
-            isRecording = false;
-            micBtn.classList.remove('text-red-600', 'animate-pulse');
-            alert('Aufnahme fehlgeschlagen.');
+        ws.onerror = () => {
+            console.error('STT-Stream: WebSocket-Fehler');
+            alert('Verbindung zur Spracherkennung fehlgeschlagen.');
+            stopSttRecording();
         };
 
-        mediaRecorder.start();
         isRecording = true;
         micBtn.classList.add('text-red-600', 'animate-pulse');
         micBtn.title = 'Aufnahme stoppen';
     } catch (error) {
         console.error('Microphone access error:', error);
         alert('Mikrofon-Zugriff verweigert oder nicht verfügbar.');
+        stopSttRecording();
     }
 });
 

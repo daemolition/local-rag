@@ -97,7 +97,7 @@ class SettingsService:
         "VISION_MODEL": "Vision-Modell für Bildverarbeitung in PDFs",
         "VISION_BASEURL": "Vision API URL (falls anders als Chat)",
         "API_KEY": "API Key für Authentifizierung",
-        "STT_MODEL": "Speech-to-Text Modell (z.B. large-v3-turbo)",
+        "STT_MODEL": "Speech-to-Text Modell (z.B. nemo-parakeet-tdt-0.6b-v3)",
         "STT_BASEURL": "STT API URL (z.B. OpenAI-compatible Whisper Endpoint)",
         "STT_API_KEY": "API Key für STT Endpoint",
         "EMBEDDING_SOURCE": 'Quelle: "local" (ONNX/fastembed) oder "endpoint"',

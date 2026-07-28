@@ -97,13 +97,15 @@ Beide Features sind optional: Ist `SEARCH_SEARXNG_URL` leer, wird `web_search_to
 
 ---
 
-## Speech-to-Text (whisper)
+## Speech-to-Text (Parakeet, mit Live-Streaming)
 
-Docker Compose startet zusätzlich einen `whisper`-Container (eigenes Image, gebaut aus `whisper/Dockerfile`) mit `faster-whisper` auf GPU (Modell `large-v3-turbo`, `float16`). **Benötigt eine NVIDIA-GPU mit installiertem NVIDIA Container Toolkit** — ohne GPU-Reservierung startet der Container nicht.
+Docker Compose startet zusätzlich einen `parakeet`-Container (eigenes Image, gebaut aus `parakeet/Dockerfile`) mit **Parakeet TDT 0.6b v3** (NVIDIA NeMo, über `onnx_asr`) auf GPU. **Benötigt eine NVIDIA-GPU mit installiertem NVIDIA Container Toolkit** — ohne GPU-Reservierung startet der Container nicht (läuft aber auch auf CPU, siehe `--build-arg DEVICE=cpu`).
 
-Die App spricht den Service über den `openai`-SDK-kompatiblen Endpunkt `/v1/audio/transcriptions` an (Setting `STT_BASEURL=http://whisper:9000/v1`, bei frischer DB bereits vorbelegt). Kein Host-Port gemappt — nur aus dem `local-rag-network` erreichbar. Das Modell wird beim Image-Build auf CPU vorgeladen (in den HF-Cache im Image gebacken), damit der Containerstart nicht auf einen Download wartet; die eigentliche Inferenz läuft zur Laufzeit auf GPU.
+Der Mic-Button im Chat nutzt **echtes Live-Streaming**: Das Mikrofon wird als rohes Float32-PCM (16kHz, mono) per WebSocket über einen neuen Flask-Proxy-Endpunkt (`/ws/stt-stream`, `app/stt_stream.py`) an Parakeets `/v1/audio/stream`-Endpunkt weitergereicht. Während des Sprechens wächst der Text live im Eingabefeld ("self-healing": der offene Satzteil wird laufend neu erkannt und ersetzt sich selbst, bis er an einer Sprechpause eingefroren/committed wird). Nach Stop wird die finale Nachricht automatisch abgeschickt, wie zuvor beim Batch-STT.
 
-Anderes Modell verwenden: `WHISPER_MODEL` sowohl im `build.args` als auch in `environment` in `docker-compose.yml` anpassen und neu bauen (`docker-compose build whisper`), damit der vorgeladene Cache zum Laufzeit-Modell passt.
+Der bisherige Batch-Endpunkt (`/api/stt`, OpenAI-SDK-kompatibel gegen `STT_BASEURL=http://parakeet:5001/v1`, bei frischer DB bereits vorbelegt) bleibt im Backend als Fallback bestehen, wird vom Frontend aber nicht mehr aufgerufen. Kein Host-Port für `parakeet` gemappt — nur aus dem `local-rag-network` erreichbar (der WebSocket-Proxy läuft über die App, die bereits auf Port 8083 exponiert ist).
+
+Anderes Modell verwenden: `PARAKEET_MODEL`-Env in `docker-compose.yml` anpassen und `parakeet/Dockerfile`s Modell-Preload-Zeile entsprechend anpassen + neu bauen, damit der vorgeladene Cache zum Laufzeit-Modell passt.
 
 ---
 

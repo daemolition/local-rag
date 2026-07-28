@@ -378,4 +378,9 @@ def create_app(preload=False):
 
     app.register_blueprint(user_bp)
 
+    # WebSocket-Proxy fuer Live-STT-Streaming (Browser <-> Parakeet).
+    from app.stt_stream import sock
+
+    sock.init_app(app)
+
     return app
