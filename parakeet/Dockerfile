@@ -42,7 +42,7 @@ WORKDIR /app
 # installed explicitly regardless of the extra.
 COPY requirements.cpu.txt ./requirements.cpu.txt
 COPY requirements.gpu.txt ./requirements.gpu.txt
-RUN pip3 install --no-cache-dir -r requirements.${DEVICE}.txt
+RUN pip3 install --no-cache-dir -r requirements.cpu.txt
 
 # Download models at build time for faster container starts.
 # Parakeet ASR (~300MB) goes to the default HF cache; Silero VAD (~2MB) goes
