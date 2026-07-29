@@ -53,6 +53,8 @@ services:
     image: registry.nutsolution.de/entityguard:latest
     container_name: local-document-rag-entityguard
     restart: always
+    ports:
+      - "8082:9500"
     volumes:
       - entityguard-data:/app/data
     networks:
