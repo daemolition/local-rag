@@ -19,6 +19,7 @@ User Routes für Dokumentenverwaltung, Vektordatenbank, Settings und Summaries
 (Single-User)
 """
 
+from datetime import datetime
 from logging import getLogger
 from pathlib import Path
 from flask import (
@@ -767,8 +768,6 @@ def change_password():
 @auth_required
 def my_summaries():
     """Alle Summary-Dateien anzeigen"""
-    from pathlib import Path
-
     db = get_db_service()
     settings = SettingsService(db.get_session())
     summaries_dir = Path(settings.get("SUMMARIES_DIR", "./data/summaries"))
@@ -784,6 +783,7 @@ def my_summaries():
                     "size": stat.st_size,
                     "size_human": _format_file_size(stat.st_size),
                     "modified": stat.st_mtime,
+                    "created_at": datetime.fromtimestamp(stat.st_ctime),
                 }
             )
 
