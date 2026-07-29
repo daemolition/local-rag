@@ -70,13 +70,13 @@ services:
       - PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
     networks:
       - local-rag-network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    #deploy:
+    #  resources:
+    #    reservations:
+    #      devices:
+    #        - driver: nvidia
+    #          count: 1
+    #          capabilities: [gpu]
 
   qdrant:
     image: qdrant/qdrant:latest
