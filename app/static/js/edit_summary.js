@@ -1,8 +1,7 @@
-marked.setOptions({ breaks: true, gfm: true });
-
 function updatePreview() {
     const content = document.getElementById('content').value;
-    document.getElementById('preview-content').innerHTML = DOMPurify.sanitize(marked.parse(content));
+    const html = marked.parse(content, { breaks: true, gfm: true });
+    document.getElementById('preview-content').innerHTML = DOMPurify.sanitize(html);
 }
 
 function switchTab(tab) {
