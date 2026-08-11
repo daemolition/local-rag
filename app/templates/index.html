@@ -5,49 +5,39 @@
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
-<style>
+    <style>
     .message { max-width: 85%; padding: 1rem 1.25rem; border-radius: 1rem; line-height: 1.6; }
-    .message.user { background: linear-gradient(135deg, #475569 0%, #334155 100%); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
-    .message.assistant { background: #f8fafc; border: 1px solid #e5e7eb; align-self: flex-start; border-bottom-left-radius: 4px; }
-    .dark .message.assistant { background: #374151; border-color: #4b5563; color: #e5e7eb; }
+    .message.user { background: rgb(var(--color-primary)); color: rgb(var(--color-primary-text)); align-self: flex-end; border-bottom-right-radius: 4px; }
+    .message.assistant { background: rgb(var(--color-surface)); border: 1px solid rgb(var(--color-border)); color: rgb(var(--color-primary)); align-self: flex-start; border-bottom-left-radius: 4px; }
     .message p { margin: 0 0 0.75rem 0; }
     .message p:last-child { margin-bottom: 0; }
     .message h1, .message h2, .message h3 { margin: 1rem 0 0.5rem 0; font-weight: 600; }
     .message h1 { font-size: 1.5rem; }
     .message h2 { font-size: 1.25rem; }
     .message h3 { font-size: 1.1rem; }
-    .message code { background: rgba(100, 116, 139, 0.1); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.9em; font-family: 'Fira Code', Consolas, monospace; }
-    .message.user code { background: rgba(255,255,255,0.2); }
+    .message code { background: rgb(var(--color-surface-muted)); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.9em; font-family: 'Fira Code', Consolas, monospace; }
+    .message.user code { background: rgb(var(--color-primary-soft) / 0.4); }
     .message pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 10px; overflow-x: auto; margin: 0.75rem 0; font-size: 0.875rem; line-height: 1.5; }
     .message pre code { background: transparent; padding: 0; color: inherit; }
     .message ul, .message ol { margin: 0.5rem 0; padding-left: 1.5rem; }
     .message li { margin: 0.25rem 0; }
     .message table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.9rem; }
-    .message th, .message td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
-    .message th { background: #f1f5f9; font-weight: 600; }
-    .dark .message th { background: #4b5563; }
-    .dark .message td { border-color: #4b5563; }
-    .message blockquote { border-left: 4px solid #475569; padding-left: 1rem; margin: 0.75rem 0; color: #64748b; font-style: italic; }
-    .dark .message blockquote { color: #94a3b8; }
-    .message a { color: #475569; text-decoration: none; border-bottom: 1px dotted #475569; }
+    .message th, .message td { border: 1px solid rgb(var(--color-border)); padding: 0.5rem 0.75rem; text-align: left; }
+    .message th { background: rgb(var(--color-surface-muted)); font-weight: 600; }
+    .message blockquote { border-left: 4px solid rgb(var(--color-border-strong)); padding-left: 1rem; margin: 0.75rem 0; color: rgb(var(--color-secondary)); font-style: italic; }
+    .message a { color: rgb(var(--color-secondary)); text-decoration: none; border-bottom: 1px dotted rgb(var(--color-secondary)); }
     .message a:hover { border-bottom-style: solid; }
-    .dark .message a { color: #94a3b8; border-bottom-color: #94a3b8; }
-    .message hr { border: none; border-top: 1px solid #e5e7eb; margin: 1rem 0; }
-    .dark .message hr { border-top-color: #4b5563; }
+    .message hr { border: none; border-top: 1px solid rgb(var(--color-border)); margin: 1rem 0; }
     .loading-dots { display: flex; gap: 0.3rem; padding: 0.5rem 0; }
-    .loading-dots span { width: 10px; height: 10px; background: #475569; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
+    .loading-dots span { width: 10px; height: 10px; background: rgb(var(--color-secondary)); border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
     .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
     .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
     @keyframes bounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }
-    .tool-indicator { display: inline-flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border: 1px solid #94a3b8; border-radius: 20px; padding: 0.4rem 0.8rem; margin-top: 0.5rem; font-size: 0.85rem; color: #475569; }
-    .dark .tool-indicator { background: linear-gradient(135deg, #374151 0%, #4b5563 100%); border-color: #6b7280; color: #e2e8f0; }
-    .thinking-block { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; margin: 0.5rem 0; }
-    .dark .thinking-block { background: #1f2937; border-color: #4b5563; }
-    .thinking-block summary { cursor: pointer; color: #475569; font-weight: 500; padding: 0.5rem; }
-    .dark .thinking-block summary { color: #cbd5e1; }
-    .thinking-block pre { background: #e2e8f0; padding: 0.75rem; margin: 0 0.5rem 0.5rem 0.5rem; border-radius: 4px; font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; }
-    .dark .thinking-block pre { background: #111827; color: #e5e7eb; }
-    .session-delete { background: transparent; border: none; color: rgba(255,255,255,0.6); cursor: pointer; padding: 0.25rem; border-radius: 4px; opacity: 0; transition: all 0.2s; }
+    .tool-indicator { display: inline-flex; align-items: center; gap: 0.5rem; background: rgb(var(--color-surface-muted)); border: 1px solid rgb(var(--color-border-strong)); border-radius: 20px; padding: 0.4rem 0.8rem; margin-top: 0.5rem; font-size: 0.85rem; color: rgb(var(--color-secondary)); }
+    .thinking-block { background: rgb(var(--color-surface-muted)); border: 1px solid rgb(var(--color-border)); border-radius: 8px; margin: 0.5rem 0; }
+    .thinking-block summary { cursor: pointer; color: rgb(var(--color-secondary)); font-weight: 500; padding: 0.5rem; }
+    .thinking-block pre { background: rgb(var(--color-surface-subtle)); padding: 0.75rem; margin: 0 0.5rem 0.5rem 0.5rem; border-radius: 4px; font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; color: rgb(var(--color-primary)); }
+    .session-delete { background: transparent; border: none; color: rgb(var(--color-secondary) / 0.6); cursor: pointer; padding: 0.25rem; border-radius: 4px; opacity: 0; transition: all 0.2s; }
     .session-item:hover .session-delete { opacity: 1; }
     .session-delete:hover { color: #f87171; background: rgba(248, 113, 113, 0.1); }
     @media (max-width: 1024px) {
@@ -55,16 +45,16 @@
     #sidebar.translate-x-0 { transform: translateX(0); }
     #sidebar.-translate-x-full { transform: translateX(-100%); }
     }
-</style>
+    </style>
 {% endblock %}
 
 {% block content %}
 <div class="flex h-screen">
     <!-- Sidebar -->
-    <aside id="sidebar" class="w-56 bg-gradient-to-b from-slate-700 to-slate-800 text-white flex flex-col flex-shrink-0 shadow-material-2 transition-transform duration-300">
-        <div class="p-4 border-b border-white/10 flex justify-between items-center">
-            <h2 class="text-base font-semibold">Chats</h2>
-            <button id="newChatBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors shadow-material-1">
+    <aside id="sidebar" class="w-56 bg-surface border-r border-base shadow-material-1 flex flex-col flex-shrink-0 transition-transform duration-300">
+        <div class="p-4 border-b border-base flex justify-between items-center">
+            <h2 class="text-base font-semibold text-primary">Chats</h2>
+            <button id="newChatBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface-muted hover:bg-primary hover:text-primary-text rounded-lg text-sm font-medium transition-colors">
                 <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <line x1="12" y1="5" x2="12" y2="19"/>
                     <line x1="5" y1="12" x2="19" y2="12"/>
@@ -73,7 +63,7 @@
             </button>
         </div>
         <div id="sessionList" class="flex-1 overflow-y-auto p-2">
-            <div class="text-center text-white/50 py-8 text-sm">Keine Chats vorhanden</div>
+            <div class="text-center text-secondary py-8 text-sm">Keine Chats vorhanden</div>
         </div>
     </aside>
 
@@ -83,17 +73,17 @@
     <!-- Main Content -->
     <div class="flex-1 flex flex-col overflow-hidden">
         <!-- Header -->
-        <header class="bg-gradient-to-r from-slate-700 to-slate-800 text-white shadow-material-2 flex-shrink-0">
+        <header class="bg-surface border-b border-base shadow-material-1 flex-shrink-0">
             <div class="flex items-center justify-between px-4 py-3">
                 <div class="flex items-center gap-3">
-                    <button id="sidebarToggle" class="lg:hidden p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">
+                    <button id="sidebarToggle" class="lg:hidden p-2 rounded-lg hover:bg-surface-muted transition-colors">
                         <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <line x1="3" y1="12" x2="21" y2="12"/>
                             <line x1="3" y1="6" x2="21" y2="6"/>
                             <line x1="3" y1="18" x2="21" y2="18"/>
                         </svg>
                     </button>
-                    <h1 class="text-lg font-semibold flex items-center gap-2">
+                    <h1 class="text-lg font-semibold flex items-center gap-2 text-primary">
                         <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
                         </svg>
@@ -108,26 +98,43 @@
                         </svg>
                         <span>Dokumentenverarbeitung läuft</span>
                     </div>
-                    <a href="{{ url_for('user.my_documents') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">Dokumente</a>
-                    <a href="{{ url_for('user.my_summaries') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">Analysen</a>
-                    <a href="{{ url_for('user.settings') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">Einstellungen</a>
-                    <a href="{{ url_for('main.logout') }}" class="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">Abmelden</a>
+                    <!-- Theme-Toggle (Sonne/Mond) -->
+                    <button type="button" onclick="toggleTheme()" title="Hell/Dunkel umschalten" class="p-2 rounded-lg hover:bg-surface-muted text-primary transition-colors">
+                        <svg data-theme-icon-moon class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                        </svg>
+                        <svg data-theme-icon-sun class="w-5 h-5 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="5"/>
+                            <line x1="12" y1="1" x2="12" y2="3"/>
+                            <line x1="12" y1="21" x2="12" y2="23"/>
+                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                            <line x1="1" y1="12" x2="3" y2="12"/>
+                            <line x1="21" y1="12" x2="23" y2="12"/>
+                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                        </svg>
+                    </button>
+                    <a href="{{ url_for('user.my_documents') }}" class="px-3 py-1.5 rounded-lg hover:bg-surface-muted transition-colors">Dokumente</a>
+                    <a href="{{ url_for('user.my_summaries') }}" class="px-3 py-1.5 rounded-lg hover:bg-surface-muted transition-colors">Analysen</a>
+                    <a href="{{ url_for('user.settings') }}" class="px-3 py-1.5 rounded-lg hover:bg-surface-muted transition-colors">Einstellungen</a>
+                    <a href="{{ url_for('main.logout') }}" class="px-3 py-1.5 rounded-lg hover:bg-surface-muted transition-colors">Abmelden</a>
                 </div>
             </div>
         </header>
 
         <!-- Chat Container -->
         <div class="flex-1 flex justify-center p-4 overflow-hidden">
-            <div class="w-full max-w-4xl flex flex-col bg-white rounded-2xl shadow-material-3 overflow-hidden">
+            <div class="w-full max-w-4xl flex flex-col bg-surface rounded-2xl border border-base overflow-hidden">
                 <!-- Messages -->
                 <div id="messagesContainer" class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
                 </div>
 
                 <!-- Input -->
-                <div class="p-4 border-t border-gray-200 bg-white flex-shrink-0">
-                    <div class="flex gap-3 bg-gray-50 border-2 border-gray-200 rounded-2xl p-1.5 transition-all focus-within:border-slate-500 focus-within:bg-white focus-within:shadow-lg focus-within:shadow-slate-500/10">
+                <div class="p-4 border-t border-base bg-surface flex-shrink-0">
+                    <div class="flex gap-3 bg-surface-subtle border-2 border-base rounded-2xl p-1.5 transition-all focus-within:border-strong focus-within:bg-surface focus-within:shadow-lg">
                         <form id="chatForm" class="flex-1 flex gap-3 items-center">
-                            <button type="button" id="micBtn" class="p-2.5 ml-2 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors" title="Spracheingabe">
+                            <button type="button" id="micBtn" class="p-2.5 ml-2 rounded-xl text-primary hover:bg-surface-muted transition-colors" title="Spracheingabe">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                                     <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
@@ -135,8 +142,8 @@
                                     <line x1="8" y1="23" x2="16" y2="23"/>
                                 </svg>
                             </button>
-                            <textarea id="userInput" placeholder="Frag mich was zu deinen Dokumenten..." rows="1" autocomplete="off" class="flex-1 px-3 py-2 bg-transparent border-none outline-none resize-none max-h-50 font-sans text-gray-900 placeholder-gray-400"></textarea>
-                            <button type="submit" id="sendBtn" class="px-5 py-2 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl font-semibold shadow-material-1 hover:shadow-material-2 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                            <textarea id="userInput" placeholder="Frag mich was zu deinen Dokumenten..." rows="1" autocomplete="off" class="flex-1 px-3 py-2 bg-transparent border-none outline-none resize-none max-h-50 font-sans text-primary placeholder:text-secondary"></textarea>
+                            <button type="submit" id="sendBtn" class="px-5 py-2 bg-primary text-primary-text rounded-xl font-semibold hover:bg-primary-soft hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                                 Senden
                             </button>
                         </form>

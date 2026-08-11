@@ -1,9 +1,60 @@
+// === Theme-Switch (Hell/Dunkel, OpenAI/OpenWebUI-Stil) ===
+// Präferenz: localStorage 'ui_theme' = 'light' | 'dark' | 'system'.
+// 'system' folgt prefers-color-scheme. base.html setzt die initiale Klasse
+// vor dem ersten Paint; diese Funktion übernimmt nur Umschalten + Persistenz.
+function applyTheme(pref) {
+    localStorage.setItem('ui_theme', pref);
+    var dark = pref === 'dark' ||
+        (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var root = document.documentElement;
+    if (dark) root.classList.add('dark');
+    else root.classList.remove('dark');
+    updateThemeToggleIcons(dark);
+    return dark;
+}
+
+// Cycle-Toggle für Header-Button: light -> dark -> system -> light ...
+// Aktuell einfacher Binär-Toggle (light <-> dark), 'system' via Settings.
+function toggleTheme() {
+    var root = document.documentElement;
+    var isDark = root.classList.contains('dark');
+    return applyTheme(isDark ? 'light' : 'dark');
+}
+
+// Sonne/Mond-Icon-Sichtbarkeit aktualisieren. Die Icons nutzen die Tailwind
+// 'hidden'-Klasse (display:none). Inline style.display='' wuerde die nicht
+// überschreiben, daher explizit toggle('hidden', ...) statt style.display.
+function updateThemeToggleIcons(isDark) {
+    document.querySelectorAll('[data-theme-icon-sun]').forEach(function (el) {
+        el.classList.toggle('hidden', !isDark);
+    });
+    document.querySelectorAll('[data-theme-icon-moon]').forEach(function (el) {
+        el.classList.toggle('hidden', isDark);
+    });
+}
+
+// Beim Laden die Icon-Sichtbarkeit mit dem initialen Theme synchronisieren.
+(function initThemeIcons() {
+    if (window.__themeDark !== undefined) updateThemeToggleIcons(window.__themeDark);
+})();
+
+// Auf OS-Theme-Wechsel reagieren, wenn Präferenz 'system' ist.
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+    var pref = localStorage.getItem('ui_theme') || 'system';
+    if (pref === 'system') {
+        var root = document.documentElement;
+        if (e.matches) root.classList.add('dark');
+        else root.classList.remove('dark');
+        updateThemeToggleIcons(e.matches);
+    }
+});
+
 // Toast Notification
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = `fixed bottom-6 right-6 px-6 py-3 rounded-lg shadow-material-3 z-50 transform translate-x-0 transition-transform duration-300 ${
-        type === 'success' 
-            ? 'bg-slate-700 text-white' 
+        type === 'success'
+            ? 'bg-primary text-primary-text'
             : 'bg-red-600 text-white'
     }`;
     toast.textContent = message;

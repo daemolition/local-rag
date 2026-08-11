@@ -2,6 +2,70 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design-Tokens (OpenAI/OpenWebUI-Stil, neutral Schwarz/Dunkelgrau).
+   Hell-Modus: :root, Dunkel-Modus: .dark (gesetzt von base.html Theme-Switch).
+   Werte als "R G B" (ohne rgb()) gespeichert, damit Tailwind mit
+   rgb(var(--x) / <alpha-value>) Alpha-Modifier nutzen kann. */
+@layer base {
+  :root {
+    --color-surface: 255 255 255;            /* weiß: Karten/Modals */
+    --color-surface-subtle: 247 247 248;     /* #f7f7f8: App-Hintergrund/Sidebar */
+    --color-surface-muted: 236 236 241;      /* #ececf1: Hover/Chip-Hintergrund */
+    --color-primary: 0 0 0;                   /* schwarz: Buttons/Akzent */
+    --color-primary-soft: 217 217 227;        /* hover-hell */
+    --color-primary-text: 255 255 255;        /* Text auf primary */
+    --color-secondary: 100 116 139;          /* slate-500: Sekundärtext */
+    --color-border: 229 229 235;             /* #e5e5eb: Standard-Border */
+    --color-border-strong: 197 197 210;      /* etwas kräftiger */
+  }
+
+  .dark {
+    --color-surface: 32 33 35;               /* #202123: Karten */
+    --color-surface-subtle: 23 23 23;         /* #171717: App-Hintergrund */
+    --color-surface-muted: 50 51 57;         /* #323339: Hover */
+    --color-primary: 255 255 255;            /* weiß: Buttons im Dunkeln */
+    --color-primary-soft: 82 82 91;           /* hover-dunkel */
+    --color-primary-text: 23 23 23;          /* Text auf primary (dunkel) */
+    --color-secondary: 172 172 190;          /* Sekundärtext dunkel */
+    --color-border: 64 65 79;                /* #40414f */
+    --color-border-strong: 86 88 105;         /* kräftiger dunkel */
+  }
+
+  /* Basis-Body an Tokens anpassen, damit der Übergang flächig ist. */
+  body {
+    @apply bg-surface-subtle text-primary;
+  }
+
+  /* Scrollbalken: schlank, theme-bewusst (Thumb aus surface-muted,
+     Hover border-strong), runde Kappen. WebKit + Firefox. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--color-surface-muted)) transparent;
+  }
+  .dark * {
+    scrollbar-color: rgb(var(--color-surface-muted)) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--color-surface-muted));
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--color-border-strong));
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
 /* Inter self-hosted (SIL OFL 1.1, siehe app/static/fonts/LICENSE.txt).
    Ersetzt den render-blockierenden Google-Fonts-Request. */
 @font-face {

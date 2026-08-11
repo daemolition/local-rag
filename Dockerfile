@@ -43,6 +43,23 @@ RUN python -c "from langchain_community.embeddings import FastEmbedEmbeddings; \
  && python -c "from langchain_qdrant import FastEmbedSparse; \
       FastEmbedSparse(model_name='Qdrant/bm25')"
 
+# Docling-Modelle (Layout/DocLayNet + TableFormer) zur Build-Zeit in den
+# HF-Cache laden, damit der Containerstart nicht auf einen Download wartet.
+# Docling lädt die Gewichte erst beim convert(), nicht beim Instanziieren —
+# deshalb wird hier eine Minimal-PDF (via Pillow, bereits Dep) erzeugt und
+# konvertiert. torch läuft CPU-only (siehe pyproject.toml [tool.uv.sources]).
+# OCR erfolgt über die Tesseract-CLI (apt-Packages oben).
+RUN python -c "\
+from PIL import Image; \
+Image.new('RGB',(100,100),'white').save('/tmp/_warm.pdf'); \
+from docling.document_converter import DocumentConverter, PdfFormatOption; \
+from docling.datamodel.base_models import InputFormat; \
+from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions; \
+conv = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=PdfPipelineOptions(do_ocr=True, do_table_structure=True, ocr_options=TesseractCliOcrOptions(lang=['deu','eng'])))}); \
+conv.convert('/tmp/_warm.pdf'); \
+import os; os.remove('/tmp/_warm.pdf')"
+
+
 # Standalone Tailwind-CLI v3 (kein Node noetig) in einem separaten, cachebaren
 # Layer laden. Ersetzt den render-blockierenden Play-CDN durch self-hosted CSS.
 RUN curl -sL -o /usr/local/bin/tailwindcss \

@@ -15,41 +15,46 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-PDF-spezifisches Preprocessing.
+PDF-spezifisches Preprocessing via Docling.
 
-Nutzt partition_pdf mit Bildextraktion (extract_images_in_pdf=True) und
-delegiert Chunk-Building + VisionLLM-Verarbeitung an PreprocessBase.
+Nutzt DocumentConverter mit Tesseract-OCR (CLI) und TableFormer
+(do_table_structure=True) fuer saubere Tabellenextraktion. Bilder werden
+ueber generate_picture_images=True als PIL-Bilder zur Verfuegung gestellt
+und in Lesereihenfolge via VisionLLM beschrieben.
 """
 
 # Third party
-from unstructured.partition.pdf import partition_pdf
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import (
+    PdfPipelineOptions,
+    TesseractCliOcrOptions,
+)
+from docling.document_converter import DocumentConverter, PdfFormatOption
 
 # Custom imports
-from app.components.preprocess_base import PreprocessBase, _clear_dir
+from app.components.preprocess_base import PreprocessBase
 
 
 class PreprocessPDF(PreprocessBase):
-    """PDF-Preprocessing mit unstructured partition_pdf + Bildextraktion."""
+    """PDF-Preprocessing mit Docling (Layout, Tabellen, OCR, Bilder)."""
 
-    def process_with_unstructured(self, file_path: str) -> list:
-        """Verarbeitet die PDF und gibt eine Liste von LangChain-Dokumenten zurück."""
-
-        images_dir = "./data/images"
-
-        _clear_dir(images_dir)
-
-        elements = partition_pdf(
-            filename=file_path,
-            strategy="hi_res",
-            languages=["deu"],
-            extract_images_in_pdf=True,
-            extract_image_block_output_dir=images_dir,
-            infer_table_structure=False,
-            pdf_image_dpi=150,
+    def _build_converter(self) -> DocumentConverter:
+        pipeline_options = PdfPipelineOptions(
+            do_ocr=True,
+            do_table_structure=True,
+            generate_picture_images=True,
+            images_scale=2,
+            ocr_options=TesseractCliOcrOptions(lang=["deu", "eng"]),
+        )
+        return DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+            }
         )
 
-        chunks = self.build_chunks(elements, file_path, image_map=None)
-
-        _clear_dir(images_dir)
-
-        return chunks
+    def process_document(self, file_path: str) -> list:
+        """Verarbeitet die PDF und gibt eine Liste von LangChain-Dokumenten zurueck."""
+        converter = self._build_converter()
+        result = converter.convert(file_path)
+        doc = result.document
+        return self.build_chunks_from_docling(doc, file_path)

@@ -3,7 +3,7 @@
 {% block title %}Dokument Details - Local Document RAG{% endblock %}
 
 {% block user_content %}
-<a href="{{ url_for('user.vectordb') }}" class="inline-flex items-center gap-2 text-gray-500 hover:text-slate-700 transition-colors mb-4 text-sm">
+<a href="{{ url_for('user.vectordb') }}" class="inline-flex items-center gap-2 text-secondary hover:text-primary transition-colors mb-4 text-sm">
     <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <line x1="19" y1="12" x2="5" y2="12"/>
         <polyline points="12 19 5 12 12 5"/>
@@ -11,35 +11,35 @@
     Zurück zur Liste
 </a>
 
-<div class="bg-white rounded-xl shadow-material-1 overflow-hidden mb-6">
-    <div class="bg-gradient-to-r from-slate-700 to-slate-800 text-white px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+<div class="bg-surface rounded-xl shadow-material-1 overflow-hidden mb-6">
+    <div class="bg-surface-subtle border-b border-base text-primary px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 class="text-lg font-semibold flex items-center gap-2">
             <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
             </svg>
             Dokument-Informationen
         </h2>
-        <span class="font-mono text-xs bg-white/20 px-3 py-1.5 rounded-lg" title="{{ document.id }}">{{ document.id[:8] }}...</span>
+        <span class="font-mono text-xs bg-surface/20 px-3 py-1.5 rounded-lg" title="{{ document.id }}">{{ document.id[:8] }}...</span>
     </div>
     <div class="p-6">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             {% for key, value in document.metadata.items() %}
-            <div class="bg-gray-50 rounded-xl p-4">
-                <div class="text-xs uppercase tracking-wider text-gray-500 mb-1">{{ key }}</div>
-                <div class="text-sm text-gray-800 break-all">{{ value }}</div>
+            <div class="bg-surface-subtle rounded-xl p-4">
+                <div class="text-xs uppercase tracking-wider text-secondary mb-1">{{ key }}</div>
+                <div class="text-sm text-primary break-all">{{ value }}</div>
             </div>
             {% endfor %}
         </div>
 
         <div class="flex flex-wrap gap-3">
-            <a href="{{ url_for('user.vectordb') }}" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors">
+            <a href="{{ url_for('user.vectordb') }}" class="inline-flex items-center gap-2 px-4 py-2 bg-surface-muted text-primary rounded-lg font-medium hover:bg-surface-muted transition-colors">
                 <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <line x1="19" y1="12" x2="5" y2="12"/>
                     <polyline points="12 19 5 12 12 5"/>
                 </svg>
                 Zurück
             </a>
-            <button onclick="confirmDelete()" class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 transition-all">
+            <button onclick="confirmDelete()" class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 transition-all">
                 <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -53,8 +53,8 @@
 </div>
 
 {% if document.page_content %}
-<div class="bg-white rounded-xl shadow-material-1 overflow-hidden mb-6">
-    <div class="bg-gradient-to-r from-slate-700 to-slate-800 text-white px-6 py-4">
+<div class="bg-surface rounded-xl shadow-material-1 overflow-hidden mb-6">
+    <div class="bg-surface-subtle border-b border-base text-primary px-6 py-4">
         <h2 class="text-lg font-semibold flex items-center gap-2">
             <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
@@ -63,15 +63,15 @@
         </h2>
     </div>
     <div class="p-6 relative">
-        <button onclick="copyContent('page_content')" class="absolute top-2 right-2 px-3 py-1 bg-slate-700 text-white text-xs rounded-lg hover:bg-slate-800 transition-colors">Kopieren</button>
-        <div id="page_content" class="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-y-auto">{{ document.page_content }}</div>
+        <button onclick="copyContent('page_content')" class="absolute top-2 right-2 px-3 py-1 bg-primary text-primary-text text-xs rounded-lg hover:bg-primary-soft transition-colors">Kopieren</button>
+        <div id="page_content" class="bg-surface-subtle border border-base rounded-xl p-4 text-sm text-primary whitespace-pre-wrap break-words max-h-96 overflow-y-auto">{{ document.page_content }}</div>
     </div>
 </div>
 {% endif %}
 
 {% if document.original_content %}
-<div class="bg-white rounded-xl shadow-material-1 overflow-hidden mb-6">
-    <div class="bg-gradient-to-r from-slate-700 to-slate-800 text-white px-6 py-4">
+<div class="bg-surface rounded-xl shadow-material-1 overflow-hidden mb-6">
+    <div class="bg-surface-subtle border-b border-base text-primary px-6 py-4">
         <h2 class="text-lg font-semibold flex items-center gap-2">
             <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
@@ -80,8 +80,8 @@
         </h2>
     </div>
     <div class="p-6 relative">
-        <button onclick="copyContent('original_content')" class="absolute top-2 right-2 px-3 py-1 bg-slate-700 text-white text-xs rounded-lg hover:bg-slate-800 transition-colors">Kopieren</button>
-        <div id="original_content" class="bg-amber-50 border border-slate-300 rounded-xl p-4 text-sm text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-y-auto">{{ document.original_content }}</div>
+        <button onclick="copyContent('original_content')" class="absolute top-2 right-2 px-3 py-1 bg-primary text-primary-text text-xs rounded-lg hover:bg-primary-soft transition-colors">Kopieren</button>
+        <div id="original_content" class="bg-surface-subtle border border-base rounded-xl p-4 text-sm text-primary whitespace-pre-wrap break-words max-h-96 overflow-y-auto">{{ document.original_content }}</div>
     </div>
 </div>
 {% endif %}
@@ -89,12 +89,12 @@
 <!-- Delete Confirmation Modal -->
 <div id="deleteModal" class="fixed inset-0 z-50 hidden items-center justify-center">
     <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeModal()"></div>
-    <div class="relative bg-white rounded-xl shadow-material-3 w-full max-w-md mx-4 p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Dokument löschen?</h3>
-        <p class="text-gray-600 mb-6">Dieses Dokument wird endgültig aus der Vektordatenbank gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.</p>
+    <div class="relative bg-surface rounded-xl shadow-material-3 w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-semibold text-primary mb-2">Dokument löschen?</h3>
+        <p class="text-secondary mb-6">Dieses Dokument wird endgültig aus der Vektordatenbank gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.</p>
         <div class="flex justify-center gap-3">
-            <button onclick="closeModal()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors">Abbrechen</button>
-            <button onclick="deleteDocument()" class="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 transition-all">Löschen</button>
+            <button onclick="closeModal()" class="px-4 py-2 bg-surface-muted text-primary rounded-lg font-medium hover:bg-surface-muted transition-colors">Abbrechen</button>
+            <button onclick="deleteDocument()" class="px-4 py-2 bg-red-600 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 transition-all">Löschen</button>
         </div>
     </div>
 </div>

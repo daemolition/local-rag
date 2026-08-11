@@ -35,7 +35,7 @@ from tqdm import tqdm
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     DirectoryLoader,
-    UnstructuredMarkdownLoader,
+    TextLoader,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
@@ -130,7 +130,7 @@ class DocumentIngestion:
             ".docx": CustomDOCXLoader,
             ".doc": CustomDOCXLoader,
             ".odt": CustomDOCXLoader,
-            ".md": UnstructuredMarkdownLoader,
+            ".md": TextLoader,
         }
 
         # Qdrant client wird erst bei Bedarf geöffnet
@@ -432,7 +432,7 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         # 1. Datei laden
         # PDF, DOCX, DOC, ODT nutzen Custom Loader mit Bildextraktion (VisionLLM).
         # CSV/XLSX/XLS werden als tabellarische Übersicht verarbeitet.
-        # MD nutzt UnstructuredMarkdownLoader (keine eingebetteten Bilder).
+        # MD nutzt TextLoader (reiner Text, keine eingebetteten Bilder).
         try:
             if extension == ".pdf":
                 loader = CustomPDFLoader(file_path, model=self.model)
@@ -465,7 +465,7 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                 )
                 chunks = [overview_chunk]
             elif extension == ".md":
-                loader = UnstructuredMarkdownLoader(file_path)
+                loader = TextLoader(file_path, autodetect_encoding=True)
                 chunks = loader.load()
             else:
                 logger.warning(f"Unbekannter Dateityp: {extension}")
@@ -497,10 +497,7 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
                 full_text_context, chunk.page_content
             )
 
-            if (
-                "[Bild-BESCHREIBUNG:" in chunk.page_content
-                or "[Bildbeschreibung:" in chunk.page_content
-            ):
+            if "[BILD-BESCHREIBUNG:" in chunk.page_content:
                 phase_logger.log_phase(
                     Phase.VISION_PROCESSING,
                     f"Bild-Kontext extrahiert | Datei: {filename}",

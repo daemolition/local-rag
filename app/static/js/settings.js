@@ -42,6 +42,11 @@ async function saveCategory(category) {
         const result = await response.json();
         if (result.success) {
             showToast('Einstellungen gespeichert', 'success');
+            // UI_THEME sofort clientseitig anwenden (localStorage + Klasse),
+            // damit der Wechsel ohne Page-Reload sichtbar wird.
+            if (settings['UI_THEME']) {
+                applyTheme(settings['UI_THEME']);
+            }
         } else {
             showToast('Fehler: ' + result.error, 'error');
         }

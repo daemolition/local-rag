@@ -109,6 +109,7 @@ class DatabaseService:
             "SUMMARIES_DIR": ("storage", "./data/summaries", "Summaries-Verzeichnis"),
             "QDRANT_HOST": ("qdrant", "localhost", "Qdrant Host"),
             "QDRANT_PORT": ("qdrant", "6333", "Qdrant Port"),
+            "UI_THEME": ("ui", "system", "Oberflaeche: light, dark oder system"),
         }
 
         for key, config in all_settings.items():
