@@ -631,7 +631,12 @@ def api_stats():
 # =============================================================================
 
 SELECT_OPTIONS = {
-    "EMBEDDING_SOURCE": [("local", "Lokal"), ("endpoint", "Remote Endpoint")]
+    "EMBEDDING_SOURCE": [("local", "Lokal"), ("endpoint", "Remote Endpoint")],
+    "UI_THEME": [
+        ("system", "System (OS-Präferenz folgen)"),
+        ("light", "Hell"),
+        ("dark", "Dunkel"),
+    ],
 }
 
 DEPENDENT_FIELDS = {

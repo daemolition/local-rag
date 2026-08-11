@@ -5,13 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Local Document RAG{% endblock %}</title>
 
+    <!-- Theme-Bootstrap: VOR dem CSS ausführen, um FOUC zu vermeiden.
+         Reihenfolge: localStorage('ui_theme') -> Server-Default ('system').
+         'system' wertet prefers-color-scheme aus. Setzt <html class="dark">. -->
+    <script>
+        (function () {
+            try {
+                var pref = localStorage.getItem('ui_theme') || '{{ ui_theme_default|default("system") }}';
+                var dark = pref === 'dark' ||
+                    (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                var root = document.documentElement;
+                if (dark) root.classList.add('dark');
+                else root.classList.remove('dark');
+                window.__themeDark = dark;
+            } catch (e) {}
+        })();
+    </script>
+
     <!-- Vorkompiliertes Tailwind-CSS (self-hosted) + Inter-Font.
          Ersetzt den render-blockierenden Tailwind-Play-CDN + Google-Fonts-Request. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
 
     {% block extra_head %}{% endblock %}
 </head>
-<body class="h-full bg-gray-50 font-sans antialiased">
+<body class="h-full bg-surface-subtle text-primary font-sans antialiased">
     {% block content %}{% endblock %}
 
     <!-- Utils JS -->

@@ -367,6 +367,14 @@ def create_app(preload=False):
 
     init_resources(app, preload=preload)
 
+    # UI-Theme-Default an alle Templates reichen, damit base.html das
+    # Theme-Bootstrap-Script den richtigen Fallback nutzt (localStorage
+    # gewinnt clientseitig, dies ist der Server-Default fuer 'system').
+    @app.context_processor
+    def inject_ui_theme():
+        ui_theme = settings.get("UI_THEME", "system") or "system"
+        return {"ui_theme_default": ui_theme}
+
     # Blueprints registrieren
     from app.routes import bp
 

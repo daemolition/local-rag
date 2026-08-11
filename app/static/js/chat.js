@@ -71,14 +71,14 @@ async function loadSessions() {
 
 function renderSessionList(sessions) {
     if (sessions.length === 0) {
-        sessionList.innerHTML = '<div class="text-center text-white/50 py-8 text-sm">Keine Chats vorhanden</div>';
+        sessionList.innerHTML = '<div class="text-center text-secondary py-8 text-sm">Keine Chats vorhanden</div>';
         return;
     }
 
     sessionList.innerHTML = sessions.map(sess => `
-        <div class="session-item ${sess.id === currentSessionId ? 'bg-white/25' : ''} px-4 py-2 rounded-lg cursor-pointer flex justify-between items-center hover:bg-white/10 transition-colors" data-id="${sess.id}">
-            <span class="text-sm truncate">${escapeHtml(sess.title || 'Neuer Chat')}</span>
-            <button class="session-delete bg-transparent border-0 text-white/60 cursor-pointer p-1 rounded opacity-0 hover:opacity-100 hover:text-red-300 transition-all" onclick="deleteSession('${sess.id}', event)">
+        <div class="session-item ${sess.id === currentSessionId ? 'bg-surface-muted' : ''} px-4 py-2 rounded-lg cursor-pointer flex justify-between items-center hover:bg-surface-muted transition-colors" data-id="${sess.id}">
+            <span class="text-sm truncate text-primary">${escapeHtml(sess.title || 'Neuer Chat')}</span>
+            <button class="session-delete bg-transparent border-0 cursor-pointer p-1 rounded opacity-0 hover:opacity-100 transition-all" onclick="deleteSession('${sess.id}', event)">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -141,7 +141,7 @@ function renderMessages(messages) {
 
 function highlightActiveSession() {
     document.querySelectorAll('.session-item').forEach(item => {
-        item.classList.toggle('bg-white/25', item.dataset.id === currentSessionId);
+        item.classList.toggle('bg-surface-muted', item.dataset.id === currentSessionId);
     });
 }
 
@@ -242,8 +242,8 @@ async function sendMessage(message) {
 
     userInput.disabled = true;
     sendBtn.textContent = 'Stop';
-    sendBtn.classList.add('from-red-600', 'to-red-700', 'hover:from-red-700', 'hover:to-red-800');
-    sendBtn.classList.remove('from-slate-700', 'to-slate-800');
+    sendBtn.classList.add('bg-red-600', 'hover:bg-red-700');
+    sendBtn.classList.remove('bg-primary', 'hover:bg-primary-soft');
 
     let fullResponse = '';
     let isFirstToken = true;
@@ -306,9 +306,9 @@ async function sendMessage(message) {
                                 details.className = 'my-2 text-sm';
                                 const summary = document.createElement('summary');
                                 summary.textContent = `[Tool: ${toolResult.name}]`;
-                                summary.className = 'cursor-pointer text-slate-700 font-medium';
+                                summary.className = 'cursor-pointer text-secondary font-medium';
                                 const pre = document.createElement('pre');
-                                pre.className = 'bg-gray-100 p-2 rounded mt-1 overflow-x-auto';
+                                pre.className = 'bg-surface-subtle p-2 rounded mt-1 overflow-x-auto';
                                 pre.textContent = toolResult.output;
                                 details.appendChild(summary);
                                 details.appendChild(pre);
@@ -342,7 +342,7 @@ async function sendMessage(message) {
         if (error.name === 'AbortError') {
             wasAborted = true;
             if (!fullResponse) {
-                assistantMsgDiv.innerHTML = '<div class="text-sm text-slate-500 italic">Antwort vom Benutzer abgebrochen.</div>';
+                assistantMsgDiv.innerHTML = '<div class="text-sm text-secondary italic">Antwort vom Benutzer abgebrochen.</div>';
             }
         } else {
             assistantMsgDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700">Fehler: ${error.message}</div>`;
@@ -357,8 +357,8 @@ async function sendMessage(message) {
     currentAbortController = null;
     userInput.disabled = false;
     sendBtn.textContent = 'Senden';
-    sendBtn.classList.remove('from-red-600', 'to-red-700', 'hover:from-red-700', 'hover:to-red-800');
-    sendBtn.classList.add('from-slate-700', 'to-slate-800');
+    sendBtn.classList.remove('bg-red-600', 'hover:bg-red-700');
+    sendBtn.classList.add('bg-primary', 'hover:bg-primary-soft');
     userInput.focus();
 }
 

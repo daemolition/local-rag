@@ -31,6 +31,7 @@ classifiers = [
 ]
 dependencies = [
     "chardet>=5.2.0",
+    "docling>=2.0.0",
     "fastembed>=0.8.0",
     "flask>=3.0.0",
     "flask-sock>=0.7.0",
@@ -42,26 +43,38 @@ dependencies = [
     "langchain-qdrant>=1.1.0",
     "msoffcrypto-tool>=6.0.0",
     "openpyxl>=3.1.5",
-    "pdfminer-six>=20260107",
     "pyarrow>=23.0.1",
     "pydantic>=2.12.5",
-    "python-docx>=1.1.2",
     "python-dotenv>=1.2.2",
     "requests>=2.28.0",
-    "pytesseract>=0.3.13",
     "qdrant-client>=1.17.1",
     "ruff>=0.15.7",
     "sentence-transformers>=5.0.0",
     "sqlalchemy>=2.0.0",
     "tqdm>=4.67.3",
-    "unstructured-pytesseract>=0.3.15",
     "imagehash>=4.3.1",
     "pillow>=11.0.0",
-    "unstructured[pdf]>=0.22.6",
     "ml-dtypes>=0.5.4",
     "tabulate>=0.10.0",
+    "torch",
+    "torchvision",
     "waitress>=3.0.2",
     "gunicorn>=25.3.0",
     "alembic>=1.18.4",
     "websocket-client>=1.8.0",
 ]
+
+# torch/torchvision auf den CPU-only-Wheel-Index pinnen (kein CUDA-Download).
+# Docling nutzt torch fuer Layout-/TableFormer-Modelle; sentence-transformers
+# zieht es ebenfalls. WICHTIG: torch/torchvision muessen als DIREKTE Deps
+# gelistet sein, damit [tool.uv.sources] greift (bei rein transitiver
+# Anforderung ignoriert uv das Source-Mapping). explicit=true beschraenkt den
+# Index auf die hier gemappten Pakete; alle anderen Deps bleiben auf PyPI.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+torchvision = [{ index = "pytorch-cpu" }]

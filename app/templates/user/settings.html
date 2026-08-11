@@ -3,17 +3,17 @@
 {% block title %}Einstellungen - Local Document RAG{% endblock %}
 
 {% block user_content %}
-<div class="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
-    <h1 class="text-2xl font-semibold text-gray-800">System-Einstellungen</h1>
+<div class="flex justify-between items-center mb-6 pb-4 border-b border-base">
+    <h1 class="text-2xl font-semibold text-primary">System-Einstellungen</h1>
 </div>
 
 <div class="space-y-6">
     {% for category, settings in settings_by_category.items() %}
     {% if settings %}
-    <div class="bg-white rounded-xl shadow-material-1 overflow-hidden hover:shadow-material-2 transition-shadow">
-        <div class="flex justify-between items-center px-6 py-4 bg-gray-50 border-b border-gray-200">
-            <h2 class="text-lg font-semibold text-gray-700">{{ category_names[category] }}</h2>
-            <button onclick="resetCategory('{{ category }}')" class="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+    <div class="bg-surface rounded-xl shadow-material-1 overflow-hidden hover:shadow-material-2 transition-shadow">
+        <div class="flex justify-between items-center px-6 py-4 bg-surface-muted border-b border-base">
+            <h2 class="text-lg font-semibold text-primary">{{ category_names[category] }}</h2>
+            <button onclick="resetCategory('{{ category }}')" class="px-3 py-1.5 bg-surface-muted text-primary rounded-lg text-sm font-medium hover:bg-surface-muted transition-colors">
                 Auf Defaults zurücksetzen
             </button>
         </div>
@@ -24,13 +24,13 @@
                 {% set is_toggle = setting.key in toggle_keys %}
                 {% set is_dependent_field = setting.key in ['EMBEDDING_ENDPOINT'] %}
 
-                <div class="{% if is_dependent_field %}pl-4 border-l-3 border-slate-500{% endif %} {% if is_dependent_field %}hidden{% endif %}"
+                <div class="{% if is_dependent_field %}pl-4 border-l-3 border-strong{% endif %} {% if is_dependent_field %}hidden{% endif %}"
                      {% if is_dependent_field %}id="group-{{ setting.key }}"{% endif %}
                      {% if setting.key == 'EMBEDDING_ENDPOINT' %}data-depends-on="EMBEDDING_SOURCE" data-show-when="endpoint"{% endif %}>
-                    <label for="{{ setting.key }}" class="block text-sm font-medium text-gray-700 mb-2">
-                        <code class="bg-gray-100 px-2 py-0.5 rounded text-sm">{{ setting.key }}</code>
+                    <label for="{{ setting.key }}" class="block text-sm font-medium text-primary mb-2">
+                        <code class="bg-surface-muted px-2 py-0.5 rounded text-sm">{{ setting.key }}</code>
                         {% if setting.is_sensitive %}
-                        <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">Sensitive</span>
+                        <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-muted text-secondary">Sensitive</span>
                         {% endif %}
                     </label>
                     
@@ -40,11 +40,11 @@
                             <input type="checkbox" id="{{ setting.key }}" name="{{ setting.key }}"
                                    {% if (setting.value or setting.default_value) == "true" %}checked{% endif %}
                                    class="sr-only peer">
-                            <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-slate-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-700"></div>
+                            <div class="w-11 h-6 bg-surface-muted rounded-full peer peer-focus:ring-2 peer-focus:ring-primary peer-checked:after:translate-x-full peer-checked:after:border-base after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-base after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                         </label>
                         <button type="button" onclick="resetSetting('{{ setting.key }}')" title="Auf Default zurücksetzen: {{ setting.default_value or 'leer' }}"
-                                class="p-2 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
-                            <svg class="w-4 h-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                class="p-2 bg-surface-muted border border-base rounded-lg hover:bg-surface-muted transition-colors">
+                            <svg class="w-4 h-4 text-secondary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <polyline points="23 4 23 10 17 10"/>
                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                             </svg>
@@ -53,7 +53,7 @@
 
                     {% elif is_select %}
                     <select id="{{ setting.key }}" name="{{ setting.key }}" onchange="handleSelectChange('{{ setting.key }}', this.value)"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all appearance-none bg-no-repeat bg-right pr-10 cursor-pointer"
+                            class="w-full px-3 py-2 border border-base rounded-lg bg-surface text-primary focus:ring-2 focus:ring-primary focus:border-transparent transition-all appearance-none bg-no-repeat bg-right pr-10 cursor-pointer"
                             style="background-image: url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2716%27 height=%2716%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%236b7280%27 stroke-width=%272%27%3E%3Cpolyline points=%276 9 12 15 18 9%27%3E%3C/polyline%3E%3C/svg%3E'); background-position: right 0.75rem center;">
                         {% for value, label in select_options[setting.key] %}
                         <option value="{{ value }}" {% if (setting.value or setting.default_value) == value %}selected{% endif %}>{{ label }}</option>
@@ -63,16 +63,16 @@
                     {% elif setting.is_sensitive %}
                     <div class="flex gap-2">
                         <input type="password" id="{{ setting.key }}" name="{{ setting.key }}" value="{{ setting.value or '' }}" placeholder="{{ setting.default_value or '' }}"
-                               class="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all">
-                        <button type="button" onclick="togglePassword('{{ setting.key }}')" class="p-2 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
-                            <svg class="w-4 h-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                               class="flex-1 px-3 py-2 border border-base rounded-lg bg-surface text-primary focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
+                        <button type="button" onclick="togglePassword('{{ setting.key }}')" class="p-2 bg-surface-muted border border-base rounded-lg hover:bg-surface-muted transition-colors">
+                            <svg class="w-4 h-4 text-secondary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                                 <circle cx="12" cy="12" r="3"/>
                             </svg>
                         </button>
                         <button type="button" onclick="resetSetting('{{ setting.key }}')" title="Auf Default zurücksetzen: {{ setting.default_value or 'leer' }}"
-                                class="p-2 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
-                            <svg class="w-4 h-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                class="p-2 bg-surface-muted border border-base rounded-lg hover:bg-surface-muted transition-colors">
+                            <svg class="w-4 h-4 text-secondary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <polyline points="23 4 23 10 17 10"/>
                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                             </svg>
@@ -82,10 +82,10 @@
                     {% else %}
                     <div class="flex gap-2">
                         <input type="text" id="{{ setting.key }}" name="{{ setting.key }}" value="{{ setting.value or '' }}" placeholder="{{ setting.default_value or '' }}"
-                               class="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all">
+                               class="flex-1 px-3 py-2 border border-base rounded-lg bg-surface text-primary focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
                         <button type="button" onclick="resetSetting('{{ setting.key }}')" title="Auf Default zurücksetzen: {{ setting.default_value or 'leer' }}"
-                                class="p-2 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
-                            <svg class="w-4 h-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                class="p-2 bg-surface-muted border border-base rounded-lg hover:bg-surface-muted transition-colors">
+                            <svg class="w-4 h-4 text-secondary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <polyline points="23 4 23 10 17 10"/>
                                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                             </svg>
@@ -94,19 +94,19 @@
                     {% endif %}
                     
                     {% if setting.description %}
-                    <p class="mt-1 text-xs text-gray-500">{{ setting.description }}</p>
+                    <p class="mt-1 text-xs text-secondary">{{ setting.description }}</p>
                     {% endif %}
                     {% if setting.value != setting.default_value and setting.default_value and not is_select and not is_toggle %}
-                    <p class="mt-1 text-xs text-gray-400">
-                        Default: <code class="bg-gray-100 px-1 rounded">{{ setting.default_value }}</code>
+                    <p class="mt-1 text-xs text-secondary">
+                        Default: <code class="bg-surface-muted px-1 rounded">{{ setting.default_value }}</code>
                     </p>
                     {% endif %}
                 </div>
                 {% endfor %}
             </form>
         </div>
-        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
-            <button onclick="saveCategory('{{ category }}')" class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 transition-all">
+        <div class="px-6 py-4 bg-surface-muted border-t border-base flex justify-end">
+            <button onclick="saveCategory('{{ category }}')" class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-text rounded-lg font-medium hover:bg-primary-soft transition-all">
                 <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
                     <polyline points="17 21 17 13 7 13 7 21"/>
@@ -120,22 +120,22 @@
     {% endfor %}
 
     <!-- Passwort ändern -->
-    <div class="bg-white rounded-xl shadow-material-1 overflow-hidden hover:shadow-material-2 transition-shadow">
-        <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
-            <h2 class="text-lg font-semibold text-gray-700">App-Passwort ändern</h2>
+    <div class="bg-surface rounded-xl shadow-material-1 overflow-hidden hover:shadow-material-2 transition-shadow">
+        <div class="px-6 py-4 bg-surface-muted border-b border-base">
+            <h2 class="text-lg font-semibold text-primary">App-Passwort ändern</h2>
         </div>
         <div class="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div>
-                <label for="oldPassword" class="block text-sm font-medium text-gray-700 mb-2">Aktuelles Passwort</label>
-                <input type="password" id="oldPassword" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all">
+                <label for="oldPassword" class="block text-sm font-medium text-primary mb-2">Aktuelles Passwort</label>
+                <input type="password" id="oldPassword" class="w-full px-3 py-2 border border-base rounded-lg bg-surface text-primary focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
             </div>
             <div>
-                <label for="newPassword" class="block text-sm font-medium text-gray-700 mb-2">Neues Passwort</label>
-                <input type="password" id="newPassword" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all">
+                <label for="newPassword" class="block text-sm font-medium text-primary mb-2">Neues Passwort</label>
+                <input type="password" id="newPassword" class="w-full px-3 py-2 border border-base rounded-lg bg-surface text-primary focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
             </div>
         </div>
-        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
-            <button onclick="changePassword()" class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-lg font-medium shadow-material-1 hover:shadow-material-2 transition-all">
+        <div class="px-6 py-4 bg-surface-muted border-t border-base flex justify-end">
+            <button onclick="changePassword()" class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-text rounded-lg font-medium hover:bg-primary-soft transition-all">
                 <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"/>

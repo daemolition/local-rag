@@ -18,10 +18,10 @@
 DOCX/DOC/ODT Loader wrapper
 """
 
-from typing import Iterator
+from collections.abc import Iterator
 
-from langchain_core.documents import Document
 from langchain_community.document_loaders.base import BaseLoader
+from langchain_core.documents import Document
 
 from app.components.preprocess_docx import PreprocessDOCX
 
@@ -34,6 +34,6 @@ class CustomDOCXLoader(BaseLoader):
         self.processor = PreprocessDOCX(model=model)
 
     def lazy_load(self) -> Iterator[Document]:
-        documents = self.processor.process_with_unstructured(self.file_path)
+        documents = self.processor.process_document(self.file_path)
         for doc in documents:
             yield doc

@@ -72,6 +72,9 @@ class SettingsService:
             "PII_FILTER_API_KEY",
             "PII_FILTER_ENABLED",
         ],
+        "ui": [
+            "UI_THEME",
+        ],
     }
 
     SENSITIVE_KEYS = {
@@ -119,6 +122,7 @@ class SettingsService:
         "PII_FILTER_URL": "Vollständige PII-Filter Endpoint URL (z.B. http://localhost:9500/api/v1/sanitize)",
         "PII_FILTER_API_KEY": "API Key für PII-Filter Service",
         "PII_FILTER_ENABLED": "PII-Filter aktivieren (true/false)",
+        "UI_THEME": "Oberflaeche: light, dark oder system (folgt OS)",
     }
 
     def __init__(self, db: SQLAlchemySession):
@@ -247,6 +251,7 @@ class SettingsService:
             "auth": "Authentifizierung",
             "search": "Suchmaschine (SearXNG)",
             "pii_filter": "PII-Filter Service",
+            "ui": "Oberfläche",
             "other": "Sonstige Einstellungen",
         }
         return names.get(category, category.capitalize())
