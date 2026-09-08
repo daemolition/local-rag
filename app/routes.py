@@ -329,6 +329,7 @@ def chat():
     def generate():
         result_queue = queue.Queue()
         full_response = ""
+        full_reasoning = ""
         tool_calls = []
         cancel_event = _get_cancel_event(final_session_id)
         cancel_event.clear()
@@ -338,6 +339,7 @@ def chat():
 
         async def run_agent_async():
             nonlocal full_response
+            nonlocal full_reasoning
             try:
                 phase_logger.log_phase(Phase.AGENT_START, "Agent-Stream gestartet")
 
@@ -364,6 +366,7 @@ def chat():
                             result_queue.put(("token", content))
 
                         if reasoning:
+                            full_reasoning += reasoning
                             result_queue.put(("reasoning", reasoning))
 
                     elif kind == "on_tool_start":
@@ -402,6 +405,9 @@ def chat():
                         Phase.AGENT_RESPONSE,
                         f"Antwort gestreamt | Tokens: {len(full_response)}",
                     )
+                    # Signal an Frontend: Thinking abgeschlossen (zum
+                    # Zuklappen des offenen Blocks).
+                    result_queue.put(("reasoning_done", None))
                     result_queue.put(("done", full_response))
 
             except Exception as e:
@@ -445,12 +451,35 @@ def chat():
                             logger.warning(f"PII-Demaskierung fehlgeschlagen: {e}")
 
                     db.save_message(final_session_id, "user", user_message)
-                    db.save_message(final_session_id, "assistant", demasked_response)
+
+                    # Reasoning als <think>-Tags vor die Antwort speichern,
+                    # damit der Denk-Block beim Neuladen der History wieder
+                    # als ausklappbarer Block erscheint.
+                    saved_assistant = demasked_response
+                    if full_reasoning:
+                        reasoning_text = full_reasoning.strip()
+                        if demask_context["mapping"] and pii_filter:
+                            try:
+                                reasoning_text = pii_filter.demask(
+                                    reasoning_text, demask_context["mapping"]
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    f"PII-Demaskierung (Reasoning) fehlgeschlagen: {e}"
+                                )
+                        saved_assistant = (
+                            f"<think>{reasoning_text}</think>\n"
+                            + demasked_response
+                        )
+                    db.save_message(final_session_id, "assistant", saved_assistant)
                     yield f"data: {json.dumps({'done': True, 'session_id': final_session_id})}\n\n"
                     break
 
                 elif msg_type == "cancelled":
                     break
+
+                elif msg_type == "reasoning_done":
+                    yield f"data: {json.dumps({'reasoning_done': True})}\n\n"
 
                 elif msg_type == "reasoning":
                     yield f"data: {json.dumps({'reasoning': msg_data})}\n\n"

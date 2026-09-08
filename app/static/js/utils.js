@@ -52,7 +52,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', fun
 // Toast Notification
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
-    toast.className = `fixed bottom-6 right-6 px-6 py-3 rounded-lg shadow-material-3 z-50 transform translate-x-0 transition-transform duration-300 ${
+    toast.className = `fixed bottom-6 right-6 px-6 py-3 rounded-lg shadow-material-3 z-50 transform translate-x-0 transition-transform duration-300 max-w-md whitespace-pre-line break-words ${
         type === 'success'
             ? 'bg-primary text-primary-text'
             : 'bg-red-600 text-white'
@@ -61,10 +61,11 @@ function showToast(message, type = 'success') {
     toast.style.animation = 'slideIn 0.3s ease';
     document.body.appendChild(toast);
     
+    const duration = (type === 'error' || type === 'info') ? 8000 : 3000;
     setTimeout(() => {
         toast.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    }, duration);
 }
 
 // CSS Animations for Toast

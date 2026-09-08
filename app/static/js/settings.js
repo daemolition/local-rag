@@ -16,7 +16,35 @@ function handleSelectChange(key, value) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Erste Kategorie beim Laden aktivieren
+    const firstNav = document.querySelector('.settings-nav-btn');
+    if (firstNav) {
+        showCategoryPanel(firstNav.getAttribute('data-category'));
+    }
 });
+
+function showCategoryPanel(category) {
+    // Alle Nav-Buttons deaktivieren
+    document.querySelectorAll('.settings-nav-btn').forEach(btn => {
+        btn.classList.remove('bg-primary', 'text-primary-text');
+        btn.classList.add('hover:bg-surface-muted');
+    });
+    // Gewaehlten Nav-Button aktivieren
+    const nav = document.getElementById('nav-' + category);
+    if (nav) {
+        nav.classList.add('bg-primary', 'text-primary-text');
+        nav.classList.remove('hover:bg-surface-muted');
+    }
+    // Alle Panels verbergen
+    document.querySelectorAll('.settings-panel').forEach(panel => {
+        panel.classList.add('hidden');
+    });
+    // Gewaehltes Panel anzeigen
+    const panel = document.getElementById('panel-' + category);
+    if (panel) {
+        panel.classList.remove('hidden');
+    }
+}
 
 function togglePassword(inputId) {
     const input = document.getElementById(inputId);
@@ -124,5 +152,36 @@ async function changePassword() {
         }
     } catch (e) {
         showToast('Fehler: ' + e.message, 'error');
+    }
+}
+
+async function testService(category, btn) {
+    const labelEl = btn.querySelector('.btn-label');
+    const originalLabel = labelEl ? labelEl.textContent : 'Testen';
+    if (labelEl) labelEl.textContent = 'Teste…';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/user/settings/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            const msg = result.message || 'Test erfolgreich';
+            const details = result.details ? `\n${result.details}` : '';
+            showToast(msg + details, 'success');
+        } else {
+            const err = result.error || 'Test fehlgeschlagen';
+            const details = result.details ? `\n${result.details}` : '';
+            showToast(err + details, 'error');
+        }
+    } catch (e) {
+        showToast('Fehler: ' + e.message, 'error');
+    } finally {
+        if (labelEl) labelEl.textContent = originalLabel;
+        btn.disabled = false;
     }
 }

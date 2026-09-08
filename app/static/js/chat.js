@@ -179,7 +179,8 @@ function addMessage(role, content, isMarkdown = false) {
     div.className = `message ${role}`;
 
     if (isMarkdown && role === 'assistant') {
-        div.innerHTML = DOMPurify.sanitize(marked.parse(content));
+        const processed = processThinkTags(content, false);
+        div.innerHTML = DOMPurify.sanitize(marked.parse(processed));
     } else {
         div.textContent = content;
     }
@@ -198,31 +199,67 @@ function addLoadingMessage() {
     return div;
 }
 
+// Reduziert ueberfluessige Leerzeilen im Thinking-Content:
+// - CRLF -> LF normalisieren
+// - Zeilen mit nur Leerzeichen als leer behandeln
+// - 2+ aufeinanderfolgende Leerzeilen auf eine reduzieren
+// - fuehrende/trailing Leerzeilen entfernen
+function collapseThinkingWhitespace(text) {
+    return text
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/[^\S\n]+\n/g, '\n')
+        .replace(/\n{2,}/g, '\n')
+        .replace(/^\n+/, '')
+        .replace(/\n+$/, '');
+}
+
+// Erzeugt das HTML fuer einen ausklappbaren Thinking-Block.
+// `isOpen` true waehrend des Streams (Block offen + "läuft…"), false danach.
+function buildThinkingBlock(thinking, isOpen) {
+    const openAttr = isOpen ? ' open' : '';
+    const label = isOpen ? 'Denken …' : 'Denken';
+    const clean = collapseThinkingWhitespace(thinking);
+    return `<details class="thinking-block"${openAttr}><summary>${label}</summary><pre>${escapeHtml(clean)}</pre></details>`;
+}
+
+// Wandelt <think>...</think> bzw. offene <think>-Tags im Markdown-Content in
+// HTML-<details>-Bloecke um, die marked unverändert durchreicht.
+// `streaming` true => der (ggf. noch offene) Block wird als "läuft…" gerendert.
+function processThinkTags(content, streaming) {
+    const openRe = /<think>([\s\S]*?)<\/think>/g;
+    const unclosedRe = /<think>([\s\S]*)$/g;
+    return content
+        .replace(openRe, (m, t) => buildThinkingBlock(t.trim(), streaming && false))
+        .replace(unclosedRe, (m, t) => buildThinkingBlock(t.trim(), streaming));
+}
+
 function updateMarkdown(div, content) {
-    let processed = content
-        .replace(/<tool_call>([\s\S]*?)<\/think>/g, function(match, thinking) {
-            return '<details class="thinking-block"><summary>Denken</summary><pre>' + thinking.trim() + '</pre></details>';
-        })
-        .replace(/<tool_call>([\s\S]*)$/g, function(match, thinking) {
-            return '<details class="thinking-block" open><summary>Denken (läuft...)</summary><pre>' + thinking.trim() + '</pre></details>';
-        });
-    div.innerHTML = DOMPurify.sanitize(marked.parse(processed));
+    div.innerHTML = DOMPurify.sanitize(marked.parse(processThinkTags(content, true)));
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-function updateThinkingBlock(div, reasoning) {
+// Live-Update des Thinking-Blocks waehrend des Streamings.
+// `isOpen` true => Block offen + "Denken …", false => geschlossen + "Denken".
+function updateThinkingBlock(div, reasoning, isOpen) {
     let thinkingDiv = div.querySelector('.thinking-block');
     if (!thinkingDiv) {
         thinkingDiv = document.createElement('details');
         thinkingDiv.className = 'thinking-block';
-        thinkingDiv.open = false;
-        thinkingDiv.innerHTML = '<summary>Denken</summary><pre></pre>';
+        thinkingDiv.open = isOpen;
+        const summary = document.createElement('summary');
+        summary.textContent = isOpen ? 'Denken …' : 'Denken';
+        thinkingDiv.appendChild(summary);
+        const pre = document.createElement('pre');
+        thinkingDiv.appendChild(pre);
         div.insertBefore(thinkingDiv, div.firstChild);
     }
-    thinkingDiv.querySelector('pre').textContent = reasoning;
+    const summary = thinkingDiv.querySelector('summary');
+    if (summary) summary.textContent = isOpen ? 'Denken …' : 'Denken';
+    thinkingDiv.open = isOpen;
+    thinkingDiv.querySelector('pre').textContent = collapseThinkingWhitespace(reasoning);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
-
 function addToolIndicator(messageDiv, toolName) {
     const indicator = document.createElement('div');
     indicator.className = 'tool-indicator';
@@ -246,6 +283,7 @@ async function sendMessage(message) {
     sendBtn.classList.remove('bg-primary', 'hover:bg-primary-soft');
 
     let fullResponse = '';
+    let reasoningContent = '';
     let isFirstToken = true;
     let wasAborted = false;
 
@@ -284,6 +322,11 @@ async function sendMessage(message) {
                                 }
                                 fullResponse += parsed.token;
                                 updateMarkdown(assistantMsgDiv, fullResponse);
+                                // Nach Token-Ausgabe den Thinking-Block
+                                // geschlossen halten (vorher evtl. offen).
+                                if (reasoningContent) {
+                                    updateThinkingBlock(assistantMsgDiv, reasoningContent, false);
+                                }
                             }
 
                             if (parsed.reasoning) {
@@ -291,9 +334,15 @@ async function sendMessage(message) {
                                     assistantMsgDiv.innerHTML = '';
                                     isFirstToken = false;
                                 }
-                                if (!window.reasoningContent) window.reasoningContent = '';
-                                window.reasoningContent += parsed.reasoning;
-                                updateThinkingBlock(assistantMsgDiv, window.reasoningContent);
+                                reasoningContent += parsed.reasoning;
+                                updateThinkingBlock(assistantMsgDiv, reasoningContent, true);
+                            }
+
+                            if (parsed.reasoning_done) {
+                                // Thinking abgeschlossen -> Block einklappen.
+                                if (reasoningContent) {
+                                    updateThinkingBlock(assistantMsgDiv, reasoningContent, false);
+                                }
                             }
 
                             if (parsed.tool_start) {

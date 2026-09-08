@@ -18,14 +18,43 @@
 Web-Suche Tool für SearXNG Metasuchmaschine
 """
 
+import random
 import time
-import requests
 from logging import getLogger
-from app.utils.phase_logger import phase_logger, Phase
-from pydantic import BaseModel, Field
+
+import requests
 from langchain_core.tools.structured import StructuredTool
+from pydantic import BaseModel, Field
+
+from app.utils.phase_logger import Phase, phase_logger
 
 logger = getLogger(__name__)
+
+# Realistische Browser User-Agent Rotation
+_BROWSER_UAS = [
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+]
+
+
+def _get_headers() -> dict:
+    """Generiert realistische Browser-Header für SearXNG-Requests."""
+    return {
+        'User-Agent': random.choice(_BROWSER_UAS),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    }
 
 
 class WebSearchInput(BaseModel):
@@ -92,6 +121,15 @@ Ergebnisse für 'Hauptstadt Frankreich Einwohnerzahl':
    Zusammenfassung: Paris hat rund 2,1 Millionen Einwohner im Stadtgebiet...
 ```
 
+### Bei leeren Ergebnissen (WICHTIG!):
+- Wenn die Rückmeldung "Keine Suchergebnisse für ..." lautet, **muss** du die Query ändern und erneut versuchen.
+- Versuche bis zu 3 verschiedene Formulierungsansätze:
+  1. **Breiter/formaler**: Statt "CEO von Apple reagiert auf Krise" → "Apple CEO Strategie"
+  2. **Andere Keywords**: Statt Personennamen → Firmenname/Thema (z.B. "Apple Krisenmanagement")
+  3. **Englisch versuchen**: "Apple CEO crisis management" → oft bessere Ergebnisse
+- **Nie** eine leere Antwort zurückgeben — wenn alle 3 Versuche leer sind, antworte:
+  "Für diese spezifische Anfrage wurden keine öffentlichen Informationen gefunden."
+
 ### WICHTIG:
 - Nutze dieses Tool **nur dann**, wenn die lokalen Dokumente und das interne Wissen nicht ausreichen.
 - SearXNG durchsucht multiple Quellen gleichzeitig (Google, Bing, Wikipedia, etc.).
@@ -116,25 +154,34 @@ def create_web_search_tool(
         Strukturiertes Tool für LangChain
     """
 
-    def _web_search(query: str, num_results: int = 10, categories: str = None) -> str:
+    def _web_search(query: str, num_results: int = 10, categories: str | None = None) -> str:
         """Führt Web-Suche via SearXNG durch."""
 
         start_time = time.time()
 
-        # Query durch PII-Filter schicken (bevor sie an SearXNG geht!)
+        # Query durch PII-Filter schicken (PII-Werte entfernen, nicht durch Platzhalter ersetzen)
         search_query = query
         if pii_filter_client:
             try:
+                import re
+
                 filter_result = pii_filter_client.filter_text(query)
                 if filter_result.mapping:
-                    logger.info(
-                        f"Web-Suche Query: {len(filter_result.mapping)} PII-Entitäten gefiltert"
-                    )
-                search_query = filter_result.filtered
+                    # PII-Werte direkt aus Query entfernen (nicht durch [NAME_1] ersetzen)
+                    for value in filter_result.mapping.values():
+                        if value and value in search_query:
+                            search_query = search_query.replace(value, "")
+                    # Mehrfach-Leerzeichen bereinigen
+                    search_query = re.sub(r"\s+", " ", search_query).strip()
+                    logger.info(f"Query PII-bereinigt: '{query}' → '{search_query}'")
+                elif not filter_result.error:
+                    # Kein PII gefunden → originale Query verwenden
+                    search_query = query
             except Exception as e:
                 logger.warning(
                     f"PII-Filter für Web-Suche fehlgeschlagen: {e} - verwende Original-Query"
                 )
+                search_query = query
 
         phase_logger.log_phase(
             Phase.TOOL_EXECUTION, f"Tool: web_search | Query: {search_query[:100]}"
@@ -164,6 +211,7 @@ def create_web_search_tool(
                     "categories": search_categories,
                     "pageno": 1,
                 },
+                headers=_get_headers(),
                 timeout=10.0,
             )
 

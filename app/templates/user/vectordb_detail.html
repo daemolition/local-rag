@@ -54,34 +54,36 @@
 
 {% if document.page_content %}
 <div class="bg-surface rounded-xl shadow-material-1 overflow-hidden mb-6">
-    <div class="bg-surface-subtle border-b border-base text-primary px-6 py-4">
+    <div class="bg-surface-subtle border-b border-base text-primary px-6 py-4 flex justify-between items-center">
         <h2 class="text-lg font-semibold flex items-center gap-2">
             <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
             </svg>
             Kontext-angereicherter Inhalt
         </h2>
+        <button onclick="copyContent('page_content_rendered')" class="px-3 py-1 bg-primary text-primary-text text-xs rounded-lg hover:bg-primary-soft transition-colors">Kopieren</button>
     </div>
-    <div class="p-6 relative">
-        <button onclick="copyContent('page_content')" class="absolute top-2 right-2 px-3 py-1 bg-primary text-primary-text text-xs rounded-lg hover:bg-primary-soft transition-colors">Kopieren</button>
-        <div id="page_content" class="bg-surface-subtle border border-base rounded-xl p-4 text-sm text-primary whitespace-pre-wrap break-words max-h-96 overflow-y-auto">{{ document.page_content }}</div>
+    <div class="p-6">
+        <div id="page_content_rendered" class="md-preview bg-surface-subtle border border-base rounded-xl p-4 max-h-96 overflow-y-auto"></div>
+        <script id="page_content_data" type="application/json">{{ document.page_content | tojson }}</script>
     </div>
 </div>
 {% endif %}
 
 {% if document.original_content %}
 <div class="bg-surface rounded-xl shadow-material-1 overflow-hidden mb-6">
-    <div class="bg-surface-subtle border-b border-base text-primary px-6 py-4">
+    <div class="bg-surface-subtle border-b border-base text-primary px-6 py-4 flex justify-between items-center">
         <h2 class="text-lg font-semibold flex items-center gap-2">
             <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
             </svg>
             Original-Inhalt
         </h2>
+        <button onclick="copyContent('original_content_rendered')" class="px-3 py-1 bg-primary text-primary-text text-xs rounded-lg hover:bg-primary-soft transition-colors">Kopieren</button>
     </div>
-    <div class="p-6 relative">
-        <button onclick="copyContent('original_content')" class="absolute top-2 right-2 px-3 py-1 bg-primary text-primary-text text-xs rounded-lg hover:bg-primary-soft transition-colors">Kopieren</button>
-        <div id="original_content" class="bg-surface-subtle border border-base rounded-xl p-4 text-sm text-primary whitespace-pre-wrap break-words max-h-96 overflow-y-auto">{{ document.original_content }}</div>
+    <div class="p-6">
+        <div id="original_content_rendered" class="md-preview bg-surface-subtle border border-base rounded-xl p-4 max-h-96 overflow-y-auto"></div>
+        <script id="original_content_data" type="application/json">{{ document.original_content | tojson }}</script>
     </div>
 </div>
 {% endif %}
@@ -100,9 +102,76 @@
 </div>
 {% endblock %}
 
+{% block extra_head %}
+<!-- Marked + DOMPurify für Markdown-Rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
+<style>
+    /* Prose-Typografie fuer gerendertes Markdown (gleiche Styles wie edit_summary.html) */
+    .md-preview { color: rgb(var(--color-text-primary)); font-size: 0.95rem; line-height: 1.6; }
+    .md-preview h1 { font-size: 1.75rem; font-weight: 700; margin: 1.5rem 0 0.75rem; line-height: 1.3; }
+    .md-preview h2 { font-size: 1.5rem; font-weight: 600; margin: 1.25rem 0 0.625rem; line-height: 1.3; }
+    .md-preview h3 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 0.5rem; line-height: 1.3; }
+    .md-preview h4 { font-size: 1.125rem; font-weight: 600; margin: 0.875rem 0 0.5rem; line-height: 1.3; }
+    .md-preview h5, .md-preview h6 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.5rem; line-height: 1.3; }
+    .md-preview p { margin: 0 0 0.75rem; line-height: 1.6; }
+    .md-preview blockquote { border-left: 4px solid #e5e7eb; padding-left: 1rem; margin: 0.75rem 0; color: #6b7280; }
+    .md-preview ul, .md-preview ol { padding-left: 1.75rem; margin: 0.75rem 0; }
+    .md-preview li { margin-bottom: 0.25rem; line-height: 1.6; }
+    .md-preview li > ul, .md-preview li > ol { margin: 0.25rem 0 0.25rem 0.5rem; }
+    .md-preview hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
+    .md-preview pre { background: #f1f5f9; padding: 0.75rem 1rem; border-radius: 0.5rem; margin: 0.75rem 0; overflow-x: auto; font-size: 0.875rem; }
+    .md-preview code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; }
+    .md-preview img { max-width: 100%; height: auto; margin: 0.75rem 0; }
+    .md-preview a { color: #334155; text-decoration: underline; }
+
+    /* Tabellen-Styling */
+    .md-preview table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.9rem; }
+    .md-preview th, .md-preview td { border: 1px solid rgb(var(--color-border)); padding: 0.5rem 0.75rem; text-align: left; }
+    .md-preview th { background: rgb(var(--color-surface-muted)); font-weight: 600; }
+    .md-preview tr:nth-child(even) { background: rgb(var(--color-surface-subtle)); }
+
+    /* Dark Mode Anpassungen */
+    .dark .md-preview blockquote { border-left-color: rgb(var(--color-border)); color: rgb(var(--color-text-secondary)); }
+    .dark .md-preview pre { background: rgb(var(--color-surface-muted)); }
+    .dark .md-preview a { color: rgb(var(--color-text-primary)); }
+</style>
+{% endblock %}
+
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/document_detail.js') }}"></script>
 <script>
     const docId = '{{ document.id }}';
+
+    // Markdown-Inhalte sicher rendern (marked + DOMPurify)
+    function renderMarkdownInto(dataId, targetId) {
+        const dataEl = document.getElementById(dataId);
+        const targetEl = document.getElementById(targetId);
+        if (!dataEl || !targetEl) return;
+        const raw = JSON.parse(dataEl.textContent || '""');
+        if (!raw) { targetEl.textContent = ''; return; }
+        const html = DOMPurify.sanitize(marked.parse(raw, { breaks: true, gfm: true }));
+        targetEl.innerHTML = html;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof marked !== 'undefined') {
+            marked.setOptions({ breaks: true, gfm: true });
+        }
+        renderMarkdownInto('page_content_data', 'page_content_rendered');
+        renderMarkdownInto('original_content_data', 'original_content_rendered');
+    });
+
+    function copyContent(elementId) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        const text = el.innerText || el.textContent || '';
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('Inhalt kopiert', 'success');
+        }).catch(() => {
+            showToast('Kopieren fehlgeschlagen', 'error');
+        });
+    }
 </script>
 {% endblock %}
