@@ -48,6 +48,10 @@ class VisionLLM:
         chat_base_url = "http://localhost:11434/v1"
         chat_temperature = "0.1"
         chat_top_p = "0.2"
+        chat_top_k = "40"
+        chat_max_tokens = ""
+        chat_num_ctx = "4096"
+        chat_thinking = "none"
         api_key = "ollama"
 
         try:
@@ -64,6 +68,10 @@ class VisionLLM:
                 settings.get("CHAT_TEMPERATURE", chat_temperature) or chat_temperature
             )
             chat_top_p = settings.get("CHAT_TOP_P", chat_top_p) or chat_top_p
+            chat_top_k = settings.get("CHAT_TOP_K", chat_top_k) or chat_top_k
+            chat_max_tokens = settings.get("CHAT_MAX_TOKENS", "") or ""
+            chat_num_ctx = settings.get("CHAT_NUM_CTX", chat_num_ctx) or chat_num_ctx
+            chat_thinking = settings.get("CHAT_THINKING", chat_thinking) or chat_thinking
             vision_model = settings.get("VISION_MODEL", chat_model) or chat_model
             vision_base_url = (
                 settings.get("VISION_BASEURL", chat_base_url) or chat_base_url
@@ -76,6 +84,10 @@ class VisionLLM:
             chat_base_url = os.getenv("CHAT_BASEURL", chat_base_url)
             chat_temperature = os.getenv("CHAT_TEMPERATURE", chat_temperature)
             chat_top_p = os.getenv("CHAT_TOP_P", chat_top_p)
+            chat_top_k = os.getenv("CHAT_TOP_K", chat_top_k)
+            chat_max_tokens = os.getenv("CHAT_MAX_TOKENS", "")
+            chat_num_ctx = os.getenv("CHAT_NUM_CTX", chat_num_ctx)
+            chat_thinking = os.getenv("CHAT_THINKING", chat_thinking)
             vision_model = os.getenv("VISION_MODEL", chat_model)
             vision_base_url = os.getenv("VISION_BASEURL", chat_base_url)
             api_key = os.getenv("API_KEY", api_key)
@@ -84,6 +96,10 @@ class VisionLLM:
         self.chat_base_url = chat_base_url
         self.chat_temperature = float(chat_temperature or "0.1")
         self.chat_top_p = float(chat_top_p or "0.2")
+        self.chat_top_k = int(chat_top_k or "40")
+        self.chat_max_tokens = int(chat_max_tokens) if chat_max_tokens.strip() else None
+        self.chat_num_ctx = int(chat_num_ctx or "4096")
+        self.chat_thinking = chat_thinking or "none"
 
         # Vision model configuration (fallback to chat model settings)
         self.vision_model = vision_model
@@ -97,14 +113,46 @@ class VisionLLM:
 
     def _initialize_chat_llm(self, streaming: bool = False):
         """Initialisiert das Chat-LLM (für Agent-Interaktionen)"""
-        return ChatOpenAI(
-            model=self.chat_model,
-            base_url=self.chat_base_url,
-            api_key=self.api_key,
-            streaming=streaming,
-            temperature=self.chat_temperature,
-            top_p=self.chat_top_p,
-        )
+        # extra_body wird vom OpenAI-SDK ungeprueft als extra_body im Request
+        # mitgeschickt - ideal fuer provider-spezifische Parameter wie
+        # Ollamas/llama.cpps top_k und num_ctx. (model_kwargs wuerden als
+        # top-level kwargs validiert und vom SDK abgelehnt - "unexpected
+        # keyword argument 'top_k'".)
+        extra_body = {}
+        if self.chat_top_k:
+            extra_body["top_k"] = self.chat_top_k
+        if self.chat_num_ctx:
+            extra_body["num_ctx"] = self.chat_num_ctx
+
+        kwargs = {
+            "model": self.chat_model,
+            "base_url": self.chat_base_url,
+            "api_key": self.api_key,
+            "streaming": streaming,
+            "temperature": self.chat_temperature,
+            "top_p": self.chat_top_p,
+        }
+        if self.chat_max_tokens is not None:
+            kwargs["max_tokens"] = self.chat_max_tokens
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        # Thinking/Reasoning:
+        # - Ollama nutzt reasoning_effort (none/low/medium/high/max).
+        # - llama.cpp parst die Think-Tags standardmaessig und liefert Thinking
+        #   als separates reasoning_content-Feld. langchain-openai (v1.x) reicht
+        #   reasoning_content aber NICHT in additional_kwargs durch, sodass das
+        #   Frontend den Denk-Block nicht sehen wuerde. Daher erzwingen wir
+        #   reasoning_format=none, damit llama.cpp die Think-Tags inline im
+        #   content belaesst - die Frontend-Regex (processThinkTags) faengt sie
+        #   als ausklappbaren Block ab. reasoning_effort=none deaktiviert
+        #   Thinking bei Ollama/llama.cpp explizit.
+        if self.chat_thinking and self.chat_thinking != "none":
+            kwargs["reasoning_effort"] = self.chat_thinking
+            # llama.cpp: Tags inline halten, nicht als reasoning_content parsen
+            extra_body["reasoning_format"] = "none"
+        else:
+            kwargs["reasoning_effort"] = "none"
+        return ChatOpenAI(**kwargs)
 
     def _initialize_vision_llm(self):
         """Initialisiert das Vision-LLM (für Bildverarbeitung)"""

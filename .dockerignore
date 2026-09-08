@@ -24,6 +24,7 @@ files/
 processed_files/
 summaries/
 images/
+data/
 *.egg-info
 dist
 build

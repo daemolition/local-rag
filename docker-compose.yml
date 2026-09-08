@@ -50,7 +50,7 @@ services:
       - local-rag-network
 
   entityguard:
-    image: registry.nutsolution.de/entityguard:latest
+    image: entityguard-entityguard:latest
     container_name: local-document-rag-entityguard
     restart: always
     ports:

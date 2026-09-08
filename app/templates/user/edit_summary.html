@@ -15,83 +15,110 @@
             </a>
             <h1 class="text-xl font-semibold text-primary">{{ filename }}</h1>
         </div>
-        <button onclick="saveSummary()" class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-text rounded-lg font-medium hover:bg-primary-soft hover:-translate-y-0.5 transition-all">
-            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                <polyline points="17 21 17 13 7 13 7 21"/>
-                <polyline points="7 3 7 8 15 8"/>
-            </svg>
-            Speichern
-        </button>
+        <div class="flex gap-2">
+            <a href="/user/summaries/{{ filename | urlencode }}/download-md"
+               class="inline-flex items-center gap-1.5 px-3 py-2 bg-surface-muted text-primary rounded-lg text-sm font-medium hover:bg-surface-muted transition-colors">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                MD Download
+            </a>
+            <a href="/user/summaries/{{ filename | urlencode }}/download-docx"
+               class="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                DOCX Download
+            </a>
+            <button onclick="saveSummary()" class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-text rounded-lg font-medium hover:bg-primary-soft hover:-translate-y-0.5 transition-all">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/>
+                    <polyline points="7 3 7 8 15 8"/>
+                </svg>
+                Speichern
+            </button>
+        </div>
     </div>
 
     <div class="bg-surface rounded-xl shadow-material-1 overflow-hidden">
-        <div class="flex border-b border-base bg-surface-subtle">
-            <button type="button" onclick="switchTab('edit')" id="tab-edit" class="inline-flex items-center gap-2 px-6 py-3 font-medium text-secondary bg-surface border-b-2 border-primary transition-colors">
-                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-                Bearbeiten
-            </button>
-            <button type="button" onclick="switchTab('preview')" id="tab-preview" class="inline-flex items-center gap-2 px-6 py-3 font-medium text-secondary hover:text-primary hover:bg-surface-muted border-b-2 border-transparent transition-colors">
-                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                </svg>
-                Vorschau
-            </button>
-        </div>
-
-        <div class="h-96">
-            <div id="pane-edit" class="h-full">
-                <textarea id="content" placeholder="Markdown-Inhalt..." class="w-full h-full p-6 bg-surface-subtle text-primary font-mono text-sm resize-none focus:outline-none focus:bg-surface transition-colors">{{ content }}</textarea>
-            </div>
-            <div id="pane-preview" class="h-full hidden overflow-y-auto p-6 prose max-w-none">
-                <div id="preview-content" class="prose max-w-none"></div>
-            </div>
-        </div>
+        <textarea id="editor"></textarea>
+        <script id="initial-content" type="application/json">{{ content | tojson }}</script>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_head %}
+<!-- EasyMDE Markdown Editor -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
+<script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+<!-- Marked + DOMPurify für Vorschau (EasyMDE nutzt intern marked) -->
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
 <style>
-    /* Prose-Typografie f\u00fcr Markdown-Vorschau (ersetzt @tailwindcss/typography) */
-    #preview-content h1 { font-size: 1.75rem; font-weight: 700; margin: 1.5rem 0 0.75rem; line-height: 1.3; }
-    #preview-content h2 { font-size: 1.5rem; font-weight: 600; margin: 1.25rem 0 0.625rem; line-height: 1.3; }
-    #preview-content h3 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 0.5rem; line-height: 1.3; }
-    #preview-content h4 { font-size: 1.125rem; font-weight: 600; margin: 0.875rem 0 0.5rem; line-height: 1.3; }
-    #preview-content h5, #preview-content h6 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.5rem; line-height: 1.3; }
-    #preview-content p { margin: 0 0 0.75rem; line-height: 1.6; }
-    #preview-content blockquote { border-left: 4px solid #e5e7eb; padding-left: 1rem; margin: 0.75rem 0; color: #6b7280; }
-    #preview-content ul, #preview-content ol { padding-left: 1.75rem; margin: 0.75rem 0; }
-    #preview-content li { margin-bottom: 0.25rem; line-height: 1.6; }
-    #preview-content li > ul, #preview-content li > ol { margin: 0.25rem 0 0.25rem 0.5rem; }
-    #preview-content hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
-    #preview-content pre { background: #f1f5f9; padding: 0.75rem 1rem; border-radius: 0.5rem; margin: 0.75rem 0; overflow-x: auto; font-size: 0.875rem; }
-    #preview-content code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; }
-    #preview-content img { max-width: 100%; height: auto; margin: 0.75rem 0; }
-    #preview-content a { color: #334155; text-decoration: underline; }
+    /* EasyMDE Editor Styling */
+    .EasyMDEContainer {
+        max-width: 100%;
+    }
+    .EasyMDEContainer .editor-toolbar {
+        background: rgb(var(--color-surface-subtle));
+        border-color: rgb(var(--color-base));
+    }
+    .EasyMDEContainer .CodeMirror {
+        background: rgb(var(--color-surface));
+        border-color: rgb(var(--color-base));
+        color: rgb(var(--color-text-primary));
+        min-height: 580px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+    .EasyMDEContainer .editor-preview {
+        background: rgb(var(--color-surface));
+        padding: 1rem 1.5rem;
+    }
+
+    /* Prose-Typografie für Markdown-Vorschau (EasyMDE .editor-preview) */
+    .editor-preview h1 { font-size: 1.75rem; font-weight: 700; margin: 1.5rem 0 0.75rem; line-height: 1.3; }
+    .editor-preview h2 { font-size: 1.5rem; font-weight: 600; margin: 1.25rem 0 0.625rem; line-height: 1.3; }
+    .editor-preview h3 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 0.5rem; line-height: 1.3; }
+    .editor-preview h4 { font-size: 1.125rem; font-weight: 600; margin: 0.875rem 0 0.5rem; line-height: 1.3; }
+    .editor-preview h5, .editor-preview h6 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.5rem; line-height: 1.3; }
+    .editor-preview p { margin: 0 0 0.75rem; line-height: 1.6; }
+    .editor-preview blockquote { border-left: 4px solid #e5e7eb; padding-left: 1rem; margin: 0.75rem 0; color: #6b7280; }
+    .editor-preview ul, .editor-preview ol { padding-left: 1.75rem; margin: 0.75rem 0; }
+    .editor-preview li { margin-bottom: 0.25rem; line-height: 1.6; }
+    .editor-preview li > ul, .editor-preview li > ol { margin: 0.25rem 0 0.25rem 0.5rem; }
+    .editor-preview hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
+    .editor-preview pre { background: #f1f5f9; padding: 0.75rem 1rem; border-radius: 0.5rem; margin: 0.75rem 0; overflow-x: auto; font-size: 0.875rem; }
+    .editor-preview code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; }
+    .editor-preview img { max-width: 100%; height: auto; margin: 0.75rem 0; }
+    .editor-preview a { color: #334155; text-decoration: underline; }
 
     /* Tabellen-Styling */
-    #preview-content table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.9rem; }
-<<<<<<< HEAD
-    #preview-content th, #preview-content td { border: 1px solid rgb(var(--color-border)); padding: 0.5rem 0.75rem; text-align: left; }
-    #preview-content th { background: rgb(var(--color-surface-muted)); font-weight: 600; }
-=======
-    #preview-content th, #preview-content td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
-    #preview-content th { background: #f1f5f9; font-weight: 600; }
-    #preview-content tr:nth-child(even) { background: #f9fafb; }
->>>>>>> 5ee7763c266174dad191fc27ffff7da012b0dfe3
+    .editor-preview table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.9rem; }
+    .editor-preview th, .editor-preview td { border: 1px solid rgb(var(--color-border)); padding: 0.5rem 0.75rem; text-align: left; }
+    .editor-preview th { background: rgb(var(--color-surface-muted)); font-weight: 600; }
+    .editor-preview tr:nth-child(even) { background: rgb(var(--color-surface-subtle)); }
+
+    /* Dark Mode Anpassungen für EasyMDE */
+    .dark .EasyMDEContainer .editor-toolbar { border-color: rgb(var(--color-base)); background: rgb(var(--color-surface-muted)); }
+    .dark .EasyMDEContainer .CodeMirror { background: rgb(var(--color-surface)); color: rgb(var(--color-text-primary)); border-color: rgb(var(--color-base)); }
+    .dark .EasyMDEContainer .editor-preview { background: rgb(var(--color-surface)); color: rgb(var(--color-text-primary)); }
+    .dark .EasyMDEContainer .editor-toolbar button { color: rgb(var(--color-text-secondary)); }
+    .dark .EasyMDEContainer .editor-toolbar button.active,
+    .dark .EasyMDEContainer .editor-toolbar button:hover { background: rgb(var(--color-surface-muted)); color: rgb(var(--color-text-primary)); }
+    .dark .CodeMirror-cursor { border-left-color: rgb(var(--color-text-primary)); }
 </style>
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
-<script src="{{ url_for('static', filename='js/edit_summary.js') }}"></script>
 <script>
     const saveEndpoint = '/user/summaries/{{ filename | urlencode }}/save';
 </script>
+<script src="{{ url_for('static', filename='js/edit_summary.js') }}"></script>
 {% endblock %}
