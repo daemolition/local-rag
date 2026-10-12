@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-12
+
 ### Neu
 
 - **Anmeldung mit LDAP/Active Directory und OIDC**: Neuer Reiter *Administration › Authentifizierung* (alles in der Datenbank, Migration `0020`; Geheimnisse werden nie ausgeliefert, leer lassen = behalten). **LDAP/AD** läuft über das normale Anmeldeformular (Service-Bind, Benutzersuche mit maskierter Eingabe, Bind als Benutzer, Zertifikate werden geprüft, StartTLS oder `ldaps://`). **OIDC** (Keycloak, Entra ID, Okta …) arbeitet mit Authorization-Code und PKCE, das ID-Token wird über die Schlüssel des Anbieters, `iss`, `aud`, `exp` und `nonce` geprüft; auf dem Login-Bildschirm erscheint „Mit <Name> anmelden“. „Testen“ zeigt Fakten (Verbindung, Benutzer, Gruppen, Anmeldung) ohne Konto anzulegen; die Rückruf-Adresse steht zum Kopieren dabei (`APP_BASE_URL` hinter einem Proxy). Konten werden beim ersten Login angelegt (abschaltbar) mit einer einstellbaren Standardrolle (Rollen kommen nie aus Gruppen). **Gruppen werden nicht importiert**: heißt eine Gruppe des Anbieters wie eine bei dir angelegte lokale Gruppe (Groß-/Kleinschreibung egal, bei AD-DNs der CN), kommt der Benutzer hinein; fehlende lokale Gruppen werden nie angelegt, und beim nächsten Login entfernt der Abgleich nur Mitgliedschaften, die er selbst gesetzt hat. Die lokale Anmeldung bleibt immer (Notzugang `admin`); ein gleichnamiges lokales Konto wird nie übernommen; externe Konten haben keine Passwortanmeldung und kein Passwort-Setzen. Alle Gruppennamen des Anbieters werden am Konto gemerkt und stehen den Zugriffsfiltern externer Quellen („Gruppen aus LDAP/OIDC“) zur Verfügung.
@@ -105,6 +107,7 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
 
-[Unreleased]: https://github.com/daemolition/local-document-rag/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/daemolition/local-document-rag/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/daemolition/local-document-rag/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/daemolition/local-document-rag/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/daemolition/local-document-rag/releases/tag/v0.1.0
