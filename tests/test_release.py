@@ -45,6 +45,14 @@ source = { virtual = "." }
 '''
 
 
+@pytest.fixture(autouse=True)
+def git_identity(monkeypatch):
+    """Frische CI-Runner haben keine Git-Identitaet; das Release-Skript committet im Testrepo."""
+    for who in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{who}_NAME", "Test")
+        monkeypatch.setenv(f"GIT_{who}_EMAIL", "test@example.com")
+
+
 def sh(root, *args, check=True):
     return subprocess.run(
         ["git", *args], cwd=root, capture_output=True, text=True, check=check,
