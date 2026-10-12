@@ -17,7 +17,6 @@
 import asyncio
 import io
 import json
-import re
 import logging
 import os
 import queue
@@ -36,7 +35,8 @@ from flask import (
     url_for,
 )
 
-from app import resources_ready, wait_for_resources
+from app import compaction, resources_ready, wait_for_resources
+from app.agent.document_agent import DocumentAgent
 from app.tools.web_access import build_web_search_tool, pii_client
 from app.access import accessible_knowledge_ids, can_use_model
 from app.auth import auth_required_api, current_user
@@ -379,14 +379,10 @@ def chat():
             mimetype="text/event-stream",
         )
 
-    messages = db.get_messages(final_session_id, limit=10)
-    message_list = []
-
-    for msg in messages[-10:]:
-        role = "user" if msg.role == "user" else "assistant"
-        # Quellenblock der Anzeige gehoert nicht in den Verlauf fuers Modell
-        content = re.sub(r"\n*<sources>.*?</sources>\s*$", "", msg.content, flags=re.S)
-        message_list.append({"role": role, "content": content})
+    # Verlauf: gespeicherte Zusammenfassung (falls vorhanden) plus alle Nachrichten danach.
+    # Passt das nicht ins Eingabe-Budget des Modells, fasst die Compaction weiter unten zusammen.
+    summary_text, history_rows = db.get_history(final_session_id)
+    message_list = compaction.history_messages(history_rows, summary_text)
 
     # User-Nachricht durch PII-Filter schicken (vor LLM-Call)
     pii_filter = pii_client()  # None, wenn nicht eingerichtet oder abgeschaltet
@@ -485,6 +481,31 @@ def chat():
     hint = inline_hint(scope.indexes)
     if hint:
         message_list[-1]["content"] += hint
+
+    # Automatische Compaction: Eingabe-Budget = num_ctx - max_tokens, Zusammenfassen ab 95 %.
+    compaction_note = None
+    try:
+        cfg = compaction.load_settings()
+        budget = compaction.compute_budget(compaction.effective_params(resolved.params), cfg)
+        if budget:
+            overhead = compaction.estimate_tokens(
+                DocumentAgent.compose_prompt(resolved.system_prompt, resolved.replace_prompt)
+            ) + compaction.tools_tokens(tools)
+            new_message = message_list[-1]
+            history, compaction_note = compaction.fit_history(
+                history_rows,
+                summary_text,
+                new_message["content"],
+                overhead,
+                budget,
+                cfg,
+                lambda: compaction.summary_llm(resolved, budget),
+                lambda text, through: db.set_session_summary(final_session_id, text, through),
+            )
+            message_list = history + [new_message]
+            input_data = {"messages": message_list}
+    except Exception as e:  # nie am Chat scheitern lassen: ohne Compaction weiter
+        logger.warning(f"Compaction fehlgeschlagen: {e}")
 
     def generate():
         result_queue = queue.Queue()
@@ -597,6 +618,8 @@ def chat():
             finally:
                 loop.close()
 
+        if compaction_note:
+            yield f"data: {json.dumps({'compaction': compaction_note})}\n\n"
         thread = threading.Thread(target=run_in_thread)
         thread.start()
 

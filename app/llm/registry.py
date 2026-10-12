@@ -243,10 +243,15 @@ def list_models(force: bool = False) -> dict:
                 }
             )
 
+    from app.llm.factory import global_chat_defaults
     from app.tools.web_access import web_search_available
 
     return {
         "models": models,
+        # Werte, die gelten, wenn ein Modell einen Parameter leer laesst (fuer den Konfig-Dialog)
+        "param_defaults": global_chat_defaults(),
+        # fuer die Budget-Anzeige im Konfig-Dialog (Prozentwerte der Compaction)
+        "compaction": _compaction_summary(),
         "errors": errors,
         "default": default_model_ref(),
         # Websuche pro Modell ist nur zuschaltbar, wenn SearXNG UND der PII-Filter eingerichtet sind
@@ -332,10 +337,24 @@ def resolve_model(ref: str | None = None) -> ResolvedModel:
     )
 
 
+def _compaction_summary() -> dict:
+    from app import compaction
+
+    cfg = compaction.load_settings()
+    return {k: cfg[k] for k in ("enabled", "headroom_percent", "keep_percent", "output_reserve_percent")}
+
+
 def get_agent(resolved: ResolvedModel, tools: list) -> DocumentAgent:
     """Agent fuer das aufgeloeste Modell (LRU-gecacht)."""
     # Die Werkzeugliste gehoert in den Schluessel (Websuche kann pro Anfrage ein-/ausfallen).
-    key = (resolved.ref, resolved.signature(), tuple(sorted(getattr(t, "name", "?") for t in tools)))
+    # Compaction: Budget und Prompt gehoeren in den Schluessel (Aenderungen muessen greifen).
+    from app import compaction
+
+    cfg = compaction.load_settings()
+    budget = compaction.compute_budget(compaction.effective_params(resolved.params), cfg)
+    system_prompt = DocumentAgent.compose_prompt(resolved.system_prompt, resolved.replace_prompt)
+    guard = (budget, cfg["prompt"]) if budget else None
+    key = (resolved.ref, resolved.signature(), tuple(sorted(getattr(t, "name", "?") for t in tools)), guard)
     with _lock:
         agent = _agents.get(key)
         if agent is not None:
@@ -349,12 +368,19 @@ def get_agent(resolved: ResolvedModel, tools: list) -> DocumentAgent:
             resolved.params,
             streaming=True,
         )
+        middleware = None
+        if budget:
+            from app.agent.context_guard import build_middleware
+
+            overhead = compaction.estimate_tokens(system_prompt) + compaction.tools_tokens(tools)
+            middleware = build_middleware(
+                compaction.summary_llm(resolved, budget), budget, cfg["prompt"], overhead
+            )
         agent = DocumentAgent(
             llm=llm,
             tools=tools,
-            system_prompt=DocumentAgent.compose_prompt(
-                resolved.system_prompt, resolved.replace_prompt
-            ),
+            system_prompt=system_prompt,
+            middleware=middleware,
         )
         _agents[key] = agent
         while len(_agents) > AGENT_CACHE_SIZE:

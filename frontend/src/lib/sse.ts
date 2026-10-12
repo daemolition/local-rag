@@ -8,6 +8,7 @@ export interface ChatStreamEvent {
   sources?: string;
   source_list?: import("@/components/chat/Message").SourceInfo[];
   warning?: string;
+  compaction?: { before: number; after: number; summarized?: number; clipped?: boolean };
   done?: boolean;
   session_id?: string;
   error?: string;

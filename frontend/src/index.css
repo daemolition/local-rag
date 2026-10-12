@@ -214,36 +214,188 @@
   font-size: 0.9em;
   font-family: var(--font-mono);
 }
-.rag-prose pre {
-  background: #1e293b;
-  color: #e2e8f0;
-  padding: 1rem;
-  border-radius: 10px;
-  overflow-x: auto;
+/* Codeblock: Kopfzeile + Inhalt, Farben folgen dem Theme (Highlighting: .hljs-*) */
+.rag-code {
+  --code-bg: #f6f8fa;
+  --code-head: #eceff3;
+  --code-fg: #24292f;
+  --hl-keyword: #cf222e;
+  --hl-string: #0a3069;
+  --hl-number: #0550ae;
+  --hl-comment: #6e7781;
+  --hl-title: #8250df;
+  --hl-built: #953800;
+  --hl-attr: #116329;
   margin: 0.75rem 0;
-  font-size: 0.875rem;
-  line-height: 1.5;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--rag-border);
+  background: var(--code-bg);
+  color: var(--code-fg);
 }
-.rag-prose pre code {
+.dark .rag-code {
+  --code-bg: #0f172a;
+  --code-head: #1e293b;
+  --code-fg: #e2e8f0;
+  --hl-keyword: #ff7b72;
+  --hl-string: #a5d6ff;
+  --hl-number: #79c0ff;
+  --hl-comment: #8b949e;
+  --hl-title: #d2a8ff;
+  --hl-built: #ffa657;
+  --hl-attr: #7ee787;
+}
+.rag-code-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+  background: var(--code-head);
+  color: var(--rag-secondary);
+}
+.rag-code-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: inherit;
+}
+.rag-code-btn:hover {
+  background: var(--rag-border);
+}
+.rag-code-folded {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  text-align: left;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--rag-secondary);
+}
+.rag-prose .rag-code pre {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  border-radius: 0;
+  white-space: pre;
+}
+.rag-prose .rag-code pre.rag-code-wrap {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.rag-prose .rag-code pre code {
   background: transparent;
   padding: 0;
   color: inherit;
+  font-size: inherit;
 }
-.rag-prose table {
-  border-collapse: collapse;
-  width: 100%;
+.rag-code .hljs-keyword,
+.rag-code .hljs-selector-tag,
+.rag-code .hljs-literal,
+.rag-code .hljs-type {
+  color: var(--hl-keyword);
+}
+.rag-code .hljs-string,
+.rag-code .hljs-regexp,
+.rag-code .hljs-meta .hljs-string {
+  color: var(--hl-string);
+}
+.rag-code .hljs-number,
+.rag-code .hljs-symbol,
+.rag-code .hljs-bullet {
+  color: var(--hl-number);
+}
+.rag-code .hljs-comment,
+.rag-code .hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+.rag-code .hljs-title,
+.rag-code .hljs-section {
+  color: var(--hl-title);
+}
+.rag-code .hljs-built_in,
+.rag-code .hljs-variable,
+.rag-code .hljs-template-variable {
+  color: var(--hl-built);
+}
+.rag-code .hljs-attr,
+.rag-code .hljs-attribute,
+.rag-code .hljs-name {
+  color: var(--hl-attr);
+}
+
+/* Tabelle: eigener Scroll-Container, fixierter Kopf, Aktionen beim Ueberfahren */
+.rag-table {
+  position: relative;
   margin: 0.75rem 0;
-  font-size: 0.9rem;
+  max-width: 100%;
+  min-width: 0;
 }
-.rag-prose th,
-.rag-prose td {
+.rag-table-actions {
+  position: absolute;
+  top: -0.1rem;
+  right: 0;
+  z-index: 2;
+  display: none;
+  gap: 0.125rem;
+  padding: 0.125rem;
+  border-radius: 8px;
   border: 1px solid var(--rag-border);
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-}
-.rag-prose th {
   background: var(--rag-surface-muted);
+  color: var(--rag-secondary);
+}
+.rag-table:hover .rag-table-actions,
+.rag-table:focus-within .rag-table-actions {
+  display: flex;
+}
+.rag-table-scroll {
+  max-height: 32rem;
+  overflow: auto;
+  border: 1px solid var(--rag-border);
+  border-radius: 8px;
+}
+.rag-prose .rag-table table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.85rem;
+}
+.rag-prose .rag-table th,
+.rag-prose .rag-table td {
+  border: none;
+  border-bottom: 1px solid var(--rag-border);
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.rag-prose .rag-table tr:last-child td {
+  border-bottom: none;
+}
+.rag-prose .rag-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--rag-surface-muted);
+  font-size: 0.75rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 @keyframes rag-bounce {

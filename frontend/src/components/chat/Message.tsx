@@ -2,6 +2,7 @@ import {
   BarChart3,
   ChevronRight,
   Check,
+  Copy,
   FileSearch,
   FileText,
   Globe,
@@ -18,7 +19,8 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Markdown } from "@/components/Markdown";
-import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { cn, copyText } from "@/lib/utils";
 
 export interface ToolCall {
   name: string;
@@ -179,6 +181,29 @@ function ToolIndicator({ tool }: { tool: ToolCall }) {
   );
 }
 
+function CopyAnswer({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  const copy = async () => {
+    try {
+      await copyText(text);
+      setDone(true);
+      setTimeout(() => setDone(false), 1500);
+    } catch {
+      toast.error("Kopieren nicht möglich");
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-hover"
+    >
+      {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      {done ? "Kopiert" : "Antwort kopieren"}
+    </button>
+  );
+}
+
 export function Message({
   role,
   content,
@@ -204,7 +229,7 @@ export function Message({
         // Fließtext in voller Breite ohne Rahmen.
         role === "user"
           ? "max-w-[85%] self-end rounded-3xl bg-surface-muted px-4 py-2.5 text-foreground"
-          : "w-full self-start rounded-2xl border border-border-base bg-surface px-4 py-3 text-foreground",
+          : "w-full min-w-0 self-start rounded-2xl border border-border-base bg-surface px-4 py-3 text-foreground",
         dimmed && "opacity-70",
       )}
     >
@@ -249,7 +274,7 @@ export function Message({
 
       {role === "assistant" ? (
         parsed.body ? (
-          <Markdown content={parsed.body} sources={shownSources} />
+          <Markdown content={parsed.body} sources={shownSources} streaming={streaming} />
         ) : waiting ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
@@ -268,6 +293,10 @@ export function Message({
 
       {role === "assistant" && shownSources.length > 0 ? (
         <SourcesBlock sources={shownSources} />
+      ) : null}
+
+      {role === "assistant" && parsed.body && !streaming ? (
+        <CopyAnswer text={parsed.body} />
       ) : null}
     </div>
   );

@@ -65,6 +65,9 @@ class ChatSession(Base):
     # Besitzer des Chats; NULL nur bei Altbestand vor dem Nutzermodell.
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     title = Column(String(255))
+    # Compaction: Zusammenfassung der aelteren Nachrichten (bis einschliesslich summary_through_id)
+    summary = Column(Text, nullable=True)
+    summary_through_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

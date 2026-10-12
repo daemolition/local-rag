@@ -729,3 +729,31 @@ def auth_test():
     except (auth_ldap.LdapError, auth_oidc.OidcError) as e:
         return jsonify({"success": False, "error": str(e)}), 502
     return jsonify({"success": True, **result})
+
+
+# =============================================================================
+# Kontext & Compaction
+# =============================================================================
+
+
+@admin_bp.route("/admin/compaction", methods=["GET"])
+@require_role("admin")
+def compaction_overview():
+    from app import compaction
+
+    return jsonify(compaction.load_settings())
+
+
+@admin_bp.route("/admin/compaction", methods=["PUT"])
+@require_role("admin")
+def compaction_save():
+    """Speichert die Compaction-Einstellungen (nur genannte Felder)."""
+    from app import compaction
+    from app.llm import registry
+
+    try:
+        compaction.save_settings(request.get_json() or {})
+    except compaction.CompactionConfigError as e:
+        return _error(str(e), 400)
+    registry.clear_caches()  # laufende Agenten tragen das alte Budget
+    return jsonify(compaction.load_settings())

@@ -200,6 +200,10 @@ export interface ModelsResponse {
   default: string;
   // Websuche pro Modell nur zuschaltbar, wenn SearXNG und PII-Filter eingerichtet sind
   web_search_available?: boolean;
+  // Compaction-Einstellungen (Prozentwerte) für die Budget-Anzeige im Modell-Dialog
+  compaction?: { enabled: boolean; headroom_percent: number; keep_percent: number; output_reserve_percent: number };
+  // Standardwerte, die gelten, wenn ein Modell einen Parameter leer lässt
+  param_defaults?: Partial<Record<"temperature" | "top_p" | "top_k" | "max_tokens" | "num_ctx" | "thinking", number | string | null>>;
 }
 
 export type Role = "user" | "editor" | "admin";

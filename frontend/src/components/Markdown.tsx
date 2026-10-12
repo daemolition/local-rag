@@ -1,7 +1,17 @@
-import { useMemo } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
+import rehypeHighlight from "rehype-highlight";
+import { common } from "lowlight";
+import dockerfile from "highlight.js/lib/languages/dockerfile";
+import { CodeBlock } from "@/components/chat/CodeBlock";
+import { TableBlock } from "@/components/chat/TableBlock";
+import { codeLanguage, nodeText, type HastNode } from "@/lib/hastText";
+
+// Sanitizer zuerst, Highlighting danach: sonst entfernt der Sanitizer die hljs-Klassen.
+// Unbekannte Sprachen bleiben ohne Farben (kein Raten).
+const HIGHLIGHT = { detect: false, plainText: ["text", "txt", "plaintext"], languages: { ...common, dockerfile } };
 
 export interface CitationSource {
   n?: number;
@@ -25,15 +35,34 @@ function linkCitations(content: string, known: Set<number>): string {
     .join("");
 }
 
+// Beim Streamen hoechstens einmal pro Bildwiederholung neu rendern (lange Antworten bleiben flüssig).
+function useFrameThrottled(value: string, active: boolean): string {
+  const [shown, setShown] = useState(value);
+  const latest = useRef(value);
+  latest.current = value;
+  useEffect(() => {
+    if (!active) {
+      setShown(value);
+      return;
+    }
+    const id = requestAnimationFrame(() => setShown(latest.current));
+    return () => cancelAnimationFrame(id);
+  }, [value, active]);
+  return active ? shown : value;
+}
+
 // Renders assistant markdown safely (GFM tables/strikethrough, sanitized HTML).
 // Mit ``sources`` werden Quellennummern wie [2] als Marker direkt im Satz gezeigt.
-export function Markdown({
-  content,
+export const Markdown = memo(function Markdown({
+  content: rawContent,
   sources,
+  streaming = false,
 }: {
   content: string;
   sources?: CitationSource[];
+  streaming?: boolean;
 }) {
+  const content = useFrameThrottled(rawContent, streaming);
   const byNumber = useMemo(() => {
     const map = new Map<number, CitationSource>();
     (sources ?? []).forEach((src, i) => map.set(src.n ?? i + 1, src));
@@ -48,8 +77,17 @@ export function Markdown({
     <div className="rag-prose">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeSanitize]}
+        rehypePlugins={[rehypeSanitize, [rehypeHighlight, HIGHLIGHT]]}
         components={{
+          pre: ({ node, children }) => {
+            const code = (node as HastNode | undefined)?.children?.find((c) => c.tagName === "code");
+            return (
+              <CodeBlock language={codeLanguage(code)} text={nodeText(code)} streaming={streaming}>
+                {children}
+              </CodeBlock>
+            );
+          },
+          table: ({ node, children }) => <TableBlock node={node as HastNode | undefined}>{children}</TableBlock>,
           a: ({ node: _node, href, children, ...props }) => {
             const match = href?.match(/^#src-(\d+)$/);
             if (match) {
@@ -85,4 +123,4 @@ export function Markdown({
       </ReactMarkdown>
     </div>
   );
-}
+});

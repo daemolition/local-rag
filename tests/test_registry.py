@@ -18,8 +18,8 @@ def conn(db):
 
 
 class FakeAgent:
-    def __init__(self, llm, tools, system_prompt=None):
-        self.llm, self.tools, self.system_prompt = llm, tools, system_prompt
+    def __init__(self, llm, tools, system_prompt=None, middleware=None):
+        self.llm, self.tools, self.system_prompt, self.middleware = llm, tools, system_prompt, middleware
 
 
 @pytest.fixture

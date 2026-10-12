@@ -89,6 +89,7 @@ class DocumentAgent:
         llm: BaseLanguageModel,
         tools: list,
         system_prompt: str | None = None,
+        middleware: list | None = None,
     ):
         self.llm = llm
         self.tools = tools
@@ -96,6 +97,7 @@ class DocumentAgent:
             model=self.llm,
             tools=self.tools,
             system_prompt=system_prompt or self.SYSTEM_PROMPT,
+            middleware=middleware or (),
         )
 
     @property

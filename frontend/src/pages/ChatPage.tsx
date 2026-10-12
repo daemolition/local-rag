@@ -158,9 +158,11 @@ export function ChatPage() {
     };
   }, []);
 
-  const scrollToBottom = useCallback(() => {
+  // Beim Streamen nur nachziehen, wenn der Nutzer am Ende steht (sonst liest er gerade weiter oben).
+  const scrollToBottom = useCallback((force = false) => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (force || el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
   }, []);
 
   useEffect(() => {
@@ -220,7 +222,7 @@ export function ChatPage() {
             content: m.content,
           })),
         );
-        requestAnimationFrame(scrollToBottom);
+        requestAnimationFrame(() => scrollToBottom(true));
       })
       .catch((e) => {
         if (cancelled) return;
@@ -368,6 +370,9 @@ export function ChatPage() {
   const handleEvent = useCallback(
     (event: ChatStreamEvent) => {
       if (event.warning) toast.warning(event.warning);
+      if (event.compaction) {
+        toast.info("Der bisherige Verlauf wurde zusammengefasst, damit der Kontext des Modells nicht überläuft.");
+      }
       if (event.error) {
         toast.error(`Fehler: ${event.error}`);
         setMessages((prev) => {
@@ -453,7 +458,7 @@ export function ChatPage() {
             : undefined,
         },
       ]);
-      requestAnimationFrame(scrollToBottom);
+      requestAnimationFrame(() => scrollToBottom(true));
 
       try {
         const deadline = Date.now() + 10 * 60 * 1000;

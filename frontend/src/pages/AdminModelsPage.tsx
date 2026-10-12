@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { AccessDialog } from "@/components/AccessDialog";
+import { CompactionCard } from "@/components/CompactionCard";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ModelConfigDialog } from "@/components/ModelConfigDialog";
 import { AdminLink } from "@/components/AdminNav";
@@ -146,6 +147,8 @@ export function AdminModelsPage() {
             Aktualisieren
           </Button>
         </div>
+
+        <CompactionCard />
 
         {data?.errors.map((e) => (
           <div
@@ -303,6 +306,8 @@ export function AdminModelsPage() {
         model={configTarget}
         knowledge={knowledge}
         webSearchAvailable={data?.web_search_available ?? false}
+        paramDefaults={data?.param_defaults}
+        compaction={data?.compaction}
         onOpenChange={(o) => !o && setConfigTarget(null)}
         onSaved={() => void load()}
       />

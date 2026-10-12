@@ -6,6 +6,16 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Neu
+
+- **Automatische Compaction des Chat-Kontexts**: Das Eingabe-Budget eines Modells ist *Kontext (`num_ctx`) − Ausgabe (`max_tokens`)*; ohne max. Tokens werden 20 % des Kontexts für die Antwort reserviert. Ab 95 % dieses Budgets (5 % Luft) fasst die App den älteren Verlauf mit dem Chat-Modell zusammen, speichert die Zusammenfassung am Chat (Migration `0021`) und schickt künftig Zusammenfassung plus den jüngsten Verlauf (30 % des Budgets bleiben wörtlich). Folgeanfragen nutzen sie ohne neuen Aufruf, die Originalnachrichten bleiben unverändert; der Chat zeigt einen Hinweis. Innerhalb eines Agent-Laufs fasst die Middleware den Lauf zusammen, wenn Werkzeug-Ergebnisse das Budget füllen, und kürzt ein einzelnes riesiges Ergebnis. Unter *Administration › Modelle › Kontext & Compaction* stellst du Schalter, Luft, wörtlichen Anteil, Ausgabe-Reserve und die Zusammenfassungs-Anweisung (mit „Auf Standard zurücksetzen“) ein; alles liegt in der Datenbank. Der Modell-Dialog zeigt live Budget und Auslöser (Warnung bei zu kleinem Budget, dann ist die Compaction für das Modell aus). Token werden vorsichtig geschätzt (3 Zeichen je Token); `num_ctx` muss dem Kontext des Servers entsprechen.
+- **Bessere Darstellung langer Antworten (SQL, Code, Tabellen)**: Codeblöcke haben jetzt Syntax-Farben (u. a. SQL, Python, JSON, YAML, Bash, Dockerfile; unbekannte Sprachen bleiben ungefärbt), eine Kopfzeile mit Sprache, **Kopieren**, **Umbrechen** und **Einklappen** (ab 25 Zeilen, während des Streamens nicht), und der Kopf bleibt beim Scrollen durch lange Blöcke sichtbar. Die Farben folgen dem hellen/dunklen Theme. Tabellen scrollen in einem eigenen Rahmen (breite Tabellen sprengen die Antwort nicht mehr), der Kopf bleibt stehen, beim Überfahren erscheinen **Kopieren** (Markdown) und **CSV** (Excel-tauglich mit Umlauten). Unter jeder Antwort gibt es **Antwort kopieren**. Beim Streamen wird höchstens einmal pro Bild neu gerendert, und der Chat scrollt nur mit, wenn man schon unten steht. Die Ideen stammen aus der Darstellung von Open WebUI, der Code ist eigenständig.
+
+### Behoben
+
+- **Chat-Verlauf zeigte dem Modell die ersten statt der letzten 10 Nachrichten**: In langen Chats fehlten dem Modell die jüngsten Nachrichten. Es erhält jetzt den ganzen Verlauf, bei Bedarf als Zusammenfassung plus jüngste Nachrichten (siehe Compaction).
+- **Modell-Dialog sprach von „globalen Einstellungen“**, die es nicht mehr gibt: Leere Parameter zeigen jetzt den tatsächlichen Standardwert (z. B. „Standard: 0.1“), bei Thinking steht „Standard (none)“.
+
 ## [0.1.2] - 2026-10-12
 
 ### Neu

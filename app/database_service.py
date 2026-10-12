@@ -235,6 +235,11 @@ class DatabaseService:
             "PII_FILTER_ENABLED": ("pii_filter", "true", "PII-Filter aktivieren (true/false)"),
         }
 
+        from app.compaction import SETTINGS as compaction_settings
+
+        for key, default, description in compaction_settings:
+            all_settings[key] = ("llm", default, description)
+
         for key, config in all_settings.items():
             if len(config) == 4:
                 category, default, description, is_sensitive = config
@@ -336,6 +341,38 @@ class DatabaseService:
         except Exception as e:
             db.rollback()
             raise e
+        finally:
+            db.close()
+
+    def get_history(self, session_id: str):
+        """Zusammenfassung der Session und alle Nachrichten danach (aelteste zuerst)."""
+        db = self.get_session()
+        try:
+            sess = db.query(ChatSession).filter_by(id=session_id).first()
+            summary = sess.summary if sess else None
+            through = sess.summary_through_id if sess else None
+            q = db.query(Message).filter_by(session_id=session_id)
+            if summary and through:
+                q = q.filter(Message.id > through)
+            rows = q.order_by(Message.created_at.asc(), Message.id.asc()).all()
+            for r in rows:
+                db.expunge(r)
+            return summary, rows
+        finally:
+            db.close()
+
+    def set_session_summary(self, session_id: str, summary: str | None, through_id: int | None) -> None:
+        """Speichert die Zusammenfassung der Session (``None`` loescht sie)."""
+        db = self.get_session()
+        try:
+            sess = db.query(ChatSession).filter_by(id=session_id).first()
+            if sess:
+                sess.summary = summary
+                sess.summary_through_id = through_id
+                db.commit()
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()
 

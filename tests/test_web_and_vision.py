@@ -224,3 +224,11 @@ def test_hidden_models_stay_selectable_for_vision(app, db):
     assert ref not in [m["ref"] for m in admin.get("/api/models?visible=1").json["models"]]
     assert ref in [m["ref"] for m in admin.get("/api/models").json["models"]]
     assert put_tasks(admin, vision={"model_ref": ref}).status_code == 200
+
+
+def test_models_response_names_the_default_parameters_for_the_config_dialog(app, db):
+    r = client_for(app, ADMIN).get("/api/models")
+    defaults = r.json["param_defaults"]
+    assert defaults["temperature"] == 0.1 and defaults["top_k"] == 40 and defaults["thinking"] == "none"
+    set_settings(db, CHAT_TEMPERATURE="0.5")
+    assert client_for(app, ADMIN).get("/api/models").json["param_defaults"]["temperature"] == 0.5

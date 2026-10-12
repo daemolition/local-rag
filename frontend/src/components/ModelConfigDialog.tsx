@@ -20,7 +20,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage } from "@/lib/api";
-import type { Knowledge, ModelEntry } from "@/lib/types";
+import type { Knowledge, ModelEntry, ModelsResponse } from "@/lib/types";
 import { toast } from "sonner";
 
 const PARAM_FIELDS = [
@@ -38,6 +38,8 @@ interface ModelConfigDialogProps {
   model: ModelEntry | null;
   knowledge: Knowledge[];
   webSearchAvailable?: boolean;
+  paramDefaults?: ModelsResponse["param_defaults"];
+  compaction?: ModelsResponse["compaction"];
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }
@@ -46,6 +48,8 @@ export function ModelConfigDialog({
   model,
   knowledge,
   webSearchAvailable = false,
+  paramDefaults,
+  compaction,
   onOpenChange,
   onSaved,
 }: ModelConfigDialogProps) {
@@ -58,6 +62,25 @@ export function ModelConfigDialog({
   const [thinking, setThinking] = useState(DEFAULT_THINKING);
   const [knowledgeIds, setKnowledgeIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
+  // Eingabe-Budget = Kontext − Ausgabe; Compaction ab (100 − Luft) % davon
+  const budgetInfo = (() => {
+    const pick = (key: "num_ctx" | "max_tokens") => {
+      const own = parseInt(params[key] ?? "", 10);
+      if (Number.isFinite(own)) return own;
+      const d = paramDefaults?.[key];
+      return typeof d === "number" ? d : null;
+    };
+    const window = pick("num_ctx");
+    if (!window || !compaction) return null;
+    const out = pick("max_tokens") ?? Math.ceil((window * compaction.output_reserve_percent) / 100);
+    const usable = window - out;
+    return { window, out, usable, trigger: Math.floor((usable * (100 - compaction.headroom_percent)) / 100) };
+  })();
+  const defaultFor = (key: string, hint: string) => {
+    const v = paramDefaults?.[key as keyof NonNullable<typeof paramDefaults>];
+    if (v === undefined) return hint;
+    return v === null || v === "" ? hint : `Standard: ${v}`;
+  };
 
   useEffect(() => {
     if (!model) return;
@@ -198,7 +221,7 @@ export function ModelConfigDialog({
           <section className="space-y-2">
             <h3 className="text-sm font-semibold">Parameter</h3>
             <p className="text-xs text-muted-foreground">
-              Leere Felder verwenden die globalen Einstellungen.
+              Leere Felder verwenden den Standardwert (grau angezeigt).
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {PARAM_FIELDS.map((f) => (
@@ -213,10 +236,19 @@ export function ModelConfigDialog({
                     onChange={(e) =>
                       setParams((prev) => ({ ...prev, [f.key]: e.target.value }))
                     }
-                    placeholder={f.hint}
+                    placeholder={defaultFor(f.key, f.hint)}
                   />
                 </div>
               ))}
+              {budgetInfo ? (
+                <p
+                  className={`text-xs sm:col-span-2 ${budgetInfo.usable < 1024 ? "text-destructive" : "text-muted-foreground"}`}
+                >
+                  {budgetInfo.usable < 1024
+                    ? `Eingabe-Budget nur ${budgetInfo.usable} Token (Kontext ${budgetInfo.window} − Ausgabe ${budgetInfo.out}): zu klein, die Compaction ist für dieses Modell aus.`
+                    : `Eingabe-Budget ${budgetInfo.usable} Token (Kontext ${budgetInfo.window} − Ausgabe ${budgetInfo.out})${compaction?.enabled ? `, Compaction ab ${budgetInfo.trigger} Token.` : ", Compaction ist abgeschaltet."}`}
+                </p>
+              ) : null}
               <div className="space-y-1">
                 <Label className="text-xs">Thinking</Label>
                 <Select value={thinking} onValueChange={setThinking}>
@@ -224,7 +256,9 @@ export function ModelConfigDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={DEFAULT_THINKING}>Global</SelectItem>
+                    <SelectItem value={DEFAULT_THINKING}>
+                      Standard{paramDefaults?.thinking ? ` (${paramDefaults.thinking})` : ""}
+                    </SelectItem>
                     {THINKING.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
