@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-12
+
 Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Modellen.
 
 ### Neu
@@ -79,3 +81,6 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - **GPU im Docker-Image**: Das Image enthält jetzt PyTorch mit CUDA (Build-Argument `TORCH_BACKEND=cpu` für CPU-only), `docker-compose.yml` reserviert die GPU für den Dienst `rag` (NVIDIA Container Toolkit nötig; ohne GPU den `deploy`-Block entfernen). Neue Volumes: `hf-cache` für heruntergeladene Modelle. Das Image wird dadurch einige GB größer. Die Standardmodelle (MiniLM, `bge-reranker-base`) werden beim Build geladen.
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
+
+[Unreleased]: https://github.com/daemolition/local-document-rag/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/daemolition/local-document-rag/releases/tag/v0.1.0
