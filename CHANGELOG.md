@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-12
+
 ### Verbessert
 
 - **Externe Quellen (fremde Vektorspeicher)**: Unter *Knowledge › Externe Quelle* (nur Admins) lässt sich ein fremder Qdrant als Knowledge anbinden. Es erscheint in der Knowledge-Liste (Kennzeichen „extern“), wird wie jedes Knowledge über Gruppen freigegeben und an Modelle gehängt, nutzt das gewohnte Retrieval-Profil (Rerank, Quellen mit Score) und wird **live und nur lesend** abgefragt. Nichts wird geraten: Adresse, Key, Collection, Vektor- und Feldnamen und das **Embedding-Modell der Quelle** trägt der Admin ein. „Verbindung testen“ zeigt nur Fakten (Collections, Vektorgröße, Punktzahl, Beispiel-Felder). Beim Speichern prüft die App hart: Vektor vorhanden, Dimension des Modells = Vektorgröße, Textfeld vorhanden und per Beispielpunkt, ob das Modell wirklich zu den Vektoren der Quelle passt (Übereinstimmung unter 0,8 wird abgelehnt). Ohne Sparse-Vektor läuft die Suche rein semantisch (das Reranking gleicht aus). Upload, Einlesen, Löschen, Neu-Indexieren und die Vektoransicht sind für externe Quellen gesperrt (409); Löschen des Knowledge entfernt nur den Eintrag. Ist eine Quelle nicht erreichbar, läuft die Suche ohne sie weiter und der Chat zeigt eine Warnung. Der API-Key wird nie ausgeliefert.
@@ -98,5 +100,6 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
 
-[Unreleased]: https://github.com/daemolition/local-document-rag/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/daemolition/local-document-rag/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/daemolition/local-document-rag/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/daemolition/local-document-rag/releases/tag/v0.1.0
