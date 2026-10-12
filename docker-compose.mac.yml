@@ -1,0 +1,71 @@
+# macOS: nur die Hilfsdienste laufen in Docker, die App selbst laeuft nativ
+# (python run_mac.py), weil Docker auf dem Mac keinen Zugriff auf die GPU (Metal) hat.
+#
+#   docker compose -f docker-compose.mac.yml up -d
+#
+# Alle Ports sind nur auf localhost gebunden.
+name: local-document-rag-mac
+
+services:
+  # Datenbank der App; die native App verbindet sich ueber localhost:5432.
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-rag}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-rag}
+      - POSTGRES_DB=${POSTGRES_DB:-rag}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant:/qdrant/storage
+
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8081/
+
+  entityguard:
+    image: entityguard-entityguard:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:9500"
+    volumes:
+      - entityguard-data:/app/data
+
+  # Spracheingabe (CPU-Variante; die GPU-Variante braucht NVIDIA). Optional:
+  # bei Bedarf entfernen, dann fehlt nur der Mic-Button.
+  parakeet:
+    build:
+      context: ./parakeet
+      args:
+        DEVICE: cpu
+    image: local-document-rag-parakeet-cpu
+    restart: unless-stopped
+    environment:
+      - PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
+    ports:
+      - "127.0.0.1:5001:5001"
+
+volumes:
+  pgdata:
+  qdrant:
+  entityguard-data:

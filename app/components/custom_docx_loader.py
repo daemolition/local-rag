@@ -23,17 +23,19 @@ from collections.abc import Iterator
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_core.documents import Document
 
+from app.components.markdown_document import markdown_document
 from app.components.preprocess_docx import PreprocessDOCX
 
 
 class CustomDOCXLoader(BaseLoader):
     """Wrapper Class for DOCX/DOC/ODT loading with image extraction."""
 
-    def __init__(self, file_path: str, model=None):
+    def __init__(self, file_path: str, model=None, table_sink=None):
         self.file_path = file_path
+        self.table_sink = table_sink
         self.processor = PreprocessDOCX(model=model)
 
     def lazy_load(self) -> Iterator[Document]:
-        documents = self.processor.process_document(self.file_path)
-        for doc in documents:
-            yield doc
+        """Liefert ein Document mit dem gesamten Markdown der Datei."""
+        markdown = self.processor.process_document(self.file_path, self.table_sink)
+        yield markdown_document(markdown, self.file_path)

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="de" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Document RAG</title>
+    <script>
+      // Server-Default für das Theme (UI_THEME Setting). serve_spa() ersetzt
+      // den Platzhalter beim Ausliefern; localStorage gewinnt clientseitig.
+      window.__UI_THEME__ = "__RAG_UI_THEME__";
+    </script>
+    <script>
+      // Theme bootstrap before first paint (avoid FOUC). Mirrors the legacy
+      // base.html behaviour: localStorage('ui_theme') -> server default.
+      (function () {
+        try {
+          var pref =
+            localStorage.getItem("ui_theme") ||
+            (window.__UI_THEME__ || "system");
+          var dark =
+            pref === "dark" ||
+            (pref === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var root = document.documentElement;
+          if (dark) root.classList.add("dark");
+          else root.classList.remove("dark");
+          window.__themeDark = dark;
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="h-full">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

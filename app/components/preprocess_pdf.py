@@ -20,7 +20,7 @@ PDF-spezifisches Preprocessing via Docling.
 Nutzt DocumentConverter mit Tesseract-OCR (CLI) und TableFormer
 (do_table_structure=True) fuer saubere Tabellenextraktion. Bilder werden
 ueber generate_picture_images=True als PIL-Bilder zur Verfuegung gestellt
-und in Lesereihenfolge via VisionLLM beschrieben.
+und in Lesereihenfolge via VisionLLM beschrieben; Ergebnis ist Markdown.
 """
 
 # Third party
@@ -52,9 +52,8 @@ class PreprocessPDF(PreprocessBase):
             }
         )
 
-    def process_document(self, file_path: str) -> list:
-        """Verarbeitet die PDF und gibt eine Liste von LangChain-Dokumenten zurueck."""
+    def process_document(self, file_path: str, table_sink=None) -> str:
+        """Verarbeitet die PDF und gibt Markdown (inkl. Bildbeschreibungen) zurueck."""
         converter = self._build_converter()
         result = converter.convert(file_path)
-        doc = result.document
-        return self.build_chunks_from_docling(doc, file_path)
+        return self.build_markdown_from_docling(result.document, file_path, table_sink)

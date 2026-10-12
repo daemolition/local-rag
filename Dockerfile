@@ -1,3 +1,18 @@
+# --- Stage 1: React-Frontend bauen -------------------------------------------
+# Separater Node-Build-Layer; das Ergebnis (statische Assets) wird in das
+# Runtime-Image kopiert. Node ist zur Laufzeit nicht noetig.
+FROM node:22-slim AS frontend
+
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./frontend/
+RUN cd frontend && npm ci
+
+COPY frontend ./frontend
+# vite schreibt direkt nach ../app/static (relativ zu frontend/) => /build/app/static
+RUN cd frontend && npm run build
+
+
+# --- Stage 2: Python-Runtime -------------------------------------------------
 FROM python:3.12-slim-bookworm
 
 LABEL maintainer="local-document-rag"
@@ -30,6 +45,16 @@ COPY README.md ./
 # Install dependencies system-wide (no .venv!)
 RUN uv pip install --system -e .
 
+# PyTorch mit CUDA: pyproject.toml pinnt torch fuer lokale Entwicklung auf das CPU-Wheel.
+# Im Image ersetzen wir es durch das CUDA-Build von PyPI (bringt die CUDA-Runtime mit, auf
+# dem Host genuegt der NVIDIA-Treiber + Container Toolkit). Beschleunigt Docling, das
+# Embedding (HuggingFace-Modelle wie bge-m3) und den Reranker. Ohne GPU:
+#   docker compose build --build-arg TORCH_BACKEND=cpu
+ARG TORCH_BACKEND=cuda
+RUN if [ "$TORCH_BACKEND" = "cuda" ]; then \
+      uv pip install --system --reinstall-package torch --reinstall-package torchvision torch torchvision ; \
+    fi
+
 # Embedding- + Sparse-Modell zur Build-Zeit in den Cache laden,
 # damit der Containerstart nicht auf einen Download wartet (Start-Timeout-Fix).
 # Verwendet FastEmbed (ONNX) statt HuggingFace/Torch — schnellerer Start,
@@ -47,7 +72,7 @@ RUN python -c "from langchain_community.embeddings import FastEmbedEmbeddings; \
 # HF-Cache laden, damit der Containerstart nicht auf einen Download wartet.
 # Docling lädt die Gewichte erst beim convert(), nicht beim Instanziieren —
 # deshalb wird hier eine Minimal-PDF (via Pillow, bereits Dep) erzeugt und
-# konvertiert. torch läuft CPU-only (siehe pyproject.toml [tool.uv.sources]).
+# konvertiert (nutzt die GPU, falls beim Build verfuegbar, sonst CPU).
 # OCR erfolgt über die Tesseract-CLI (apt-Packages oben).
 RUN python -c "\
 from PIL import Image; \
@@ -59,23 +84,22 @@ conv = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeli
 conv.convert('/tmp/_warm.pdf'); \
 import os; os.remove('/tmp/_warm.pdf')"
 
-
-# Standalone Tailwind-CLI v3 (kein Node noetig) in einem separaten, cachebaren
-# Layer laden. Ersetzt den render-blockierenden Play-CDN durch self-hosted CSS.
-RUN curl -sL -o /usr/local/bin/tailwindcss \
-      https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64 \
- && chmod +x /usr/local/bin/tailwindcss
+# Standardmodelle fuer Embedding und Reranking (HuggingFace) zur Build-Zeit laden, damit eine
+# frische Installation ohne Download startet. Andere Modelle waehlt man unter
+# Admin > Einlesen & Modelle (Download beim ersten Mal, Cache im Volume hf-cache).
+ARG HF_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+ARG HF_RERANKER_MODEL=BAAI/bge-reranker-base
+RUN python -c "\
+from sentence_transformers import SentenceTransformer, CrossEncoder; \
+SentenceTransformer('${HF_EMBEDDING_MODEL}'); \
+CrossEncoder('${HF_RERANKER_MODEL}')"
 
 # Copy rest of application
 COPY . .
 
-# Vorkompiliertes Tailwind-CSS erzeugen: scannt Templates/JS und schreibt
-# app/static/css/tailwind.css. Laeuft bei jedem Build, damit die CSS zu den
-# Templates synchron bleibt (Binary aus dem Cache-Layer oben wird reused).
-# Danach Binary entfernen, um das Runtime-Image klein zu halten.
-RUN tailwindcss -i ./app/static/css/tailwind.input.css \
-               -o ./app/static/css/tailwind.css --minify \
- && rm -f /usr/local/bin/tailwindcss
+# Gebaute React-SPA aus dem Frontend-Stage uebernehmen. Flask serviert
+# app/static/ und der 404-Catch-all liefert app/static/index.html.
+COPY --from=frontend /build/app/static ./app/static
 
 # Create directories. Die Daten-Subdirs (files/processed_files/images/
 # summaries) legt ensure_directories zur Laufzeit unter /app/data an (das

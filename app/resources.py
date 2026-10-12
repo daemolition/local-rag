@@ -25,12 +25,11 @@ Event-Handling und Fehler-Logging.
 
 import logging
 
-from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
-from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_qdrant import FastEmbedSparse
 
 from app.llm.local_llm import VisionLLM
+from app.retrieval import MultiCollectionRetriever
 from app.tools.custom_tools import CustomTools
-from app.agent.document_agent import DocumentAgent
 
 logger = logging.getLogger(__name__)
 
@@ -39,16 +38,12 @@ def load_resources(
     app,
     qdrant_client,
     collection_name,
-    embedding_model,
     retriever_k,
     retriever_fetch_k,
     retriever_lambda,
     retriever_threshold,
     data_dir,
     summaries_dir,
-    searxng_url=None,
-    searxng_categories=None,
-    pii_filter_client=None,
 ):
     """Laedt Embedding-Modelle, Vectorstore, Retriever und Agent.
 
@@ -59,40 +54,22 @@ def load_resources(
         app: Flask-Applikation (fuer ``app.extensions``).
         qdrant_client: Bereits verbundener Qdrant-Client.
         collection_name: Name der Qdrant-Collection.
-        embedding_model: FastEmbed-Modellname (z.B.
-            ``sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2``).
         retriever_k: Anzahl MMR-Ergebnisse.
         retriever_fetch_k: Anzahl Dokumente zum Abrufen (vor MMR).
         retriever_lambda: MMR-Balance (0=divers, 1=relevant).
         retriever_threshold: Mindest-Ähnlichkeitsscore.
         data_dir: Verzeichnis fuer CSV-/Excel-Dateien.
         summaries_dir: Verzeichnis fuer Markdown-Analysen.
-        searxng_url: Optional — SearXNG-Metasuchmaschinen-URL.
-        searxng_categories: Optional — Durchsuchbare Kategorien.
-        pii_filter_client: Optional — PII-Filter-Client.
     """
-    logger.info(f"Lade Embedding-Modell: {embedding_model}")
-    dense_embeddings = FastEmbedEmbeddings(
-        model_name=embedding_model,
-    )
+    # Sparse (BM25) bleibt fest; die Dense-Modelle kommen aus der Registry
+    # (app/rag/models_runtime.py) und werden je Knowledge gewaehlt.
     sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
 
-    vectorstore = QdrantVectorStore(
+    # Retriever ueber die Collections des jeweiligen Chat-Requests
+    # (siehe app/retrieval.py); ohne Scope gilt der Standard-Bestand.
+    retriever = MultiCollectionRetriever(
         client=qdrant_client,
-        collection_name=collection_name,
-        embedding=dense_embeddings,
-        sparse_embedding=sparse_embeddings,
-        retrieval_mode=RetrievalMode.HYBRID,
-    )
-
-    retriever = vectorstore.as_retriever(
-        search_type="mmr",
-        search_kwargs={
-            "k": retriever_k,
-            "fetch_k": retriever_fetch_k,
-            "lambda_mult": retriever_lambda,
-            "score_threshold": retriever_threshold,
-        },
+        sparse_embeddings=sparse_embeddings,
     )
 
     llm = VisionLLM()
@@ -101,17 +78,12 @@ def load_resources(
         retriever=retriever,
         data_dir=data_dir,
         summaries_dir=summaries_dir,
-        searxng_url=searxng_url,
-        searxng_categories=searxng_categories,
-        pii_filter_client=pii_filter_client,
     )
     tools = custom_tools.get_tools()
-    agent = DocumentAgent(llm=llm.llm_stream, tools=tools)
 
-    app.extensions["dense_embeddings"] = dense_embeddings
     app.extensions["sparse_embeddings"] = sparse_embeddings
-    app.extensions["vectorstore"] = vectorstore
     app.extensions["llm"] = llm
-    app.extensions["agent"] = agent
+    # Geteilte Tools fuer die modellabhaengigen Agents (app/llm/registry.py).
+    app.extensions["agent_tools"] = tools
 
     logger.info("Ressourcen bereit (Embedding-Modell + Agent).")

@@ -1,458 +1,128 @@
 # Local Document RAG
 
-Ein lokales RAG-System (Retrieval-Augmented Generation) mit Flask-Webinterface, SSE-Streaming, Pandas-Datenanalyse und hybrider Vektorsuche. Singleuser: ein einzelnes App-Passwort schützt den Zugriff, keine Accounts oder Rollen.
+Ein Open-Source-RAG für eigene Dokumente, gebaut auf **Qualität** und volle Kontrolle über Einlesen und Suche. Die Oberfläche ist ein Chat im Stil von ChatGPT bzw. Langdock: Fragen stellen, Antworten mit Quellen bekommen, Dateien direkt anhängen. Alles läuft lokal, Modelle und Daten bleiben bei dir.
 
-> **Lizenz:** Dieses Projekt ist unter der **GNU Affero General Public License v3 oder später (AGPL-3.0-or-later)** veröffentlicht. Siehe [`LICENSE`](./LICENSE).
+> **Lizenz:** GNU Affero General Public License v3 oder später (AGPL-3.0-or-later), siehe [`LICENSE`](./LICENSE).
 
-## Features
+## Was es kann
 
-- **Flask Webinterface** mit einfachem Passwortschutz und Session-Management
-- **SSE Streaming** für Echtzeit-Antworten
-- **Hybride Vektorsuche** (Dense + Sparse/BM25) mit Qdrant
-- **Multi-Format Dokumenten-Ingestion** (PDF, CSV, Excel, DOCX)
-- **Pandas Analytics Tools** für Datenanalyse
-- **Lokales LLM** via Ollama/OpenAI-kompatibler API
-- **Verwaltungsbereich** für Vektordatenbank-Einsicht und Settings
-- **Alembic Datenbank-Migrationen** für SQLAlchemy
+- **Chat mit Quellen** (SSE-Streaming, Spracheingabe per Parakeet). Dateien lassen sich anhängen und sind nur in diesem Chat durchsuchbar.
+- **Knowledge-Bereiche**: pro Bereich eine eigene Qdrant-Collection mit Upload, Dokumentliste, Vektoransicht und eigenem Retrieval-Profil.
+- **Markdown-first-Einlesen**: PDF, DOCX, DOC, ODT und MD werden mit Docling zu Markdown (Überschriften, Tabellen, Bildbeschreibungen per Vision-LLM), gespeichert und an den Überschriften zerlegt. Das gespeicherte Markdown ist in der Oberfläche einsehbar und die Grundlage zum Neu-Indexieren.
+- **Tabellen als CSV**: Tabellen aus Dokumenten und CSV/Excel-Dateien werden nicht in den Vektorindex gepresst, sondern vom Modell per Pandas ausgewertet (richtige Summen statt geratener Zahlen).
+- **Hybride Suche**: Bedeutung (Dense, HNSW) plus Stichwort (BM25 mit IDF), Neusortierung mit einem Cross-Encoder und Nachbar-Chunks für vollständige Absätze. Das Standardprofil ist die empfohlene Strategie, Alternativen gibt es unter „Erweitert“.
+- **Einstellbare Modelle**: Embedding und Reranking wählst du unter *Administration › Einlesen & Modelle*, entweder als HuggingFace-Modell (lokal, z. B. `BAAI/bge-m3`) oder über einen OpenAI-kompatiblen Endpoint. Das System lädt das Modell selbst, die Vektor-Dimension ergibt sich aus dem Modell.
+- **Neu indexieren ohne Ausfall**: Nach einem Modellwechsel baut ein Hintergrundjob den Index aus dem Markdown neu auf und schaltet erst um, wenn er fertig ist.
+- **Mehrbenutzer**: Rollen (`admin`, `editor`, `user`), Gruppen und Freigaben für Knowledge und Modelle. Chats sind pro Nutzer privat.
+- **Beliebige LLMs**: OpenAI-kompatible Verbindungen (LiteLLM, vLLM, Ollama, OpenAI) mit Modellliste, eigenem Prompt, Parametern und angehängtem Knowledge pro Modell.
+- Optional: Websuche über SearXNG, die du pro Modell zuschaltest (Standard aus, nur mit eingerichtetem PII-Filter/entityguard).
 
----
+Details zu Änderungen: [`CHANGELOG.md`](./CHANGELOG.md). Architektur und Konventionen für Entwickler: [`AGENTS.md`](./AGENTS.md).
 
 ## Schnellstart
 
-### Windows (Keine Admin-Rechte nötig!)
-
-```batch
-# Einfach doppelklicken:
-start.bat
-
-# Oder manuell:
-python run_windows.py
-```
-
-→ Öffnet http://127.0.0.1:5000 (nur lokal, keine Firewall-Abfrage!)
-
-### Linux / Docker
+### Docker (empfohlen)
 
 ```bash
-# Mit Docker Compose
 docker-compose up --build
-
-# Oder manuell:
-alembic upgrade head
-python run_linux.py
 ```
 
-→ Öffnet http://localhost:5000
+Öffnet die App auf http://localhost:8083. Qdrant, SearXNG, entityguard und Parakeet starten als eigene Container (Parakeet braucht eine NVIDIA-GPU, siehe `parakeet/Dockerfile` für CPU).
 
-### Default-Passwort
+### Datenbank (Postgres)
 
-Beim ersten Start wird ein einzelnes App-Passwort gesetzt: **`admin`** (überschreibbar über `ADMIN_PASSWORD` in `.env` bei frischer DB). Es gibt keine Benutzernamen/Accounts mehr — nur das eine Passwort schützt die App.
+Die App speichert Benutzer, Chats, Einstellungen und Modelle in **Postgres**. `docker compose up` startet den Container `postgres` samt Volume `pgdata` und migriert beim Start automatisch. Zugangsdaten stehen in `.env` (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, siehe `env.example`); für den Betrieb ein eigenes Passwort setzen. Ohne `DATABASE_URL` nutzt die App eine lokale SQLite-Datei, das ist nur für Entwicklung und Tests gedacht.
 
-> **Wichtig:** Ändere das Passwort nach dem ersten Login über **Einstellungen → Passwort ändern**.
-
----
-
-## Qdrant
-
-Dieses Projekt benötigt einen **laufenden Qdrant-Server** (Server-Modus). Die App verbindet sich zu `QDRANT_HOST:QDRANT_PORT` (Default: `localhost:6333`).
-
-### Windows
-
-`run_windows.py` startet automatisch einen lokalen Qdrant-Server (`qdrant.exe` auf `127.0.0.1:6333`) — ohne Administratorrechte und ohne Firewall-Abfrage:
-
-- `qdrant.exe` wird automatisch heruntergeladen, falls nicht vorhanden.
-- Qdrant läuft auf `127.0.0.1:6333` (nur localhost erreichbar).
-- Der Flask-Server läuft auf `127.0.0.1:5000` (ebenfalls nur localhost).
-- Beim Beenden wird der Qdrant-Prozess aufgeräumt.
-
-Wenn du Qdrant bereits separat betreibst (z. B. per Docker oder manuell):
-
-```batch
-python run_windows.py --no-qdrant
-```
-
-### Linux / Docker
-
-Docker Compose startet Qdrant als separaten Container (`qdrant/qdrant:latest`). Die App verbindet sich über das `local-rag-network` zum `qdrant`-Service.
-
-Manuell: Starte Qdrant separat (Docker, Binary, etc.) und konfiguriere `QDRANT_HOST`/`QDRANT_PORT` in `.env`.
-
----
-
-## Websuche (SearXNG) & PII-Filter (entityguard)
-
-Docker Compose startet zusätzlich zwei Container:
-
-- **`searxng`** (`searxng/searxng:latest`) macht dem Chat-Agenten das `web_search_tool` verfügbar. Die App verbindet sich intern über `http://searxng:8080` (Setting `SEARCH_SEARXNG_URL`, bei frischer DB bereits vorbelegt). Die Web-UI ist zum Debuggen unter http://localhost:8081 erreichbar.
-- **`entityguard`** (`registry.nutsolution.de/entityguard:latest`) ist der PII-Filter-Service, der Suchanfragen (und Chat-Nachrichten) vor dem Versand maskiert und die Antwort anschließend wieder demaskiert. Die App verbindet sich intern über `http://entityguard:9500/api/v1/sanitize` (Setting `PII_FILTER_URL`, bei frischer DB bereits vorbelegt). Kein Host-Port gemappt — nur aus dem `local-rag-network` erreichbar.
-
-Konfiguration von SearXNG liegt in `searxng/settings.yml` (wird eingecheckt mitgeliefert). Zwei Einstellungen darin sind notwendig, damit die App die JSON-API nutzen kann:
-
-- `search.formats` enthält `json` (Default liefert nur HTML aus).
-- `server.limiter: false` (sonst blockt SearXNGs Bot-Schutz die serverseitigen Anfragen aus dem App-Container).
-
-Der mitgelieferte `secret_key` in `searxng/settings.yml` ist ein zufällig generierter Platzhalter — für einen produktiven Betrieb mit mehreren Deployments solltest du einen eigenen erzeugen (`openssl rand -hex 32`) und eintragen. Der Wert `ultrasecretkey` (SearXNGs eigener Default) funktioniert **nicht** — SearXNG verweigert damit explizit den Start.
-
-Beide Features sind optional: Ist `SEARCH_SEARXNG_URL` leer, wird `web_search_tool` gar nicht erst registriert; ist `PII_FILTER_URL` leer oder `PII_FILTER_ENABLED=false`, läuft die Filterung als No-Op durch.
-
----
-
-## Speech-to-Text (Parakeet, mit Live-Streaming)
-
-Docker Compose startet zusätzlich einen `parakeet`-Container (eigenes Image, gebaut aus `parakeet/Dockerfile`) mit **Parakeet TDT 0.6b v3** (NVIDIA NeMo, über `onnx_asr`) auf GPU. **Benötigt eine NVIDIA-GPU mit installiertem NVIDIA Container Toolkit** — ohne GPU-Reservierung startet der Container nicht (läuft aber auch auf CPU, siehe `--build-arg DEVICE=cpu`).
-
-Der Mic-Button im Chat nutzt **echtes Live-Streaming**: Das Mikrofon wird als rohes Float32-PCM (16kHz, mono) per WebSocket über einen neuen Flask-Proxy-Endpunkt (`/ws/stt-stream`, `app/stt_stream.py`) an Parakeets `/v1/audio/stream`-Endpunkt weitergereicht. Während des Sprechens wächst der Text live im Eingabefeld ("self-healing": der offene Satzteil wird laufend neu erkannt und ersetzt sich selbst, bis er an einer Sprechpause eingefroren/committed wird). Nach Stop wird die finale Nachricht automatisch abgeschickt, wie zuvor beim Batch-STT.
-
-Der bisherige Batch-Endpunkt (`/api/stt`, OpenAI-SDK-kompatibel gegen `STT_BASEURL=http://parakeet:5001/v1`, bei frischer DB bereits vorbelegt) bleibt im Backend als Fallback bestehen, wird vom Frontend aber nicht mehr aufgerufen. Kein Host-Port für `parakeet` gemappt — nur aus dem `local-rag-network` erreichbar (der WebSocket-Proxy läuft über die App, die bereits auf Port 8083 exponiert ist).
-
-Anderes Modell verwenden: `PARAKEET_MODEL`-Env in `docker-compose.yml` anpassen und `parakeet/Dockerfile`s Modell-Preload-Zeile entsprechend anpassen + neu bauen, damit der vorgeladene Cache zum Laufzeit-Modell passt.
-
----
-
-## Installation
-
-### Voraussetzungen
-
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) Package Manager
-- [Ollama](https://ollama.ai/) oder kompatibler LLM-Server
-- Ein laufender Qdrant-Server (siehe oben)
-- Für PDF-OCR:
-  - **Windows:** Tesseract-OCR + Poppler (Pfade können über `.env` gesetzt werden)
-  - **Linux:** `tesseract-ocr`, `tesseract-ocr-deu`, `poppler-utils`
-
-### Setup
-
-1. **Repository klonen:**
-   ```bash
-   git clone https://github.com/daemolition/local-document-rag.git
-   cd local-document-rag
-   ```
-
-2. **Dependencies installieren:**
-   ```bash
-   uv sync
-   ```
-
-3. **Datenbank initialisieren:**
-   ```bash
-   alembic upgrade head
-   ```
-   → Erstellt `data/app.db` mit allen Tabellen + Default-Passwort (`admin`).
-
-4. **Umgebungsvariablen (`.env`):**
-   ```bash
-   cp env.example .env
-   # .env anpassen (Qdrant-Host, OCR-Pfade)
-   ```
-
-   Siehe [`env.example`](./env.example) für alle verfügbaren Variablen. App-Konfiguration (LLM, Embedding, API-Keys etc.) wird über das Einstellungen-Panel in der UI gepflegt, nicht über `.env`.
-
----
-
-## Projektstruktur
-
-```
-local-document-rag/
-├── app/                          # Flask Application & RAG Pipeline
-│   ├── __init__.py               # App Factory & SQLAlchemy Init
-│   ├── routes.py                 # Main Routes (Chat, SSE, Login, STT)
-│   ├── user_routes.py            # Dokumente, Analysen, Vektordatenbank, Settings, Dashboard
-│   ├── database_service.py       # SQLAlchemy CRUD Operations
-│   ├── settings_service.py       # Settings Management (inkl. App-Passwort)
-│   ├── models.py                 # SQLAlchemy Models
-│   ├── templates/                # Flask Templates
-│   ├── llm/local_llm.py          # VisionLLM Wrapper
-│   ├── vector/                   # Document Ingestion & Retrieval
-│   ├── agent/document_agent.py   # LangChain Agent mit Tools
-│   ├── tools/custom_tools.py     # Pandas & Document Tools
-│   ├── utils/                    # Qdrant Client, File Manager, Phase Logger
-│   └── components/               # PDF Loader & Preprocessing
-│
-├── alembic/                      # Alembic Migrationen
-├── scripts/                      # Qdrant Server-Migration
-├── data/                         # App-Daten (app.db, files/, processed_files/, summaries/)
-│
-├── run_windows.py                # Windows Entry Point
-├── run_linux.py                  # Linux Entry Point
-├── start.bat                     # Windows Starter
-├── Dockerfile                    # Docker Image
-├── docker-compose.yml            # Docker Compose
-├── entrypoint.sh                 # Docker Entrypoint
-└── pyproject.toml                # Dependencies
-```
-
----
-
-## Multi-Platform Deployment
-
-### Windows (Ohne Admin-Rechte)
-
-```batch
-# Einfach starten
-start.bat
-
-# Oder mit vorhandener Qdrant-Installation
-python run_windows.py --no-qdrant
-```
-
-**Features:**
-- Auto-Download von `qdrant.exe` (wenn nicht vorhanden)
-- Flask auf `127.0.0.1:5000` (nur lokal, keine Firewall-Abfrage!)
-- Qdrant auf `127.0.0.1:6333` (nur lokal, im Benutzerkontext)
-- Waitress WSGI Server
-
-### Linux / Docker
+**Bestehende SQLite-Daten übernehmen** (`data/app.db` einer älteren Version):
 
 ```bash
-# Mit Docker (empfohlen)
-docker-compose up --build
-
-# Oder manuell
-alembic upgrade head
-python run_linux.py
+docker compose up -d postgres
+DATABASE_URL=postgresql+psycopg://rag:rag@localhost:5432/rag alembic upgrade head   # Postgres-Port dafür kurz freigeben
+python scripts/migrate_sqlite_to_postgres.py --sqlite data/app.db --database-url postgresql+psycopg://rag:rag@localhost:5432/rag
 ```
 
-**Features:**
-- Gunicorn WSGI Server (1 Worker + mehrere Threads via `gthread`) — ein Worker-Prozess, damit In-Memory-State (Qdrant-Client etc.) konsistent bleibt, mehrere Threads, damit ein langer SSE-Chat-Stream nicht jede andere Anfrage blockiert
-- Qdrant als Docker Container
-- Netzwerk-weit erreichbar (`0.0.0.0:5000`)
+Das Skript arbeitet an einer Kopie der SQLite-Datei (die Originaldatei bleibt unverändert), bringt sie auf den aktuellen Stand, leert die Zieltabellen, kopiert alles, setzt die ID-Zähler und vergleicht die Zeilenzahlen. Mit `--dry-run` zählt es nur. In Docker ist der Postgres-Port nicht nach außen offen; für den Import ergänzt du vorübergehend `ports: ["127.0.0.1:5432:5432"]` beim Dienst `postgres`. Backup: `docker compose exec postgres pg_dump -U rag rag > backup.sql`.
 
----
+### Ohne Docker
 
-## Dokumente einlesen (Ingestion)
-
-Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates CLI-Skript mehr nötig.
-
-1. Einloggen.
-2. Unter **Dokumente** PDF-, DOCX-, XLSX-, XLS- oder CSV-Dateien hochladen.
-3. **Ingestion starten** klicken.
-4. Einzelne Dokumente oder ganze Dateigruppen lassen sich sowohl unter **Dokumente** (einfache Karten-Ansicht) als auch unter **Vektordatenbank** im Verwaltungsbereich (technische Chunk-Ansicht mit Filter/Pagination/Batch-Löschen) löschen.
-
-### Was passiert im Hintergrund?
-
-Die Ingestion nutzt `app.vector.DocumentIngestion`:
-
-- PDFs werden mit OCR und einem Vision-LLM für Bilder/Diagramme verarbeitet.
-- DOCX-Dateien werden strukturiert eingelesen.
-- CSV/XLSX-Dateien erzeugen eine tabellarische Übersicht plus eine LLM-generierte Inhaltsbeschreibung.
-- Alle Inhalte werden gechunkt, mit Kontext angereichert und als dichte + sparse (BM25) Vektoren in die Qdrant-Collection `"local_rag"` geschrieben.
-- Verarbeitete PDFs/DOCXs landen in `./processed_files/`, CSV/XLSX-Dateien in `./data/`.
-
----
-
-## Datenbank-Migrationen (Alembic)
-
-### Erste Installation
+Voraussetzungen: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+, ein laufender Qdrant-Server und für PDF-OCR Tesseract (`tesseract-ocr-deu`) und Poppler.
 
 ```bash
-# Erstellt data/app.db mit allen Tabellen + Default-Passwort
-alembic upgrade head
+uv sync
+(cd frontend && npm install && npm run build)   # React-Oberfläche nach app/static/
+cp env.example .env                             # Qdrant-Host, OCR-Pfade
+alembic upgrade head                            # Datenbank anlegen bzw. aktualisieren
+python run_linux.py                             # http://localhost:5000
 ```
 
-### Migrationen verwalten
+**macOS (Apple Silicon):** Nur die App läuft nativ, alles andere bleibt in Docker, denn Docker auf dem Mac hat keinen Zugriff auf die GPU. `python run_mac.py` startet per `docker-compose.mac.yml` Qdrant, SearXNG, entityguard und Parakeet (CPU) auf localhost, migriert die Datenbank und startet die App auf http://127.0.0.1:5000. Embedding, Reranking und Docling rechnen dann über Metal (MPS), ONNX-Modelle über CoreML; mit `RAG_DEVICE=cpu` lässt sich das abschalten. Voraussetzungen: Docker Desktop, `uv sync`, Frontend-Build und `brew install tesseract tesseract-lang poppler`. Mit `--no-docker` startet nur die App. Der Mac-Pfad ist bisher nicht auf echter Hardware getestet.
 
-```bash
-# Neue Migration erstellen (nach Model-Änderungen)
-alembic revision --autogenerate -m "description"
+Unter Windows genügt ein Doppelklick auf `start.bat` (bzw. `python run_windows.py`). Das lädt bei Bedarf `qdrant.exe` herunter und startet es lokal, ohne Administratorrechte. Mit `--no-qdrant` wird ein vorhandener Qdrant genutzt.
 
-# Migration anwenden
-alembic upgrade head
+### Erster Start
 
-# Migration zurücksetzen
-alembic downgrade -1
+Beim ersten Start gibt es den Benutzer **`admin`** mit Passwort **`admin`** (bei frischer Datenbank über `ADMIN_PASSWORD` in `.env` änderbar). Bitte sofort das Passwort ändern (Kontomenü unten links).
 
-# Status prüfen
-alembic current
-```
+Danach in dieser Reihenfolge:
 
-### Bestehende app.db
+1. **Administration › Verbindungen**: LLM-Endpunkt eintragen (Base-URL und Key).
+2. **Administration › Modelle**: Standardmodell wählen.
+3. **Administration › Einlesen & Modelle**: Embedding- und Reranking-Modell prüfen (der Standard funktioniert ohne Eingriff, beim ersten Start werden die Modelle heruntergeladen).
+4. **Knowledge**: Dokumente hochladen und einlesen, dann im Chat fragen.
 
-Wenn `app.db` bereits existiert (z. B. durch `DatabaseService` erstellt, nicht durch Alembic), schlägt `alembic upgrade head` mit "table already exists" fehl. Lösung:
+## Modelle und Hardware
 
-```bash
-# Markiere DB als migriert, ohne DDL auszuführen
-alembic stamp head
-```
+- **Gerät:** Die App wählt automatisch CUDA (NVIDIA), MPS (Apple Silicon) oder CPU; `RAG_DEVICE` erzwingt eines davon. Die Wahl steht auf der Seite *Einlesen & Modelle*.
+- **GPU (Docker):** Das Docker-Image bringt PyTorch mit CUDA mit; `docker-compose.yml` reserviert die GPU für die App (NVIDIA-Treiber und Container Toolkit nötig). Docling, Embedding und Reranker nutzen sie automatisch. Ohne GPU: den `deploy`-Block beim Dienst `rag` entfernen und mit `docker compose build --build-arg TORCH_BACKEND=cpu` bauen. Die lokale Entwicklung (`uv sync`) installiert bewusst das CPU-Wheel; wer lokal die GPU will, installiert CUDA-torch in die venv (`uv pip install --reinstall-package torch --reinstall-package torchvision torch torchvision`).
 
----
+- Das Standard-Embedding ist `paraphrase-multilingual-MiniLM-L12-v2`, der Standard-Reranker `BAAI/bge-reranker-base` (ca. 1 GB). Beides läuft auf der CPU.
+- Für höhere Qualität: `BAAI/bge-m3` (Embedding, ca. 2,2 GB) und `BAAI/bge-reranker-v2-m3`. Auf der CPU ist das Einlesen damit deutlich langsamer; mit GPU (siehe oben) läuft es direkt in der App (gemessen auf einer RTX 3060: ca. 4,5 GB GPU-Speicher für beide Modelle). Alternativ betreibst du die Modelle an einem Endpoint (vLLM, TEI, Infinity) und trägst ihn als Verbindung ein.
+- Ein anderes Embedding-Modell erfordert **Neu indexieren** (Knopf im Knowledge bzw. „Alle neu indexieren“ in der Admin-Seite). Bis dahin wird jedes Knowledge weiter mit seinem alten Modell durchsucht.
+- Ein anderes Reranking-Modell wirkt sofort.
 
-## Verwaltungsbereich
-
-### Zugriff
-
-- URL: http://localhost:5000/admin/
-- Login: einzelnes App-Passwort (Default `admin`, siehe [Default-Passwort](#default-passwort))
-
-### Features
-
-| Bereich | Funktion |
-|---------|----------|
-| **Dashboard** | Qdrant-Statistiken, Collection-Info |
-| **Vektordatenbank** | Alle Qdrant-Dokumente (Chunk-Ebene) anzeigen/löschen, Filter & Pagination |
-| **Settings** | Alle Konfiguration im UI bearbeiten (LLM, Embedding, Retriever, API-Keys, Storage), inkl. **Passwort ändern** |
-
----
-
-## Dokumente & Analysen
-
-### Dokumente
-
-- Dateien hochladen (Datei-Karten-Ansicht, eine Karte pro Datei)
-- Dokumente löschen
-- Bei Löschung: Automatische Löschung der zugehörigen Datei
-
-### Analysen (Summaries)
-
-- Markdown-Dateien bearbeiten (Inline-Editor mit Live-Preview inkl. Tabellen)
-- Markdown-Dateien löschen
-- Werden automatisch beim Speichern von Analysen im Chat erstellt
-
----
-
-## Qdrant Verwaltung
-
-### Qdrant Server-Migration
-
-Migration zwischen zwei Qdrant-Server-Instanzen (z. B. beim Wechsel des Hosts):
-
-```bash
-# Status einer Qdrant-Instanz prüfen
-uv run python scripts/manage_qdrant.py status --host localhost --port 6333
-
-# Migration Server A → Server B (Dry-Run)
-uv run python scripts/manage_qdrant.py migrate \
-    --source-host localhost --source-port 6333 \
-    --target-host 192.168.1.100 --target-port 6333 --dry-run
-
-# Migration durchführen
-uv run python scripts/manage_qdrant.py migrate \
-    --source-host localhost --source-port 6333 \
-    --target-host 192.168.1.100 --target-port 6333
-
-# Collection-Info anzeigen
-uv run python scripts/manage_qdrant.py info --host localhost --port 6333
-```
-
----
-
-## API Endpoints
-
-| Endpoint | Methode | Beschreibung |
-|----------|---------|--------------|
-| `/` | GET | Chat-Interface |
-| `/login` | GET/POST | Login (einzelnes App-Passwort) |
-| `/logout` | GET | Logout |
-| `/chat` | POST (SSE) | Streaming Chat |
-| `/api/sessions` | GET/POST | Session Management |
-| `/admin/*` | - | Verwaltung (Vektordatenbank, Settings) |
-| `/user/*` | - | Dokumente & Analysen |
-| `/health` | GET | Health Check |
-
----
-
-## Architektur
+## Einlesen im Überblick
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Flask App                                │
-├─────────────────────────────────────────────────────────────────┤
-│  SQLAlchemy DB (Sessions, Messages, Documents, Settings, ...)   │
-│  Auth: Session-based (einzelnes App-Passwort, keine Accounts)    │
-└────────────────────────────────────┬────────────────────────────┘
-                                     │
-                    ┌────────────────┼────────────────┐
-                    ▼                ▼                ▼
-              ┌──────────┐    ┌──────────┐     ┌──────────┐
-              │Verwaltung│    │Dokumente/│     │  Chat    │
-              │(Vektor-DB│    │ Analysen │     │  (SSE)   │
-              │/Settings)│    │          │     │          │
-              └──────────┘    └──────────┘     └────┬─────┘
-                                                       │
-                                                       ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                      DocumentAgent                                │
-│  (LangChain ReAct Agent mit deutschem System Prompt)             │
-├──────────────────────────────────────────────────────────────────┤
-│  Tools:                                                           │
-│  1. document_search_tool → Qdrant Vector Search                   │
-│  2. list_files           → Verfügbare Dateien auflisten           │
-│  3. preview_data          → Spalten/Vorschau anzeigen             │
-│  4. run_pandas            → Pandas-Code ausführen                 │
-└─────────────────────────────────────┬────────────────────────────┘
-                                      │
-                                      ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                         LLM                                       │
-│  (Ollama / OpenAI-kompatible API)                                 │
-└──────────────────────────────────────────────────────────────────┘
+Datei ─► Docling ─► Markdown (gespeichert) ─► nach Überschriften zerlegen
+      ─► [Kontext je Chunk per LLM] ─► Embedding (Dense + BM25) ─► Qdrant
 ```
 
----
+- Das Markdown liegt unter `data/markdown/<knowledge_id>/`; das Original bleibt standardmäßig archiviert (abschaltbar).
+- Chunk-Größe, Überlappung, Kontextanreicherung und das Inhaltsverzeichnis (`index.md` pro Knowledge) stellst du unter *Einlesen & Modelle* ein.
+- Das Einlesen läuft Datei für Datei im Hintergrund, der Fortschritt steht in der Oberfläche.
 
 ## Entwicklung
 
-### Code Style
-
 ```bash
-# Linting
-uv run ruff check .
-uv run ruff check --fix .
-
-# Formatting
-uv run ruff format .
+uv run --with pytest pytest tests -q        # Tests
+uv run ruff check app tests                 # Lint
+cd frontend && npm run dev                  # Vite mit HMR auf :5173, Proxy auf Flask :5000
+cd frontend && npm run build                # Produktions-Build nach app/static/
 ```
 
-### Neue Dependencies
+- Backend: Flask, SQLAlchemy + Alembic (Postgres), Qdrant, LangChain. Die JSON-API liegt unter `/api/*`, der Chat unter `POST /chat` (SSE).
+- Frontend: React 19, TypeScript, Vite, Tailwind v4, shadcn/ui.
+- Migrationen: `alembic revision --autogenerate -m "..."`, `alembic upgrade head`. Eine bestehende Datenbank ohne Migrationsstand markierst du mit `alembic stamp head`.
+- Releases: `scripts/release.py` (Version, Changelog, Tag). Beiträge siehe [`CONTRIBUTING.md`](./CONTRIBUTING.md), Sicherheitsmeldungen siehe [`SECURITY.md`](./SECURITY.md).
 
-```bash
-uv add <package>
-```
+## Betrieb
 
----
+- **Qdrant**: Server-Modus, `QDRANT_HOST`/`QDRANT_PORT` (Standard `localhost:6333`). Zum Umziehen auf einen anderen Server gibt es `scripts/manage_qdrant.py`.
+- **Websuche**: `searxng/settings.yml` muss das Format `json` zulassen und `server.limiter: false` setzen. Den mitgelieferten `secret_key` für den Betrieb ersetzen (`openssl rand -hex 32`). SearXNG-URL und PII-Filter stellst du unter *Administration › Tools* ein; die Websuche selbst schaltest du je Modell unter *Modelle › Konfigurieren › Werkzeuge* zu. Sie lässt sich nur aktivieren, wenn der PII-Filter eingerichtet ist.
+- **PII-Filter**: `PII_FILTER_URL` leer oder `PII_FILTER_ENABLED=false` schaltet ihn ab; dann ist auch die Websuche nicht verfügbar. Das Modell für Bildbeschreibungen wählst du unter *Einlesen & Modelle*.
+- **Sprache**: Der Mic-Button streamt PCM per WebSocket (`/ws/stt-stream`) an Parakeet; `STT_BASEURL` ist in Docker vorbelegt.
 
-## Troubleshooting
+### Fehlersuche
 
-### "database is locked" (SQLite)
-
-- Mehrere gleichzeitige Schreibzugriffe
-- **Lösung:** WAL Mode aktivieren oder auf PostgreSQL migrieren
-
-### Qdrant Verbindungsfehler
-
-```bash
-# Prüfen ob Qdrant läuft
-curl http://localhost:6333/health
-
-# Windows: qdrant.exe starten oder python run_windows.py
-# Linux: docker-compose ps
-```
-
-### Alembic Migration fehlgeschlagen
-
-```bash
-# Bestehende DB als migriert markieren (ohne DDL auszuführen)
-alembic stamp head
-
-# Oder von vorne beginnen (Achtung: Daten gehen verloren!)
-rm data/app.db
-alembic upgrade head
-```
-
-### Session-Probleme
-
-Sessions werden als signierte Cookies clientseitig gespeichert. Bei merkwürdigem Verhalten `SECRET_KEY` in den Einstellungen zurücksetzen (neuer Schlüssel wird beim nächsten Start generiert).
-
----
-
-## Lizenz
-
-Dieses Projekt steht unter der [GNU Affero General Public License v3 oder später](https://www.gnu.org/licenses/agpl-3.0.html).
-
-Jede Interaktion mit der Anwendung über ein Netzwerk erfordert laut AGPLv3, dass den Nutzern der Quellcode der laufenden Version zur Verfügung gestellt wird. Betreibst du eine öffentlich erreichbare Instanz, stelle sicher, dass ein Link zum Quellcode angeboten wird — z. B. in der App-UI oder im Footer.
-
----
+| Problem | Ursache und Lösung |
+|---|---|
+| Datenbank nicht erreichbar | `docker compose ps`: läuft `postgres` und ist er `healthy`? `DATABASE_URL` bzw. `POSTGRES_*` in `.env` prüfen. |
+| Einstellungen weg nach Neustart | Das Postgres-Volume `pgdata` darf nicht gelöscht werden (`docker compose down -v` löscht es). |
+| Qdrant nicht erreichbar | `docker-compose ps` bzw. `QDRANT_HOST`/`QDRANT_PORT` prüfen. |
+| Alembic scheitert an vorhandenen Tabellen | `alembic stamp head`, wenn die Datenbank schon aktuell ist. |
+| Modell lädt nicht | Status und Fehlertext stehen unter *Einlesen & Modelle*; ohne Internet können HuggingFace-Modelle nicht geladen werden. |
+| Reranking fehlt in der Suche | Der Reranker lädt beim Start im Hintergrund; schlägt das fehl, läuft die Suche ohne Neusortierung weiter. |
 
 ## Autor
 
-Christopher Abanilla — [GitHub](https://github.com/daemolition)
+Christopher Abanilla

@@ -22,6 +22,7 @@ Custom tools for the agent
 import os
 import io
 import contextlib
+from pathlib import Path
 from logging import getLogger
 import time
 from charset_normalizer import from_bytes
@@ -31,14 +32,27 @@ import pandas as pd
 import numpy as np
 from pydantic import BaseModel, Field
 
-from langchain_core.tools import create_retriever_tool
 from langchain_core.tools.structured import StructuredTool
+from app.rag.format import format_hits, record_sources
+from app.ingest.index_doc import read_indexes
+from app.retrieval import get_scope_or_none
 from app.utils.phase_logger import phase_logger, Phase
 
 logger = getLogger(__name__)
 
 
 # === Pydantic Input Models ===
+
+
+class DocumentSearchInput(BaseModel):
+    query: str = Field(description="Suchanfrage für die Dokumentensuche")
+
+
+STRUCTURED_SUFFIXES = {".csv", ".xlsx", ".xls"}
+
+
+class ReadIndexInput(BaseModel):
+    """Input model for read_knowledge_index tool (keine Parameter)."""
 
 
 class ListFilesInput(BaseModel):
@@ -409,21 +423,14 @@ class CustomTools:
         retriever,
         data_dir=None,
         summaries_dir=None,
-        searxng_url=None,
-        searxng_categories=None,
-        pii_filter_client=None,
     ):
         self.llm = llm
         self.retriever = retriever
-        self._cache: dict[str, pd.DataFrame] = {}
+        # Pfad -> (mtime, DataFrame): neu laden, wenn die Datei geaendert wurde
+        self._cache: dict[str, tuple[float, pd.DataFrame]] = {}
         # DB-Aufgeloeste Werte aus init_resources; Fallback auf env (Standalone).
         self.DATA_DIR = data_dir or os.getenv("DATA_DIR", "./data")
-        self.SUMMARIES_DIR = summaries_dir or os.getenv(
-            "SUMMARIES_DIR", "./data/summaries"
-        )
-        self.searxng_url = searxng_url
-        self.searxng_categories = searxng_categories or "general"
-        self.pii_filter_client = pii_filter_client
+        self._summaries_base = summaries_dir
 
     def _detect_encoding(self, file_path: str) -> str:
         """Erkennt automatisch das Encoding einer Datei (UTF-8, CP1252, Latin-1, etc.)."""
@@ -445,57 +452,66 @@ class CustomTools:
             logger.error(f"Fehler bei Encoding-Erkennung: {e}")
             return "cp1252"
 
+    def _allowed_files(self) -> dict[str, str]:
+        """Strukturierte Dateien, die diese Anfrage nutzen darf: Name -> Pfad.
+
+        Nur die Datenordner der durchsuchten Knowledge-Bereiche (siehe
+        ``RetrievalScope.data_dirs``). Ohne Chat-Scope (Skripte) gilt ``DATA_DIR``.
+        Der Name ist, was die Tools erwarten (``datei.csv`` bzw. ``knowledge_3/datei.csv``);
+        alles andere ist nicht erreichbar, auch nicht per ``../``.
+        """
+        scope = get_scope_or_none()
+        dirs = scope.data_dirs if scope is not None else (("", self.DATA_DIR),)
+        files: dict[str, str] = {}
+        for prefix, directory in dirs:
+            folder = Path(directory)
+            if not folder.is_dir():
+                continue
+            for path in sorted(folder.iterdir()):
+                if path.is_file() and path.suffix.lower() in STRUCTURED_SUFFIXES:
+                    files[f"{prefix}{path.name}"] = str(path)
+        return files
+
     def _get_dataframe(self, filename: str) -> pd.DataFrame:
         """Lädt DataFrame mit Caching und automatischer Encoding-Erkennung."""
-        if filename not in self._cache:
-            path = os.path.join(self.DATA_DIR, filename)
+        path = self._allowed_files().get(filename)
+        if path is None:
+            raise FileNotFoundError(f"Datei '{filename}' ist nicht verfügbar")
+        mtime = os.path.getmtime(path)
+        cached = self._cache.get(path)
+        if cached is None or cached[0] != mtime:
             try:
-                if filename.endswith(".xlsx"):
-                    self._cache[filename] = pd.read_excel(path)
-                elif filename.endswith(".csv"):
-                    encoding = self._detect_encoding(path)
-                    self._cache[filename] = pd.read_csv(
-                        path, encoding=encoding, on_bad_lines="skip"
-                    )
+                if path.lower().endswith((".xlsx", ".xls")):
+                    df = pd.read_excel(path)
                 else:
-                    raise ValueError(f"Dateiformat nicht unterstützt: {filename}")
+                    encoding = self._detect_encoding(path)
+                    df = pd.read_csv(path, encoding=encoding, on_bad_lines="skip")
             except Exception as e:
                 logger.error(f"Fehler beim Laden von {filename}: {e}")
                 raise
-        return self._cache[filename]
+            self._cache[path] = (mtime, df)
+        return self._cache[path][1]
 
     def list_files(self) -> list[str]:
-        """Listet alle xlsx/csv Dateien im Datenverzeichnis auf."""
+        """Listet die verfügbaren xlsx/csv Dateien der durchsuchten Knowledge-Bereiche auf."""
         start_time = time.time()
         phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: list_files aufgerufen")
 
-        if not os.path.exists(self.DATA_DIR):
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                "Tool: list_files | Fehler: Verzeichnis nicht gefunden",
-                duration=0.0,
-            )
-            return f"FEHLER: Datenverzeichnis '{self.DATA_DIR}' existiert nicht."
-
-        files = os.listdir(self.DATA_DIR)
-        data_files = [f for f in files if f.endswith((".xlsx", ".csv"))]
-
+        data_files = list(self._allowed_files())
+        duration = time.time() - start_time
         if not data_files:
-            duration = time.time() - start_time
             phase_logger.log_phase(
                 Phase.TOOL_EXECUTION,
                 "Tool: list_files | Keine Dateien gefunden",
                 duration=duration,
             )
-            return f"Keine Excel- oder CSV-Dateien im Verzeichnis '{self.DATA_DIR}' gefunden."
+            return "Keine Excel- oder CSV-Dateien im ausgewählten Wissen gefunden."
 
-        duration = time.time() - start_time
         phase_logger.log_phase(
             Phase.TOOL_EXECUTION,
             f"Tool: list_files | {len(data_files)} Dateien gefunden",
             duration=duration,
         )
-
         return data_files
 
     def preview_data(self, filename: str, rows: int = 5) -> str:
@@ -673,6 +689,15 @@ class CustomTools:
 
         return filename
 
+    @property
+    def SUMMARIES_DIR(self) -> str:
+        """Analysen-Ordner des Nutzers dieses Requests (siehe app/summaries.py)."""
+        from app import summaries
+        from app.retrieval import get_scope_or_none
+
+        scope = get_scope_or_none()
+        return str(summaries.user_dir(scope.user_id if scope else None))
+
     def _ensure_summaries_dir(self):
         """Stellt sicher, dass das summaries-Verzeichnis existiert."""
         os.makedirs(self.SUMMARIES_DIR, exist_ok=True)
@@ -801,29 +826,38 @@ class CustomTools:
     def get_tools(self) -> list:
         """Gibt alle verfügbaren Tools zurück."""
 
-        # Document Search Tool mit Logging-Wrapper
-        def document_search_with_logging(query: str) -> str:
-            """Wrapper für document_search_tool mit Logging"""
+        # Dokumentsuche: Treffer mit Quellenangabe, mit Logging
+        def document_search(query: str) -> str:
             start_time = time.time()
             phase_logger.log_phase(
                 Phase.RETRIEVAL, f"Vector-Search gestartet | Query: {query[:50]}..."
             )
-
-            result = self.retriever.invoke(query)
-
-            duration = time.time() - start_time
+            docs = self.retriever.invoke(query)
             phase_logger.log_phase(
                 Phase.RETRIEVAL,
-                f"Vector-Search abgeschlossen | Results: {len(result)} Treffer",
-                duration=duration,
+                f"Vector-Search abgeschlossen | Results: {len(docs)} Treffer",
+                duration=time.time() - start_time,
             )
+            return format_hits(docs, record_sources(docs))
 
-            return result
-
-        document_search_tool = create_retriever_tool(
-            retriever=self.retriever,
+        document_search_tool = StructuredTool.from_function(
+            func=document_search,
             name="document_search_tool",
             description=DOCUMENT_SEARCH_DESCRIPTION,
+            args_schema=DocumentSearchInput,
+        )
+
+        # Inhaltsverzeichnis der durchsuchbaren Knowledge-Bereiche
+        read_index_tool = StructuredTool.from_function(
+            func=lambda: read_indexes(),
+            name="read_knowledge_index",
+            description=(
+                "Liefert das Inhaltsverzeichnis der durchsuchbaren Wissensbereiche: welche Dokumente "
+                "es gibt, ihre Gliederung und welche Tabellen/Datendateien (mit Spalten) für run_pandas "
+                "bereitstehen. Nutze es bei Übersichtsfragen (\"welche Dokumente gibt es?\") und wenn "
+                "unklar ist, wo etwas steht, bevor du blind suchst."
+            ),
+            args_schema=ReadIndexInput,
         )
 
         # List Files Tool
@@ -882,20 +916,10 @@ class CustomTools:
             args_schema=EditSummaryInput,
         )
 
-        # Web Search Tool (nur wenn SearXNG konfiguriert)
-        web_search_tool = None
-        if self.searxng_url:
-            from app.tools.web_search_tool import create_web_search_tool
-
-            web_search_tool = create_web_search_tool(
-                searxng_url=self.searxng_url,
-                default_categories=self.searxng_categories,
-                pii_filter_client=self.pii_filter_client,
-            )
-
         # Tool-Liste zusammenstellen
         tools = [
             document_search_tool,
+            read_index_tool,
             list_files_tool,
             preview_data_tool,
             run_pandas_tool,
@@ -905,8 +929,6 @@ class CustomTools:
             edit_summary_tool,
         ]
 
-        # Web-Suche nur hinzufügen wenn konfiguriert
-        if web_search_tool:
-            tools.append(web_search_tool)
-
+        # Die Websuche kommt nicht hierher: sie wird pro Modell zugeschaltet
+        # (app/tools/web_access.py, app/routes.py).
         return tools

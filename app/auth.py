@@ -15,11 +15,33 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Authentifizierung für Single-User Betrieb
+Authentifizierung und Rollenpruefung.
+
+Die Flask-Session speichert nur ``user_id``. Benutzer und Rolle werden pro
+Request aus der DB geladen, damit Aenderungen (Deaktivieren, Rollenwechsel)
+sofort wirken.
 """
 
 from functools import wraps
-from flask import session, redirect, url_for, flash
+
+from flask import flash, g, jsonify, redirect, session, url_for
+
+from app.users import get_user, role_at_least
+
+
+def current_user() -> dict | None:
+    """Angemeldeter, aktiver Benutzer des Requests oder ``None`` (pro Request gecacht)."""
+    if "current_user" in g:
+        return g.current_user
+    user = None
+    user_id = session.get("user_id")
+    if user_id is not None:
+        user = get_user(user_id)
+        if user is None or not user["is_active"]:
+            session.pop("user_id", None)
+            user = None
+    g.current_user = user
+    return user
 
 
 def auth_required(f):
@@ -27,9 +49,42 @@ def auth_required(f):
 
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("authenticated"):
+        if current_user() is None:
             flash("Bitte zuerst anmelden")
             return redirect(url_for("main.login"))
         return f(*args, **kwargs)
 
     return decorated
+
+
+def auth_required_api(f):
+    """Wie auth_required, aber für JSON-APIs: liefert 401 statt Redirect."""
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if current_user() is None:
+            return jsonify({"error": "Nicht authentifiziert"}), 401
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+def require_role(role: str):
+    """Decorator fuer JSON-APIs: 401 ohne Anmeldung, 403 bei zu niedriger Rolle.
+
+    ``editor`` erlaubt auch ``admin``.
+    """
+
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            user = current_user()
+            if user is None:
+                return jsonify({"error": "Nicht authentifiziert"}), 401
+            if not role_at_least(user["role"], role):
+                return jsonify({"error": "Keine Berechtigung"}), 403
+            return f(*args, **kwargs)
+
+        return decorated
+
+    return decorator

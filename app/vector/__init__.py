@@ -15,4 +15,3 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 from .ingestion import DocumentIngestion as DocumentIngestion
-from .retriever import DocumentRetriever as DocumentRetriever

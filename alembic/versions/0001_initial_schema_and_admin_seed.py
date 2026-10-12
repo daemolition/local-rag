@@ -105,9 +105,9 @@ def upgrade() -> None:
     op.get_bind().execute(
         sa.text(
             "INSERT INTO users (username, password_hash, is_admin) "
-            "VALUES ('admin', :pw, 1)"
+            "VALUES ('admin', :pw, :yes)"
         ),
-        {"pw": _hash("admin")},
+        {"pw": _hash("admin"), "yes": True},
     )
 
 

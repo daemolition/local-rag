@@ -46,18 +46,21 @@ class DocumentAgent:
         6. **read_summary**: Liest eine gespeicherte Analyse
         7. **write_summary**: Erstellt eine neue Analyse-Datei
         8. **edit_summary**: Bearbeitet eine existierende Analyse
+        9. **read_knowledge_index**: Liefert das Inhaltsverzeichnis des Wissens (Dokumente, Gliederung, Tabellen mit Spalten)
  
         ## Workflow-Entscheidung
         - **Frage-Scope beachten:**
           - SPEZIFISCHE Frage zu bereits gesuchten Daten → Kontext aus Konversation nutzen
           - NEUE/BREITERE Frage → NEUE Tool-Calls durchführen, unabhängig von früheren Suchen
+        - **Inhaltsverzeichnis**: Steht am Anfang der Frage ein "Inhaltsverzeichnis", nutze es zur Orientierung (welches Dokument/welche Tabelle ist zuständig). Ist keins mitgegeben und die Frage ist eine Übersichtsfrage oder unklar, wo etwas steht, rufe ZUERST `read_knowledge_index` auf.
         - **Übersichtsfragen** ("alle Daten", "was gibt es", "Aufstellung", "Überblick"):
-          - `list_files` für vollständige Dateiliste
+          - `read_knowledge_index` bzw. `list_files` für vollständige Übersicht
           - Breite `document_search_tool` Queries für Dokumentenübersicht
           - Liste ALLE verfügbaren Quellen auf
         - **Erkenntnisse dokumentieren:** Bei Analysen `write_summary` nutzen, um Erkenntnisse zu persistieren
         - **Dokumentenfrage** (PDF/DOCX-Content): `document_search_tool` → Antwort
         - **Datenanalyse** (Excel/CSV-Zahlen): `list_files` → `preview_data` → `run_pandas` → Antwort
+        - **Verweis-Chunk erkannt** (`[STRUKTURIERTE DATEN]` aus `document_search_tool`): Die Rohdaten liegen NICHT als Text vor. Wechsle für konkrete Werte/Summen/Filter zu `run_pandas` mit dem genannten Dateinamen.
         - **Erkenntnisse nutzen:** `read_summary` → Antwort
         - **Kombinierte Frage**: Alle relevanten Quellen mittels weniger Tool-Calls abrufen, dann Antwort
        
@@ -65,14 +68,34 @@ class DocumentAgent:
         1. **Erkenntnisse**: Nutze `edit_summary` wenn du neuer Erkenntnisse zum selben Thema hast
         2. **Keine Halluzinationen**: Nur Tool-Ergebnisse verwenden
         3. **Deutsch**: Immer auf Deutsch antworten!
-        4. **Quellennachweise**: Dateinamen bei Aussagen nennen
+        4. **Quellennachweise**: Belege jede Aussage aus Dokumenten direkt im Satz mit der
+           Nummer der Fundstelle in eckigen Klammern, genau wie in den Suchergebnissen
+           (z. B. "Die Kaution beträgt drei Monatsmieten [2]."). Keine eigene Quellenliste am Ende.
     """
 
-    def __init__(self, llm: BaseLanguageModel, tools: list):
+    @classmethod
+    def compose_prompt(cls, extra: str = "", replace: bool = False) -> str:
+        """Basis-Prompt (enthaelt die Tool-Anweisungen) plus modellspezifischer
+        Zusatz; ``replace`` ersetzt den Basis-Prompt vollstaendig."""
+        extra = (extra or "").strip()
+        if not extra:
+            return cls.SYSTEM_PROMPT
+        if replace:
+            return extra
+        return f"{cls.SYSTEM_PROMPT}\n\n        ## Zusätzliche Anweisungen\n        {extra}"
+
+    def __init__(
+        self,
+        llm: BaseLanguageModel,
+        tools: list,
+        system_prompt: str | None = None,
+    ):
         self.llm = llm
         self.tools = tools
         self._agent = create_agent(
-            model=self.llm, tools=self.tools, system_prompt=self.SYSTEM_PROMPT
+            model=self.llm,
+            tools=self.tools,
+            system_prompt=system_prompt or self.SYSTEM_PROMPT,
         )
 
     @property

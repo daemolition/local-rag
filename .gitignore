@@ -26,3 +26,15 @@ data/
 .claude/
 .docs/
 docs/
+
+# Generierte React-SPA (Vite-Build -> app/static/).
+# Neu bauen mit: cd frontend && npm run build
+app/static/index.html
+app/static/assets/
+app/static/favicon.svg
+app/static/pcm-worklet-processor.js
+# Alt-Artefakt früherer Builds
+app/static/dist/
+
+# graphify (generierter Wissensgraph)
+graphify-out/

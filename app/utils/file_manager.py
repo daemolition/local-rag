@@ -15,12 +15,170 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-File Manager Utilities für Qdrant-zugehörige Dateien
+File Manager Utilities für Qdrant-zugehörige Dateien und strukturierte
+Daten (CSV/Excel als Pandas-Referenz, NICHT in der Vektordatenbank).
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
+
+# Strukturierte Daten: nur als Referenz nach DATA_DIR für die Pandas-Tools,
+# niemals in die Vektordatenbank embedden.
+STRUCTURED_EXTS = {".csv", ".xlsx", ".xls"}
+
+# Dokumente: werden gechunkt und in die Vektordatenbank ingested.
+DOCUMENT_EXTS = {".pdf", ".docx", ".doc", ".odt", ".md"}
+
+
+def get_data_dir() -> Path:
+    """Liefert das konfigurierte DATA_DIR (Settings DB → env → Default)."""
+    try:
+        from flask import current_app
+
+        settings = current_app.extensions.get("settings")
+        if settings:
+            data_dir = settings.get("DATA_DIR", "./data")
+        else:
+            data_dir = os.getenv("DATA_DIR", "./data")
+    except Exception:
+        data_dir = os.getenv("DATA_DIR", "./data")
+    return Path(data_dir)
+
+
+def _unique_path(directory: Path, filename: str) -> Path:
+    """Kollisionsfreier Zielpfad (Timestamp-Suffix bei existierender Datei)."""
+    target = directory / filename
+    if not target.exists():
+        return target
+    base, ext = os.path.splitext(filename)
+    timestamp = datetime.now().strftime("_%Y%m%d_%H%M%S")
+    return directory / f"{base}{timestamp}{ext}"
+
+
+UPLOADER_SUFFIX = ".uploader"
+
+
+def read_uploader(file_path: str, consume: bool = False) -> Optional[int]:
+    """Nutzer-ID aus der Begleitdatei einer hochgeladenen Datei (``None`` = unbekannt)."""
+    sidecar = Path(f"{file_path}{UPLOADER_SUFFIX}")
+    try:
+        value = int(sidecar.read_text().strip())
+    except (OSError, ValueError):
+        return None
+    if consume:
+        sidecar.unlink(missing_ok=True)
+    return value
+
+
+def store_uploaded_files(files, paths=None, uploader_id: Optional[int] = None) -> Dict[str, Any]:
+    """Speichert hochgeladene Dateien je nach Typ.
+
+    - Strukturierte Daten (CSV/XLSX/XLS) gehen direkt nach DATA_DIR und sind
+      sofort für die Pandas-Tools verfügbar (keine Ingestion, keine Vektoren).
+    - Dokumente (PDF/DOCX/DOC/ODT/MD) gehen nach data/files zur Ingestion.
+
+    ``paths`` (``app.knowledge.KnowledgePaths``) legt die Zielordner eines
+    Knowledge-Bereichs fest; ohne Angabe gelten die Standard-Ordner.
+
+    Returns:
+        dict mit ``documents`` (zur Ingestion), ``data_files`` (sofort
+        verfügbar), ``skipped`` (unbekannte Endungen) und ``duplicate``
+        (Dateiname, falls ein bereits verarbeitetes Dokument erneut kam).
+    """
+    from flask import current_app
+
+    if paths is not None:
+        files_dir, processed_dir, data_dir = (
+            paths.files_dir,
+            paths.processed_dir,
+            paths.data_dir,
+        )
+    else:
+        project_root = Path(current_app.root_path).parent
+        files_dir = project_root / "data" / "files"
+        processed_dir = project_root / "data" / "processed_files"
+        data_dir = get_data_dir()
+    for d in (files_dir, processed_dir, data_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    documents: list[str] = []
+    data_files: list[str] = []
+    skipped: list[str] = []
+
+    for file in files:
+        if not file or not file.filename:
+            continue
+        filename = os.path.basename(file.filename)
+        ext = Path(filename).suffix.lower()
+
+        if ext in STRUCTURED_EXTS:
+            target = _unique_path(data_dir, filename)
+            file.save(target)
+            data_files.append(target.name)
+        elif ext in DOCUMENT_EXTS:
+            if (processed_dir / filename).exists():
+                return {
+                    "documents": documents,
+                    "data_files": data_files,
+                    "skipped": skipped,
+                    "duplicate": filename,
+                }
+            file.save(files_dir / filename)
+            if uploader_id is not None:
+                # Wer hochgeladen hat, merkt sich die Ingestion fuer "Meine Uploads"
+                (files_dir / f"{filename}{UPLOADER_SUFFIX}").write_text(str(int(uploader_id)))
+            documents.append(filename)
+        else:
+            skipped.append(filename)
+
+    return {
+        "documents": documents,
+        "data_files": data_files,
+        "skipped": skipped,
+        "duplicate": None,
+    }
+
+
+def list_data_files(data_dir: Optional[Path] = None) -> list[Dict[str, Any]]:
+    """Listet die strukturierten Daten (CSV/Excel) im DATA_DIR auf."""
+    data_dir = Path(data_dir) if data_dir is not None else get_data_dir()
+    result: list[Dict[str, Any]] = []
+    if not data_dir.exists():
+        return result
+
+    for file_path in sorted(data_dir.iterdir()):
+        if not file_path.is_file():
+            continue
+        if file_path.suffix.lower() not in STRUCTURED_EXTS:
+            continue
+        stat = file_path.stat()
+        result.append(
+            {
+                "filename": file_path.name,
+                "size": stat.st_size,
+                "size_human": _format_size(stat.st_size),
+                "modified": stat.st_mtime,
+            }
+        )
+    return result
+
+
+def delete_data_file(filename: str, data_dir: Optional[Path] = None) -> bool:
+    """Löscht eine strukturierte Datei sicher aus dem DATA_DIR."""
+    data_dir = (Path(data_dir) if data_dir is not None else get_data_dir()).resolve()
+    name = os.path.basename(filename)
+    file_path = (data_dir / name).resolve()
+    if (
+        not str(file_path).startswith(str(data_dir))
+        or file_path.suffix.lower() not in STRUCTURED_EXTS
+    ):
+        return False
+    if file_path.is_file():
+        file_path.unlink()
+        return True
+    return False
 
 
 def extract_filename_from_payload(payload: Dict[str, Any]) -> Optional[str]:
@@ -107,7 +265,7 @@ def delete_associated_file(payload: Dict[str, Any]) -> bool:
             data_dir = os.getenv("DATA_DIR", "./data")
 
         candidates = [Path(data_dir) / filename]
-    elif ext in [".pdf", ".docx", ".doc"]:
+    elif ext in [".pdf", ".docx", ".doc", ".odt", ".md"]:
         # PDF/DOCX/DOC werden nach erfolgreicher Ingestion von data/files/<rel>
         # nach data/processed_files/<rel> verschoben (rel enthaelt die
         # Nutzer-Unterordner-Struktur). 'source' im Payload zeigt noch auf den
@@ -120,7 +278,14 @@ def delete_associated_file(payload: Dict[str, Any]) -> bool:
                 candidates.append(Path("./data/processed_files") / rel_path)
             except ValueError:
                 pass
-            candidates.append(Path(source))
+            # Knowledge-Bereiche: data/knowledge/<id>/files -> .../processed_files
+            src_path = Path(source)
+            if "files" in src_path.parts:
+                idx = len(src_path.parts) - 1 - src_path.parts[::-1].index("files")
+                parts = list(src_path.parts)
+                parts[idx] = "processed_files"
+                candidates.append(Path(*parts))
+            candidates.append(src_path)
         if not candidates:
             candidates = [Path("./data/processed_files") / filename]
     else:

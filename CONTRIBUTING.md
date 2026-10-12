@@ -27,13 +27,33 @@ python run_linux.py   # oder run_windows.py
 ## Commits & Pull Requests
 
 1. Erstelle einen Branch: `feat/...`, `fix/...`, `docs/...`
-2. Schreibe klare Commit-Messages (im Präsens, imperativ).
+2. Schreibe klare Commit-Messages nach [Conventional Commits](https://www.conventionalcommits.org/de/): `feat: …`, `fix(chat): …`, `docs: …`, `refactor: …`, `test: …`, `chore: …` (`feat!:` bzw. `BREAKING CHANGE:` für inkompatible Änderungen). Daraus entstehen die Changelog-Einträge.
 3. Beschreibe im PR **was** geändert wurde und **warum**.
 4. Bei Schema-Änderungen: erstelle eine Alembic-Migration:
    ```bash
    alembic revision --autogenerate -m "description"
    ```
-5. Führe `uv run ruff check .` aus, bevor du den PR öffnest.
+5. Führe `uv run ruff check .` aus, bevor du den PR öffnest, sowie `uv run --with pytest pytest tests`.
+6. Trage nutzerrelevante Änderungen unter `## [Unreleased]` in [`CHANGELOG.md`](./CHANGELOG.md) ein.
+
+## Releases
+
+Versionen folgen [Semantic Versioning](https://semver.org/lang/de/). Einzige Quelle ist `pyproject.toml`;
+`scripts/release.py` zieht `frontend/package.json`, `frontend/package-lock.json` und `uv.lock` mit.
+
+```bash
+python3 scripts/release.py current                 # aktuelle Version
+python3 scripts/release.py bump minor --dry-run    # Vorschau (patch | minor | major | X.Y.Z)
+python3 scripts/release.py bump minor              # Version, CHANGELOG, Commit, Tag v0.2.0 (lokal)
+python3 scripts/release.py publish --yes           # Branch + Tag pushen
+```
+
+- `bump` verlangt einen sauberen Arbeitsbaum auf `master` (Override: `--branch`) und verschiebt `[Unreleased]` im Changelog
+  nach `[X.Y.Z]`; ist der Abschnitt leer, wird er aus den Commits seit dem letzten Tag erzeugt.
+- Der Tag-Push startet die Action [`release.yml`](./.github/workflows/release.yml): Sie prüft, dass Tag, Version und
+  Changelog-Abschnitt zusammenpassen, führt Tests und Frontend-Build aus und erstellt das GitHub-Release mit den Notizen
+  aus dem Changelog. `ci.yml` testet jeden Push auf `master` und jeden Pull Request.
+- Das erste Release `0.1.0` entsteht mit `bump 0.1.0` (gleiche Version, nur Changelog, Commit und Tag).
 
 ## Sicherheitsrelevante Änderungen
 

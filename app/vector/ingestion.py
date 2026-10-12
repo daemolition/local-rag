@@ -20,113 +20,363 @@ Document ingestion
 
 # Standard library
 import os
+import re
 import glob
 import uuid
 import shutil
 import time
-import chardet
-import pandas as pd
 from pathlib import Path
 from logging import getLogger
-from datetime import datetime
 from tqdm import tqdm
 
 # Third party imports
-from langchain_core.documents import Document
 from langchain_community.document_loaders import (
-    DirectoryLoader,
     TextLoader,
 )
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import FastEmbedSparse
-from langchain_community.embeddings import FastEmbedEmbeddings
 from qdrant_client import models as qdrant_models
-from langchain_openai import OpenAIEmbeddings
 
 # Custom imports
 from app.components import CustomPDFLoader, CustomDOCXLoader
+from app.ingest.indexer import PARSER_VERSION, build_points, save_markdown, upsert_points
+from app.ingest.index_doc import refresh_index
+from app.ingest.tables import delete_tables, make_sink
 from app.llm.local_llm import VisionLLM
+from app.rag import model_settings, models_runtime
 from app.utils.phase_logger import phase_logger, Phase
+from app.utils.file_manager import read_uploader
 from app.utils.qdrant_client import get_qdrant_client
 from app.database_service import get_db_service
 from app.settings_service import SettingsService
 
 logger = getLogger(__name__)
 
+DATA_REFERENCE_TYPE = "data_reference"
+STRUCTURED_EXTS = {".csv", ".xlsx", ".xls"}
+
+
+def _detect_encoding(file_path: str) -> str:
+    """Encoding einer CSV-Datei erkennen (Fallback cp1252)."""
+    import chardet
+
+    try:
+        with open(file_path, "rb") as f:
+            raw = f.read(10000)
+        result = chardet.detect(raw)
+        encoding = result.get("encoding") or "cp1252"
+        if (result.get("confidence") or 0) < 0.7:
+            encoding = "cp1252"
+        return encoding
+    except Exception:
+        return "cp1252"
+
+
+def _load_dataframe(file_path: str):
+    """Lädt eine strukturierte Datei (CSV/XLSX/XLS) als DataFrame."""
+    import pandas as pd
+
+    ext = Path(file_path).suffix.lower()
+    if ext == ".csv":
+        return pd.read_csv(
+            file_path, encoding=_detect_encoding(file_path), on_bad_lines="skip"
+        )
+    return pd.read_excel(file_path)
+
+
+_TABLE_NAME = re.compile(r"^(?P<stem>.+)--[0-9a-f]{8}--tabelle-(?P<n>\d+)\.csv$")
+
+
+def _table_origin(filename: str) -> str:
+    """Herkunftszeile fuer Tabellen, die beim Einlesen aus einem Dokument entstanden sind."""
+    m = _TABLE_NAME.match(os.path.basename(filename))
+    if not m:
+        return ""
+    return (
+        f"Herkunft: Tabelle {m['n']} aus dem Dokument `{m['stem']}` "
+        f"(beim Einlesen als CSV extrahiert; im Dokumenttext steht nur ein Verweis).\n"
+    )
+
+
+def _column_hints(df, max_columns: int = 12) -> str:
+    """Kurze Inhaltshinweise je Spalte (Wertebereich bzw. Beispielwerte), damit die
+    Tabelle ueber ihren Inhalt gefunden wird."""
+    parts = []
+    for col in list(df.columns)[:max_columns]:
+        series = df[col].dropna()
+        if series.empty:
+            continue
+        if str(series.dtype).startswith(("int", "float")):
+            parts.append(f"`{col}`: {series.min():g} bis {series.max():g}")
+        else:
+            examples = ", ".join(str(v)[:30] for v in series.astype(str).unique()[:3])
+            parts.append(f"`{col}`: z. B. {examples}")
+    return ("Inhalt: " + "; ".join(parts) + "\n") if parts else ""
+
+
+def describe_data_file(file_path: str, display_name: str | None = None) -> str:
+    """Erzeugt eine kompakte, suchoptimierte Beschreibung für den Verweis-Chunk
+    einer strukturierten Datei.
+
+    Der Chunk sagt dem Modell, WORUM es in der Datei geht und DASS die Details
+    per Pandas-Tool abgefragt werden müssen — die Daten selbst werden nicht
+    dupliziert. ``display_name`` ist der Name, den das Pandas-Tool braucht
+    (relativ zu DATA_DIR, z. B. ``knowledge_3/x.csv``)."""
+    filename = display_name or os.path.basename(file_path)
+    ext = Path(file_path).suffix.lower().lstrip(".")
+
+    columns: list[str] = []
+    n_rows = 0
+    sample = ""
+    column_hints = ""
+    try:
+        df = _load_dataframe(file_path)
+        n_rows = len(df)
+        columns = [str(c) for c in df.columns[:30]]
+        sample = df.head(3).to_markdown(index=False)
+        column_hints = _column_hints(df)
+    except Exception as e:
+        logger.warning(f"Datenvorschau fehlgeschlagen für {filename}: {e}")
+
+    column_list = ", ".join(f"`{c}`" for c in columns) or "unbekannt"
+    origin = _table_origin(filename)
+    return (
+        f"[STRUKTURIERTE DATEN] Die Datei `{filename}` ({ext.upper()}) ist eine "
+        f"Tabelle mit {n_rows} Zeilen und den Spalten: {column_list}.\n"
+        f"{origin}{column_hints}"
+        f"Die Rohdaten sind NICHT als Text verfügbar. Für konkrete Werte, "
+        f"Summen, Filter oder Auswertungen zu dieser Tabelle muss das "
+        f"Pandas-Tool `run_pandas` mit dem Dateinamen `{filename}` genutzt "
+        f"werden (vorab `list_files` / `preview_data`).\n"
+        f"Vorschau (erste Zeilen):\n{sample}"
+    )
+
+
+def index_data_references(
+    embeddings, sparse_model, collection_name, data_dir, name_prefix: str = ""
+) -> int:
+    """Indexiert je einen schlanken Verweis-Chunk pro strukturierter Datei in
+    ``data_dir`` (idempotent: alte Verweis-Punkte werden vorher entfernt).
+
+    ``name_prefix`` wird dem Dateinamen vorangestellt (Knowledge-Unterordner
+    relativ zu DATA_DIR).
+
+    Returns:
+        Anzahl der geschriebenen Verweis-Chunks.
+    """
+    data_dir = Path(data_dir)
+    if not data_dir.exists():
+        return 0
+
+    files = sorted(
+        p
+        for p in data_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in STRUCTURED_EXTS
+    )
+    if not files:
+        return 0
+
+    texts: list[str] = []
+    metadatas: list[dict] = []
+    for file_path in files:
+        rel_name = f"{name_prefix}{file_path.name}"
+        try:
+            texts.append(describe_data_file(str(file_path), display_name=rel_name))
+        except Exception as e:
+            logger.error(f"Verweis-Beschreibung fehlgeschlagen {file_path.name}: {e}")
+            continue
+        metadatas.append(
+            {
+                "source": str(file_path),
+                "filename": rel_name,
+                "title": rel_name,
+                "type": DATA_REFERENCE_TYPE,
+                "file_group_id": rel_name,
+            }
+        )
+
+    if not texts:
+        return 0
+
+    dense_vectors = embeddings.embed_documents(texts)
+    sparse_vectors = sparse_model.embed_documents(texts)
+
+    client = get_qdrant_client(collection_name=collection_name)
+    try:
+        for meta in metadatas:
+            try:
+                client.delete(
+                    collection_name=collection_name,
+                    points_selector=qdrant_models.FilterSelector(
+                        filter=qdrant_models.Filter(
+                            must=[
+                                qdrant_models.FieldCondition(
+                                    key="type",
+                                    match=qdrant_models.MatchValue(
+                                        value=DATA_REFERENCE_TYPE
+                                    ),
+                                ),
+                                qdrant_models.FieldCondition(
+                                    key="filename",
+                                    match=qdrant_models.MatchValue(
+                                        value=meta["filename"]
+                                    ),
+                                ),
+                            ]
+                        )
+                    ),
+                )
+            except Exception as e:
+                logger.debug(f"Konnte alte Verweis-Chunks nicht löschen: {e}")
+
+        points = []
+        for i in range(len(texts)):
+            sv = sparse_vectors[i]
+            qdrant_sparse = qdrant_models.SparseVector(
+                indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
+                values=sv.values if hasattr(sv, "values") else sv["values"],
+            )
+            points.append(
+                qdrant_models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={"": dense_vectors[i], "langchain-sparse": qdrant_sparse},
+                    payload={
+                        "page_content": texts[i],
+                        "original_content": texts[i],
+                        **metadatas[i],
+                    },
+                )
+            )
+        client.upsert(collection_name=collection_name, points=points)
+    finally:
+        client.close()
+
+    logger.info(f"{len(texts)} Verweis-Chunk(s) für strukturierte Daten ingestet.")
+    return len(texts)
+
+
+def delete_data_reference(collection_name: str, filename: str) -> None:
+    """Entfernt den Verweis-Chunk einer strukturierten Datei aus Qdrant."""
+    client = get_qdrant_client(collection_name=collection_name)
+    try:
+        client.delete(
+            collection_name=collection_name,
+            points_selector=qdrant_models.FilterSelector(
+                filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="type",
+                            match=qdrant_models.MatchValue(value=DATA_REFERENCE_TYPE),
+                        ),
+                        qdrant_models.FieldCondition(
+                            key="filename",
+                            match=qdrant_models.MatchValue(value=filename),
+                        ),
+                    ]
+                )
+            ),
+        )
+    finally:
+        client.close()
+
+
+def _ingest_settings() -> tuple[int, int, bool, bool]:
+    """(Chunk-Groesse, Ueberlappung, Kontextanreicherung, Original behalten) aus den Einstellungen."""
+    try:
+        session = get_db_service().get_session()
+        try:
+            settings = SettingsService(session)
+            return (
+                settings.get_int("INGEST_CHUNK_SIZE", 1000),
+                settings.get_int("INGEST_CHUNK_OVERLAP", 150),
+                settings.get_bool("INGEST_CONTEXT_ENRICHMENT", True),
+                settings.get_bool("INGEST_KEEP_ORIGINAL", True),
+            )
+        finally:
+            session.close()
+    except Exception:
+        return 1000, 150, True, True
+
 
 class DocumentIngestion:
     """Document ingestion class"""
 
-    def __init__(self, embeddings=None, sparse_embeddings=None):
+    def __init__(
+        self,
+        embeddings=None,
+        sparse_embeddings=None,
+        knowledge: dict | None = None,
+        collection_name: str | None = None,
+        extra_metadata: dict | None = None,
+        enrich_context: bool | None = None,
+        track_documents: bool = True,
+        files_dir: str | None = None,
+        embedding_spec=None,
+        attachment_markdown_dir: str | None = None,
+    ):
+        """
+        Args:
+            knowledge: Knowledge-Bereich (dict aus ``app.knowledge``); ``None``
+                steht fuer den Standard-Bereich.
+            collection_name: ueberschreibt die Collection (z. B. Chat-Anhaenge).
+            extra_metadata: wird jedem Chunk-Payload hinzugefuegt (z. B. session_id).
+            enrich_context: LLM-Kontext-Anreicherung der Chunks.
+            track_documents: UserDocument anlegen und Datei ins Archiv verschieben.
+            files_dir: ueberschreibt den Quellordner der Ingestion.
+            embedding_spec: Modell fuer die Vektoren (Standard: das des Knowledge).
+            attachment_markdown_dir: Chat-Anhaenge: hier wird das Markdown abgelegt
+                (``self.last_markdown_path``), sonst nirgends.
+        """
+        from app.knowledge import get_knowledge, knowledge_paths
 
-        # Defaults (Standalone-Fallback, falls kein DB-Kontext)
-        embedding_source = "local"
-        embedding_endpoint = "http://localhost:8080/v1"
-        model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-        embedding_dim = 384
-        data_dir = "./data"
-        api_key = "ollama"
+        if knowledge is None:
+            knowledge = get_knowledge(None)
+        if knowledge is None:  # Standalone ohne DB-Eintrag
+            knowledge = {
+                "id": None,
+                "is_default": True,
+                "collection_name": "local_rag",
+            }
+        self.knowledge = knowledge
+        self.paths = knowledge_paths(knowledge)
+        self.files_dir = Path(files_dir) if files_dir else self.paths.files_dir
+        self.extra_metadata = extra_metadata or {}
+        self.chunk_size, self.chunk_overlap, setting_enrich, self.keep_original = _ingest_settings()
+        self.enrich_context = setting_enrich if enrich_context is None else enrich_context
+        self.track_documents = track_documents
+        self.attachment_markdown_dir = attachment_markdown_dir
+        self.last_markdown_path: str | None = None
+        # Ergebnis des letzten Laufs fuer die Oberflaeche: nichts schlaegt mehr stumm fehl.
+        self.errors: list[dict] = []
+        self.warnings: list[str] = []
+        self.processed = 0
+        self._enrich_failures = 0
+        self._enrich_error = ""
 
-        try:
-            # Settings aus DB lesen (UI = Source of Truth); eigene Session,
-            # thread-safe via Engine.
-            db = get_db_service()
-            session = db.get_session()
-            settings = SettingsService(session)
-            embedding_source = (
-                settings.get("EMBEDDING_SOURCE", embedding_source) or embedding_source
+        self.collection_name = collection_name or knowledge["collection_name"]
+
+        # Embedding: ein Knowledge wird mit dem Modell erweitert, mit dem es indexiert wurde
+        # (sonst mischen sich Vektoren); Chat-Anhaenge uebergeben das aktuelle globale Modell.
+        if embeddings is not None:  # vorgebautes Objekt (Tests)
+            self.embeddings = embeddings
+        else:
+            self.embeddings = models_runtime.get_embedder(
+                embedding_spec or model_settings.knowledge_spec(knowledge)
             )
-            embedding_endpoint = (
-                settings.get("EMBEDDING_ENDPOINT", embedding_endpoint)
-                or embedding_endpoint
-            )
-            model_name = settings.get("EMBEDDING_MODEL", model_name) or model_name
-            embedding_dim = settings.get_int("EMBEDDING_DIMENSION", embedding_dim)
-            data_dir = settings.get("DATA_DIR", data_dir) or data_dir
-            api_key = settings.get("API_KEY", api_key) or api_key
-            session.close()
-        except Exception:
-            # Standalone-Fallback: env
-            embedding_source = os.getenv("EMBEDDING_SOURCE", embedding_source)
-            embedding_endpoint = os.getenv("EMBEDDING_ENDPOINT", embedding_endpoint)
-            model_name = os.getenv("EMBEDDING_MODEL", model_name)
-            try:
-                embedding_dim = int(os.getenv("EMBEDDING_DIMENSION", embedding_dim))
-            except (ValueError, TypeError):
-                pass
-            data_dir = os.getenv("DATA_DIR", data_dir)
-            api_key = os.getenv("API_KEY", api_key)
-
-        # Collectoin Settings
-        self.collection_name = "local_rag"
-        self.dimensions = embedding_dim
+        self.dimensions = (
+            getattr(self.embeddings, "dimension", None)
+            or knowledge.get("embedding_dimension")
+            or 384
+        )
 
         # Geteilte Sparse-Instanz aus app.extensions (optional); Fallback, falls
         # DocumentIngestion standalone (ohne uebergebene Instanz) genutzt wird.
         self._shared_sparse = sparse_embeddings
 
-        if embedding_source == "local":
-            # Geteilte Dense-Instanz aus app.extensions wiederverwenden, falls
-            # vorhanden (kein Reload/Download pro Ingestion-Request).
-            if embeddings is not None:
-                self.embeddings = embeddings
-            else:
-                self.embeddings = FastEmbedEmbeddings(model_name=model_name)
-        else:
-            self.embeddings = OpenAIEmbeddings(
-                base_url=embedding_endpoint,
-                api_key=api_key,
-                model=model_name,
-                dimensions=self.dimensions,
-                chunk_size=32,
-            )
-
-        # Supported file extensions (CSV/Excel werden ohne Loader verarbeitet)
+        # Supported file extensions. Strukturierte Daten (CSV/Excel) werden
+        # NICHT ingestet — sie liegen als Pandas-Referenz in DATA_DIR und
+        # werden ausschliesslich über die run_pandas-Tools genutzt.
         self.loaders = {
             ".pdf": CustomPDFLoader,
-            ".csv": None,  # Wird in _process_file direkt verarbeitet
-            ".xlsx": None,  # Wird in _process_file direkt verarbeitet
-            ".xls": None,  # Wird in _process_file direkt verarbeitet
             ".docx": CustomDOCXLoader,
             ".doc": CustomDOCXLoader,
             ".odt": CustomDOCXLoader,
@@ -139,13 +389,10 @@ class DocumentIngestion:
         # Setup model
         self.model = VisionLLM()
 
-        # DATA_DIR für CSV/Excel nach Ingestion
-        self.DATA_DIR = data_dir
-
-        # TextSplitter einmalig erstellen
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000, chunk_overlap=200
-        )
+        # DATA_DIR: strukturierte Daten (CSV/Excel) liegen hier als
+        # Pandas-Referenz. Pro Datei wird nur ein schlanker Verweis-Chunk in
+        # die Vektordatenbank geschrieben (siehe _ingest_data_references).
+        self.DATA_DIR = str(self.paths.data_dir)
 
         # Setup the collection (öffnet Client temporär)
         self._setup_collection()
@@ -174,206 +421,45 @@ class DocumentIngestion:
 
     def _setup_collection(self):
         """Setting up the collection"""
-        client = self._get_client()
+        from app.vector.collections import ensure_collection
 
-        if not client.collection_exists(self.collection_name):
-            logger.info(f"Erstelle Qdrant Collection: {self.collection_name}")
-
-            client.create_collection(
-                collection_name=self.collection_name,
-                # 1. Konfiguration für normale Embeddings (Dense)
-                vectors_config=qdrant_models.VectorParams(
-                    size=int(self.dimensions),  # Sicherstellen, dass es ein Int ist
-                    distance=qdrant_models.Distance.COSINE,
-                ),
-                # 2. WICHTIG: Konfiguration für BM25 (Sparse)
-                sparse_vectors_config={
-                    "langchain-sparse": qdrant_models.SparseVectorParams()  # Standardname für LangChain Hybrid
-                },
-                hnsw_config=qdrant_models.HnswConfigDiff(
-                    m=16,
-                    ef_construct=100,
-                    full_scan_threshold=10000,
-                ),
-            )
-        else:
-            logger.info(f"Qdrant Collection '{self.collection_name}' existiert bereits")
-
+        ensure_collection(self._get_client(), self.collection_name, self.dimensions)
         self._close_client()
 
-    def _move_processed_files(self, documents):
-        """Verschiebt verarbeitete Dateien in einen Archiv-Ordner (behält Unterordner-Struktur)"""
-        processed_dir = "./data/processed_files"
+    def _move_processed_file(self, file_path: str):
+        """Verschiebt die verarbeitete Datei in den Archiv-Ordner (behaelt die Unterordner-Struktur)"""
+        processed_dir = str(self.paths.processed_dir)
+        os.makedirs(processed_dir, exist_ok=True)
 
-        if not os.path.exists(processed_dir):
-            os.makedirs(processed_dir)
-
-        unique_files = set()
-        for doc in documents:
-            source = doc.metadata.get("source")
-            if source:
-                unique_files.add(source)
-
-        for file_path in unique_files:
+        if not self.keep_original:
+            # Das Markdown ist die Grundlage fuer Neu-Indexieren; das Original wird nicht benoetigt.
             if os.path.exists(file_path):
-                rel_path = os.path.relpath(file_path, "./data/files")
-                target_path = os.path.join(processed_dir, rel_path)
+                os.remove(file_path)
+                logger.info(f"Original verworfen: {os.path.basename(file_path)}")
+            return
 
-                target_dir = os.path.dirname(target_path)
-                os.makedirs(target_dir, exist_ok=True)
-
-                try:
-                    if os.path.exists(target_path):
-                        os.remove(target_path)
-                    shutil.move(file_path, target_path)
-                    logger.info(f"Verschoben in Archiv: {rel_path}")
-                except Exception as e:
-                    logger.error(f"Konnte Datei nicht verschieben {rel_path}: {e}")
-
-    def _move_to_data_dir(self, file_path: str):
-        """Verschiebt CSV/Excel nach DATA_DIR nach erfolgreicher Ingestion"""
-        filename = os.path.basename(file_path)
-        target_path = os.path.join(self.DATA_DIR, filename)
-
-        if not os.path.exists(self.DATA_DIR):
-            os.makedirs(self.DATA_DIR)
-
-        # Konflikt lösen: Timestamp anhängen wenn Datei existiert
-        if os.path.exists(target_path):
-            base, ext = os.path.splitext(filename)
-            timestamp = datetime.now().strftime("_%Y%m%d_%H%M%S")
-            target_path = os.path.join(self.DATA_DIR, f"{base}{timestamp}{ext}")
-
-        try:
-            shutil.move(file_path, target_path)
-            logger.info(f"Verschoben nach DATA_DIR: {filename}")
-        except Exception as e:
-            logger.error(
-                f"Konnte Datei nicht nach DATA_DIR verschieben {filename}: {e}"
-            )
-
-    def _generate_content_description(self, df: pd.DataFrame, filename: str) -> str:
-        """Generiert eine LLM-basierte Inhaltsbeschreibung für Tabellendaten."""
-        from langchain_core.messages import HumanMessage
-
-        start_time = time.time()
-        phase_logger.log_phase(
-            Phase.LLM_CALL, f"Content-Beschreibung gestartet | Datei: {filename}"
-        )
-
-        # Daten für LLM aufbereiten (limitiert um Token zu sparen)
-        columns_info = ", ".join(
-            [f"{col} ({df[col].dtype})" for col in df.columns[:10]]
-        )
-        sample_rows = df.head(5).to_string(index=False)
-
-        prompt = f"""Du bist ein Datenanalyst. Analysiere die folgende Tabelle und erstelle eine kurze Inhaltsbeschreibung.
-
-### Datei: {filename}
-### Spalten: {columns_info}
-### Anzahl Zeilen: {len(df)}
-### Beispieldaten:
-{sample_rows}
-
-### Aufgabe:
-Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt:
-1. Was stellen die Daten dar? (Thema/Zweck)
-2. Was bedeuten die wichtigsten Spalten?
-3. Welcher Zeitraum oder Umfang ist abgedeckt?
-4. Welche Suchbegriffe waeren nuetzlich, um diese Daten zu finden?
-
-### Beschreibung:"""
-
-        try:
-            message = HumanMessage(content=prompt)
-            description = self.model.generate(message)
-
-            duration = time.time() - start_time
-            phase_logger.log_phase(
-                Phase.LLM_CALL,
-                f"Content-Beschreibung abgeschlossen | Datei: {filename}",
-                duration=duration,
-            )
-
-            return description.strip()
-        except Exception as e:
-            logger.warning(f"LLM-Beschreibung fehlgeschlagen fuer {filename}: {e}")
-            duration = time.time() - start_time
-            phase_logger.log_phase(
-                Phase.LLM_CALL,
-                f"Content-Beschreibung fehlgeschlagen | Datei: {filename}",
-                duration=duration,
-            )
-            return ""
-
-    def _get_tabular_overview(self, file_path: str) -> str:
-        """
-        Generiert eine Markdown-Übersicht für CSV/Excel-Dateien.
-        Enthält strukturelle Infos und LLM-generierte Inhaltsbeschreibung.
-        """
-        filename = os.path.basename(file_path)
-        extension = Path(file_path).suffix.lower()
-
-        # Helper für Encoding-Erkennung (wird unten definiert)
-        def detect_encoding(fp: str) -> str:
+        if os.path.exists(file_path):
+            rel_path = os.path.relpath(file_path, str(self.files_dir))
+            target_path = os.path.join(processed_dir, rel_path)
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
             try:
-                with open(fp, "rb") as f:
-                    raw_data = f.read(10000)
-                    result = chardet.detect(raw_data)
-                    encoding = result.get("encoding", "cp1252")
-                    confidence = result.get("confidence", 0)
-                    if confidence < 0.7:
-                        encoding = "cp1252"
-                    return encoding
-            except Exception:
-                return "cp1252"
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+                shutil.move(file_path, target_path)
+                logger.info(f"Verschoben in Archiv: {rel_path}")
+            except Exception as e:
+                logger.error(f"Konnte Datei nicht verschieben {rel_path}: {e}")
 
+    def _enrich_safe(self, full_document_text: str, chunk_text: str) -> str:
+        """Anreicherung, die das Einlesen nie abbricht: bei Fehlern gilt der reine Text."""
         try:
-            if extension == ".csv":
-                encoding = detect_encoding(file_path)
-                df = pd.read_csv(file_path, encoding=encoding)
-            else:  # xlsx, xls
-                df = pd.read_excel(file_path)
-
-            if df.empty:
-                return f"## Datei: {filename}\n\nDie Datei ist leer."
-
-            columns_str = ", ".join([f"`{col}`" for col in df.columns])
-            preview_str = df.head(4).to_markdown(index=False)
-
-            # LLM-Inhaltsbeschreibung generieren
-            content_description = self._generate_content_description(df, filename)
-            description_section = (
-                f"\n\n### Inhaltsbeschreibung:\n{content_description}"
-                if content_description
-                else ""
-            )
-
-            overview = f"""## Datei: {filename}
-
-**Spalten ({len(df.columns)}):** {columns_str}
-**Zeilen:** {len(df)}
-
-### Vorschau:
-{preview_str}{description_section}"""
-            return overview
-
+            return self._enrich_with_context(full_document_text, chunk_text)
         except Exception as e:
-            logger.warning(f"Preview fehlgeschlagen für {file_path}: {e}")
-            return f"## Datei: {filename}\n\nDatei konnte nicht gelesen werden."
-
-    def _create_directory_loader(self, files_extensions, loader_cls):
-        """Directory Loader"""
-
-        if not os.path.exists("./data/files"):
-            os.mkdir("./data/files")
-
-        return DirectoryLoader(
-            path="./data/files",
-            glob=f"**/*{files_extensions}",
-            loader_cls=loader_cls,
-            recursive=True,
-        )
+            self._enrich_failures += 1
+            if self._enrich_failures == 1:
+                logger.warning(f"Kontext-Anreicherung fehlgeschlagen: {e}")
+                self._enrich_error = f"{type(e).__name__}: {e}"[:200]
+            return chunk_text
 
     def _enrich_with_context(self, full_document_text: str, chunk_text: str) -> str:
         """Enrich the chunks for contextual RAG"""
@@ -405,9 +491,75 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
 
         return f"Kontext: {context}\n\nInhalt: {chunk_text}"
 
-    def _process_file(self, file_path: str, sparse_model) -> bool:
+    def _load_markdown(self, file_path: str, extension: str, table_sink=None) -> str | None:
+        """Liest die Datei als Markdown (Docling fuer PDF/Office, Text fuer .md)."""
+        if extension == ".pdf":
+            docs = list(CustomPDFLoader(file_path, model=self.model, table_sink=table_sink).lazy_load())
+        elif extension in (".docx", ".doc", ".odt"):
+            docs = list(CustomDOCXLoader(file_path, model=self.model, table_sink=table_sink).lazy_load())
+        elif extension == ".md":
+            docs = TextLoader(file_path, autodetect_encoding=True).load()
+        else:
+            logger.warning(f"Unbekannter Dateityp: {extension}")
+            return None
+        return "\n\n".join(d.page_content for d in docs)
+
+    def index_markdown(
+        self, markdown: str, filename: str, file_group_id: str, sparse_model=None
+    ) -> int:
+        """Zerlegt gespeichertes Markdown neu und schreibt es in die Collection (Neu-Indexieren).
+
+        Gleicher Weg wie beim Einlesen: splitten, ggf. anreichern, Dense + BM25, Upsert.
+        Liefert die Anzahl Chunks (0 = kein Inhalt).
         """
-        Verarbeitet eine einzelne Datei komplett (sequentiell).
+        sparse = sparse_model or self._shared_sparse or FastEmbedSparse(model_name="Qdrant/bm25")
+        points = build_points(
+            markdown,
+            filename=filename,
+            source=filename,
+            file_group_id=file_group_id,
+            dense=self.embeddings,
+            sparse=sparse,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            extra_metadata=self.extra_metadata,
+            enrich=self._enrich_safe if self.enrich_context else None,
+        )
+        if points:
+            upsert_points(self._get_client(), self.collection_name, points)
+        return len(points)
+
+    def _process_file(self, file_path: str, sparse_model) -> bool:
+        """Verarbeitet eine Datei; Fehler werden notiert und raeumen angefangene Tabellen-CSVs weg.
+
+        Eine fehlgeschlagene Datei bleibt im Eingangsordner und kann erneut eingelesen werden.
+        """
+        filename = os.path.basename(file_path)
+        file_group_id = str(uuid.uuid4())
+        self._enrich_failures = 0
+        try:
+            ok = self._process_file_inner(file_path, sparse_model, file_group_id)
+        except Exception as e:
+            logger.exception(f"Fehler bei {filename}")
+            delete_tables(self.paths, self.collection_name, file_group_id)
+            self.errors.append({"file": filename, "error": f"{type(e).__name__}: {e}"[:300]})
+            return False
+        if not ok:
+            if not any(err["file"] == filename for err in self.errors):
+                self.errors.append({"file": filename, "error": "Kein lesbarer Inhalt gefunden"})
+            return False
+        if self._enrich_failures:
+            self.warnings.append(
+                f"{filename}: Kontext-Anreicherung bei {self._enrich_failures} Abschnitt(en) "
+                f"fehlgeschlagen, sie wurden ohne Zusatzkontext indexiert ({self._enrich_error})"
+            )
+        self.processed += 1
+        return True
+
+    def _process_file_inner(self, file_path: str, sparse_model, file_group_id: str) -> bool:
+        """
+        Verarbeitet eine einzelne Datei komplett (sequentiell):
+        parsen -> Markdown speichern -> splitten -> embedden -> Qdrant.
 
         Args:
             file_path: Pfad zur Datei
@@ -423,150 +575,90 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
             Phase.DOCUMENT_PROCESSING, f"Datei verarbeiten: {filename}"
         )
 
-        # Gruppen-ID fuer alle Chunks dieser einen Datei (eine Datei erzeugt
-        # i.d.R. mehrere Qdrant-Punkte/Chunks). Wird als UserDocument.document_id
-        # gespeichert, damit Liste/Loeschen alle zugehoerigen Punkte ueber einen
-        # Payload-Filter statt einer einzelnen Punkt-ID finden.
-        file_group_id = str(uuid.uuid4())
+        # file_group_id (vom Aufrufer): Gruppen-ID aller Chunks dieser Datei, wird als
+        # UserDocument.document_id gespeichert (Liste/Loeschen per Payload-Filter).
 
-        # 1. Datei laden
-        # PDF, DOCX, DOC, ODT nutzen Custom Loader mit Bildextraktion (VisionLLM).
-        # CSV/XLSX/XLS werden als tabellarische Übersicht verarbeitet.
-        # MD nutzt TextLoader (reiner Text, keine eingebetteten Bilder).
+        # 1. Datei -> Markdown. Strukturierte Daten (CSV/Excel) sind hier bereits
+        # ausgeschlossen (siehe self.loaders / DATA_DIR-Referenz).
+        # Tabellen werden dabei als CSV im Datenordner des Knowledge abgelegt (nicht bei
+        # Chat-Anhaengen: dort gibt es keinen Datenordner).
+        table_sink = (
+            make_sink(self.paths, Path(filename).stem, file_group_id)
+            if self.track_documents
+            else None
+        )
         try:
-            if extension == ".pdf":
-                loader = CustomPDFLoader(file_path, model=self.model)
-                chunks = list(loader.lazy_load())
-            elif extension in [".docx", ".doc", ".odt"]:
-                loader = CustomDOCXLoader(file_path, model=self.model)
-                chunks = list(loader.lazy_load())
-            elif extension == ".csv":
-                # Nur Übersichts-Chunk, keine Zeilen-Chunks
-                overview = self._get_tabular_overview(file_path)
-                overview_chunk = Document(
-                    page_content=overview,
-                    metadata={
-                        "source": file_path,
-                        "filename": filename,
-                        "type": "tabular_overview",
-                    },
-                )
-                chunks = [overview_chunk]
-            elif extension in [".xlsx", ".xls"]:
-                # Nur Übersichts-Chunk, keine Zeilen-Chunks
-                overview = self._get_tabular_overview(file_path)
-                overview_chunk = Document(
-                    page_content=overview,
-                    metadata={
-                        "source": file_path,
-                        "filename": filename,
-                        "type": "tabular_overview",
-                    },
-                )
-                chunks = [overview_chunk]
-            elif extension == ".md":
-                loader = TextLoader(file_path, autodetect_encoding=True)
-                chunks = loader.load()
-            else:
-                logger.warning(f"Unbekannter Dateityp: {extension}")
-                return False
+            markdown = self._load_markdown(file_path, extension, table_sink)
         except Exception as e:
             logger.error(f"Fehler beim Laden von {filename}: {e}")
+            delete_tables(self.paths, self.collection_name, file_group_id)
+            return False
+        if not markdown or not markdown.strip():
+            logger.info(f"Kein Inhalt in {filename}")
+            delete_tables(self.paths, self.collection_name, file_group_id)
             return False
 
-        if not chunks:
-            logger.info(f"Keine Chunks für {filename}")
-            return False
-
-        # 2. Chunks splitten (nur bei Formaten ohne Custom Loader)
-        # PDF, DOCX, DOC, ODT werden bereits vom Custom Loader gechunkt
-        if extension not in [".pdf", ".docx", ".doc", ".odt"]:
-            chunks = self.text_splitter.split_documents(chunks)
-
-        # 3. Context anreichern
-        full_text_context = " ".join([c.page_content for c in chunks])[:2500]
-
-        texts_to_embed = []
-        metadatas = []
-
-        total_chunks = len(chunks)
-        for i, chunk in enumerate(chunks, 1):
-            logger.info(f"  [{i}/{total_chunks}] Context anreichern: {filename}")
-
-            enriched_text = self._enrich_with_context(
-                full_text_context, chunk.page_content
+        # 2. Markdown speichern (Grundlage fuer Neu-Indexieren und die Ansicht im UI).
+        markdown_path = None
+        if self.track_documents:
+            markdown_path = str(
+                save_markdown(self.paths.markdown_dir, file_group_id, markdown)
+            )
+        elif self.attachment_markdown_dir:
+            self.last_markdown_path = str(
+                save_markdown(self.attachment_markdown_dir, Path(filename).stem, markdown)
             )
 
-            if "[BILD-BESCHREIBUNG:" in chunk.page_content:
-                phase_logger.log_phase(
-                    Phase.VISION_PROCESSING,
-                    f"Bild-Kontext extrahiert | Datei: {filename}",
-                )
-                logger.info(f"  Bild-Kontext verarbeitet für: {filename}")
-
-            texts_to_embed.append(enriched_text)
-            meta = chunk.metadata.copy()
-            meta["filename"] = filename
-            meta["file_group_id"] = file_group_id
-            metadatas.append(meta)
-
-        # 4. Vektoren berechnen
+        # 3. Splitten, ggf. anreichern, Vektoren berechnen
         phase_logger.log_phase(
-            Phase.RETRIEVAL,
-            f"Embeddings berechnen | Datei: {filename} | Vektoren: {len(texts_to_embed)}",
+            Phase.RETRIEVAL, f"Embeddings berechnen | Datei: {filename}"
         )
-
-        dense_vectors = self.embeddings.embed_documents(texts_to_embed)
-        sparse_vectors = sparse_model.embed_documents(texts_to_embed)
-
-        # 5. Upload Qdrant
-        points = []
-        for i in range(len(texts_to_embed)):
-            sv = sparse_vectors[i]
-            qdrant_sparse = qdrant_models.SparseVector(
-                indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
-                values=sv.values if hasattr(sv, "values") else sv["values"],
+        points = build_points(
+            markdown,
+            filename=filename,
+            source=file_path,
+            file_group_id=file_group_id,
+            dense=self.embeddings,
+            sparse=sparse_model,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            extra_metadata=self.extra_metadata,
+            enrich=self._enrich_safe if self.enrich_context else None,
+        )
+        if not points:
+            logger.info(f"Keine Chunks für {filename}")
+            delete_tables(self.paths, self.collection_name, file_group_id)
+            return False
+        if any("[BILD-BESCHREIBUNG:" in p.payload["original_content"] for p in points):
+            phase_logger.log_phase(
+                Phase.VISION_PROCESSING, f"Bild-Kontext extrahiert | Datei: {filename}"
             )
 
-            points.append(
-                qdrant_models.PointStruct(
-                    id=str(uuid.uuid4()),
-                    vector={
-                        "": dense_vectors[i],
-                        "langchain-sparse": qdrant_sparse,
-                    },
-                    payload={
-                        "page_content": texts_to_embed[i],
-                        "original_content": chunks[i].page_content,
-                        **metadatas[i],
-                    },
+        # 4. Upload Qdrant
+        upsert_points(self._get_client(), self.collection_name, points)
+
+        if self.track_documents:
+            # 5. Datei verschieben (Dokumente -> Archiv)
+            file_path_original = file_path  # die Begleitdatei bleibt im Eingang liegen
+            self._move_processed_file(file_path)
+
+            # 6. Dokument-Zuordnung anlegen, damit die Datei-Liste das ingestierte
+            # Dokument findet und es per file_group_id gelöscht werden kann.
+            try:
+                from app.database_service import get_db_service
+
+                get_db_service().add_document(
+                    document_id=file_group_id,
+                    filename=filename,
+                    knowledge_id=self.knowledge.get("id"),
+                    markdown_path=markdown_path,
+                    parser_version=PARSER_VERSION,
+                    uploaded_by=read_uploader(file_path_original, consume=True),
                 )
-            )
-
-        client = self._get_client()
-
-        # Batch-Upsert (max 100 Punkte pro Batch)
-        BATCH_SIZE = 500
-        for i in range(0, len(points), BATCH_SIZE):
-            batch = points[i : i + BATCH_SIZE]
-            client.upsert(collection_name=self.collection_name, points=batch)
-
-        # 6. Datei verschieben
-        if extension in [".csv", ".xlsx", ".xls"]:
-            self._move_to_data_dir(file_path)
-        else:
-            self._move_processed_files(chunks)
-
-        # 7. Dokument-Zuordnung anlegen, damit die Datei-Liste das ingestierte
-        # Dokument findet und es per file_group_id gelöscht werden kann.
-        try:
-            from app.database_service import get_db_service
-
-            get_db_service().add_document(document_id=file_group_id, filename=filename)
-        except Exception as e:
-            logger.error(
-                f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}"
-            )
+            except Exception as e:
+                logger.error(
+                    f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}"
+                )
 
         duration = time.time() - start_time
         phase_logger.log_phase(
@@ -585,46 +677,65 @@ Erstelle eine kurze Beschreibung (max. 150 Woerter) die folgende Punkte enthaelt
         # Dateien sammeln
         all_files = []
         for extension in self.loaders.keys():
-            pattern = os.path.join("./data/files", f"**/*{extension}")
+            pattern = os.path.join(str(self.files_dir), f"**/*{extension}")
             files = glob.glob(pattern, recursive=True)
             all_files.extend(files)
 
         if not all_files:
-            logger.info("Keine Dateien gefunden.")
-            phase_logger.log_phase(
-                Phase.DOCUMENT_PROCESSING, "Keine Dateien gefunden", duration=0.0
-            )
-            return
+            logger.info(f"Keine Dokumente in {self.files_dir} gefunden.")
 
         sparse_model = self._shared_sparse or FastEmbedSparse(model_name="Qdrant/bm25")
-        pbar = tqdm(all_files, desc="Processing Files", unit="file")
 
-        success_count = 0
-        error_count = 0
+        if all_files:
+            pbar = tqdm(all_files, desc="Processing Files", unit="file")
 
-        for file_path in pbar:
-            filename = os.path.basename(file_path)
-            pbar.set_description(f"Processing: {filename}")
+            success_count = 0
+            error_count = 0
 
-            try:
-                success = self._process_file(file_path, sparse_model)
-                if success:
-                    success_count += 1
-                    pbar.write(f"✓ {filename} verarbeitet")
-                else:
+            for file_path in pbar:
+                filename = os.path.basename(file_path)
+                pbar.set_description(f"Processing: {filename}")
+
+                try:
+                    success = self._process_file(file_path, sparse_model)
+                    if success:
+                        success_count += 1
+                        pbar.write(f"✓ {filename} verarbeitet")
+                    else:
+                        error_count += 1
+                        pbar.write(f"✗ {filename} fehlgeschlagen (keine Chunks)")
+                except Exception as e:
                     error_count += 1
-                    pbar.write(f"✗ {filename} fehlgeschlagen (keine Chunks)")
-            except Exception as e:
-                error_count += 1
-                logger.error(f"Fehler bei {filename}: {e}")
-                pbar.write(f"✗ {filename} fehlgeschlagen: {str(e)[:50]}")
-                continue
+                    self.errors.append({"file": filename, "error": f"{type(e).__name__}: {e}"[:300]})
+                    logger.error(f"Fehler bei {filename}: {e}")
+                    pbar.write(f"✗ {filename} fehlgeschlagen: {str(e)[:50]}")
+                    continue
+
+            logger.info(
+                f"{success_count} Dateien erfolgreich verarbeitet, {error_count} Fehler."
+            )
+
+        # Verweis-Chunks für strukturierte Daten (CSV/Excel) erzeugen, damit das
+        # Modell weiß, welche Tabellen es per Pandas-Tool abfragen kann.
+        try:
+            if self.track_documents:
+                index_data_references(
+                    embeddings=self.embeddings,
+                    sparse_model=sparse_model,
+                    collection_name=self.collection_name,
+                    data_dir=str(self.paths.data_dir),
+                    name_prefix=self.paths.name_prefix,
+                )
+        except Exception as e:
+            logger.error(
+                f"Verweis-Ingestion für strukturierte Daten fehlgeschlagen: {e}"
+            )
+
+        if self.track_documents:
+            refresh_index(self.knowledge.get("id"))
 
         self._close_client()
         phase_logger.log_phase(
             Phase.DOCUMENT_PROCESSING,
-            f"Dokument-Ingestion abgeschlossen | Erfolgreich: {success_count} | Fehler: {error_count}",
-        )
-        logger.info(
-            f"Fertig! {success_count} Dateien erfolgreich verarbeitet, {error_count} Fehler."
+            "Dokument-Ingestion abgeschlossen",
         )

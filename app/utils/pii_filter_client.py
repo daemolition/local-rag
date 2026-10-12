@@ -55,7 +55,7 @@ class PIIFilterClient:
         """
         Args:
             full_url: Vollständige URL zum Endpoint (z.B. http://localhost:9500/api/v1/sanitize)
-            api_key: Optionaler API Key
+            api_key: Optionaler API Key (wird als "Authorization: Bearer" gesendet)
             timeout: Request timeout in Sekunden
         """
         self.full_url = full_url
@@ -113,14 +113,15 @@ class PIIFilterClient:
             # Request-Body vorbereiten
             json_body = {"text": text}
 
-            # API Key nur hinzufügen wenn vorhanden
+            headers = {"Content-Type": "application/json"}
+            # API Key als Bearer-Token, nur wenn vorhanden
             if self.api_key:
-                json_body["api_key"] = self.api_key
+                headers["Authorization"] = f"Bearer {self.api_key}"
 
             response = requests.post(
                 url,
                 json=json_body,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
                 timeout=self.timeout,
             )
 

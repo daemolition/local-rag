@@ -23,11 +23,10 @@ import threading
 import warnings
 from pathlib import Path
 from flask import Flask
-from qdrant_client import models as qdrant_models
 
 from app.utils.qdrant_client import get_qdrant_client
 from app.database_service import init_db_service
-from app.settings_service import SettingsService
+from app.settings_service import LiveSettingsService, SettingsService
 
 # fastembed >=0.6 emits a UserWarning that the paraphrase-multilingual-MiniLM-L12-v2
 # model now uses mean pooling instead of CLS embedding. The new behaviour is correct
@@ -119,52 +118,24 @@ def init_resources(app, preload=False):
     collection_name = "local_rag"
     _qdrant_client = get_qdrant_client(collection_name=collection_name)
 
-    # Embedding Dimension aus Settings
-    embedding_dim = settings.get_int("EMBEDDING_DIMENSION", 384)
+    # Collections mit bekannter Dimension sofort anlegen (schnell; Dense + HNSW, BM25 mit IDF;
+    # bestehende bekommen den IDF-Modifier nachgetragen). Wo die Dimension noch unbekannt ist
+    # (frische Installation), legt model_settings.prepare sie nach dem Laden des Modells an.
+    from app.knowledge import list_knowledge
+    from app.vector.collections import ensure_collection
 
-    # Collection anlegen (schnell, Qdrant ist via depends_on bereit)
-    if not _qdrant_client.collection_exists(collection_name):
-        logger.info(f"Creating Qdrant Collection: {collection_name}")
-        _qdrant_client.create_collection(
-            collection_name=collection_name,
-            vectors_config=qdrant_models.VectorParams(
-                size=embedding_dim, distance=qdrant_models.Distance.COSINE
-            ),
-            sparse_vectors_config={
-                "langchain-sparse": qdrant_models.SparseVectorParams()
-            },
-            hnsw_config=qdrant_models.HnswConfigDiff(
-                m=16,
-                ef_construct=100,
-                full_scan_threshold=10000,
-            ),
-        )
-        logger.info(f"Collection '{collection_name}' created.")
-    else:
-        logger.info(f"Collection '{collection_name}' already exists")
-
-    # Payload-Index fuer file_group_id: alle Chunks einer Datei teilen diesen
-    # Wert, damit "Meine Dokumente"/Loeschen effizient per Filter statt
-    # Vollscan darauf zugreifen koennen. Idempotent, falls Index bereits existiert.
     try:
-        _qdrant_client.create_payload_index(
-            collection_name=collection_name,
-            field_name="file_group_id",
-            field_schema=qdrant_models.PayloadSchemaType.KEYWORD,
-        )
+        for kb in list_knowledge():
+            if kb["embedding_dimension"]:
+                ensure_collection(_qdrant_client, kb["collection_name"], kb["embedding_dimension"])
     except Exception as e:
-        logger.debug(
-            f"Payload-Index file_group_id bereits vorhanden oder fehlgeschlagen: {e}"
-        )
+        logger.warning(f"Knowledge-Collections konnten nicht angelegt werden: {e}")
 
     # Qdrant-Client sofort fuer Dokument-Endpunkte bereithalten
     app.extensions["client"] = _qdrant_client
 
     # Alle Settings im Main-Thread vorlesen (SQLAlchemy-Session ist nicht
     # thread-safe) und als Captures in den Hintergrund-Thread reichen.
-    embedding_model = settings.get(
-        "EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    )
     retriever_k = settings.get_int("RETRIEVER_K", 5)
     retriever_fetch_k = settings.get_int("RETRIEVER_FETCH_K", 30)
     retriever_lambda = settings.get_float("RETRIEVER_LAMBDA", 0.5)
@@ -172,64 +143,46 @@ def init_resources(app, preload=False):
     data_dir = settings.get("DATA_DIR", "./data")
     summaries_dir = settings.get("SUMMARIES_DIR", "./data/summaries")
 
-    # Search & PII-Filter Settings
-    searxng_enabled = settings.get_bool("SEARCH_SEARXNG_ENABLED", True)
-    searxng_url = settings.get("SEARCH_SEARXNG_URL") if searxng_enabled else None
-    searxng_categories = settings.get("SEARCH_SEARXNG_CATEGORIES", "general")
-    pii_filter_url = settings.get("PII_FILTER_URL")
-    pii_filter_api_key = settings.get("PII_FILTER_API_KEY")
-    pii_filter_enabled = settings.get_bool("PII_FILTER_ENABLED", True)
-
-    # PII-Filter Client initialisieren (wenn konfiguriert)
-    if pii_filter_url and pii_filter_enabled:
-        from app.utils.pii_filter_client import PIIFilterClient
-
-        pii_filter_client = PIIFilterClient(
-            full_url=pii_filter_url,
-            api_key=pii_filter_api_key if pii_filter_api_key else None,
-        )
-        app.extensions["pii_filter"] = pii_filter_client
-        logger.info(f"PII-Filter Client initialisiert: {pii_filter_url}")
-    else:
-        app.extensions["pii_filter"] = None
-        if not pii_filter_url:
-            logger.info("PII-Filter nicht aktiv (URL nicht konfiguriert)")
-        elif not pii_filter_enabled:
-            logger.info("PII-Filter deaktiviert durch Einstellung")
+    # Embedding- und Reranking-Modell im Hintergrund laden (Download beim ersten Start),
+    # damit die erste Suche bzw. das erste Einlesen nicht darauf wartet.
+    threading.Thread(
+        target=_prepare_models, args=(_qdrant_client,), name="prepare-models", daemon=True
+    ).start()
 
     # Modell-Laden: synchron (preload) oder asynchron (Hintergrund-Thread)
     if preload:
         _load_resources_sync(
             app,
             {
-                "embedding_model": embedding_model,
                 "retriever_k": retriever_k,
                 "retriever_fetch_k": retriever_fetch_k,
                 "retriever_lambda": retriever_lambda,
                 "retriever_threshold": retriever_threshold,
                 "data_dir": data_dir,
                 "summaries_dir": summaries_dir,
-                "searxng_url": searxng_url,
-                "searxng_categories": searxng_categories,
-                "pii_filter_client": app.extensions.get("pii_filter"),
             },
         )
     else:
         _load_resources_async(
             app,
             {
-                "embedding_model": embedding_model,
                 "retriever_k": retriever_k,
                 "retriever_fetch_k": retriever_fetch_k,
                 "retriever_lambda": retriever_lambda,
                 "retriever_threshold": retriever_threshold,
                 "data_dir": data_dir,
                 "summaries_dir": summaries_dir,
-                "searxng_url": searxng_url,
-                "searxng_categories": searxng_categories,
-                "pii_filter_client": app.extensions.get("pii_filter"),
             },
         )
+
+
+def _prepare_models(client):
+    try:
+        from app.rag import model_settings
+
+        model_settings.prepare(client)
+    except Exception as e:
+        logger.warning(f"Modelle konnten nicht vorbereitet werden: {e}")
 
 
 def _load_resources_sync(app, settings_dict):
@@ -360,28 +313,46 @@ def create_app(preload=False):
 
     app.extensions = {}
     app.extensions["db"] = _db_service
-    app.extensions["settings"] = settings
+    db_session.close()  # nur fuer den Start; danach liest jeder Zugriff frisch
+    app.extensions["settings"] = LiveSettingsService()
     # Geteilter Ingestion-Status, fuer den Navbar-Indikator per Polling
     # ueber /api/ingestion-status.
-    app.extensions["ingestion_status"] = {"is_ingesting": False}
+    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
 
     init_resources(app, preload=preload)
 
-    # UI-Theme-Default an alle Templates reichen, damit base.html das
-    # Theme-Bootstrap-Script den richtigen Fallback nutzt (localStorage
-    # gewinnt clientseitig, dies ist der Server-Default fuer 'system').
-    @app.context_processor
-    def inject_ui_theme():
-        ui_theme = settings.get("UI_THEME", "system") or "system"
-        return {"ui_theme_default": ui_theme}
+    # UI-Theme-Default für das SPA-Bootstrap bereitstellen. Die SPA liest
+    # localStorage('ui_theme'); index.html hat 'system' als Fallback. Der
+    # Server-Default wird hier nur noch als Inline-Variable in index.html
+    # eingebettet (siehe serve_spa) - daher kein Jinja-Context mehr nötig.
 
     # Blueprints registrieren
     from app.routes import bp
 
     app.register_blueprint(bp)
 
+    # JSON-API für die React-SPA (Auth, Settings, Dokumente, VektordB, ...).
+    from app.api_routes import api_bp
+
+    app.register_blueprint(api_bp)
+
+    # Connections und Modell-Konfigurationen (Admin-Bereich der SPA).
+    from app.admin_routes import admin_bp
+
+    app.register_blueprint(admin_bp)
+
+    # Benutzer, Gruppen, Freigaben und eigenes Passwort.
+    from app.user_admin_routes import users_bp
+
+    app.register_blueprint(users_bp)
+
+    # Retrieval-Profile und Pipeline-Test.
+    from app.rag.routes import rag_bp
+
+    app.register_blueprint(rag_bp)
+
     # User Routes enthalten jetzt auch die ehemaligen Admin-Funktionen
-    # (Dashboard, Vektordatenbank, Settings, Summaries).
+    # (Vektordatenbank, Settings, Summaries).
     from app.user_routes import user_bp
 
     app.register_blueprint(user_bp)

@@ -76,6 +76,14 @@ class SettingsService:
             "PII_FILTER_API_KEY",
             "PII_FILTER_ENABLED",
         ],
+        "ingest": [
+            "INGEST_CHUNK_SIZE",
+            "INGEST_CHUNK_OVERLAP",
+            "INGEST_CONTEXT_ENRICHMENT",
+            "INGEST_KEEP_ORIGINAL",
+            "INGEST_INDEX_ENABLED",
+            "INGEST_VISION_ENABLED",
+        ],
         "ui": [
             "UI_THEME",
         ],
@@ -94,7 +102,55 @@ class SettingsService:
     # der env re-importiert werden. Bestehende DB-Zeilen werden beim Init geloescht.
     # APP_PASSWORD_HASH wird separat vom Passwort-Formular verwaltet.
     DEPRECATED_KEYS = {"MODEL", "BASEURL", "TEMPERATURE", "TOP_P", "CHAT_DB_PATH"}
-    UI_EXCLUDED_KEYS = {"APP_PASSWORD_HASH"}
+    # RETRIEVER_*: nur noch Startwerte fuer das Standard-Retrieval-Profil (Admin > Retrieval).
+    UI_EXCLUDED_KEYS = {
+        "APP_PASSWORD_HASH",
+        "DEFAULT_MODEL",
+        "RETRIEVER_K",
+        "RETRIEVER_FETCH_K",
+        "RETRIEVER_LAMBDA",
+        "RETRIEVER_SCORE_THRESHOLD",
+        # Eigene Admin-Seite "Einlesen & Modelle"
+        "EMBEDDING_SOURCE",
+        "EMBEDDING_MODEL",
+        "EMBEDDING_ENDPOINT",
+        "EMBEDDING_DIMENSION",
+        "EMBEDDING_SPEC",
+        "RERANKER_SPEC",
+        "INGEST_CHUNK_SIZE",
+        "INGEST_CHUNK_OVERLAP",
+        "INGEST_CONTEXT_ENRICHMENT",
+        "INGEST_KEEP_ORIGINAL",
+        "INGEST_INDEX_ENABLED",
+        "INGEST_VISION_ENABLED",
+        "VISION_MODEL_REF",
+        # Chat- und Vision-Modelle laufen ueber Verbindungen und Modelle (Administration);
+        # Sampling-Werte stellt man pro Modell ein.
+        "CHAT_MODEL",
+        "CHAT_BASEURL",
+        "CHAT_TEMPERATURE",
+        "CHAT_TOP_P",
+        "CHAT_TOP_K",
+        "CHAT_MAX_TOKENS",
+        "CHAT_NUM_CTX",
+        "CHAT_THINKING",
+        "VISION_MODEL",
+        "VISION_BASEURL",
+        "API_KEY",
+        # Infrastruktur kommt aus der Umgebung (docker-compose / .env), nicht aus der Oberflaeche.
+        "DATA_DIR",
+        "SUMMARIES_DIR",
+        "QDRANT_HOST",
+        "QDRANT_PORT",
+        "QDRANT_API_KEY",
+        # Die Websuche wird pro Modell zugeschaltet (Modelle > Konfigurieren).
+        "SEARCH_SEARXNG_ENABLED",
+        "SECRET_KEY",
+    }
+
+    # Nur aus Umgebung/Standard gelesen, nie aus der Datenbank: ein alter Datenbankwert
+    # ("localhost") wuerde sonst die Angaben aus docker-compose uebersteuern.
+    ENV_ONLY_KEYS = {"DATA_DIR", "SUMMARIES_DIR", "QDRANT_HOST", "QDRANT_PORT", "QDRANT_API_KEY"}
 
     DESCRIPTIONS = {
         "CHAT_MODEL": "Modell für Chat-Interaktionen (z.B. qwen3:8b, buddy)",
@@ -140,10 +196,11 @@ class SettingsService:
         """
         Setting-Wert holen (Reihenfolge: DB → Env → Default)
         """
-        # 1. Aus DB lesen
-        setting = self.db.query(Setting).filter_by(key=key).first()
-        if setting and setting.value is not None:
-            return setting.value
+        # 1. Aus DB lesen (Infrastruktur-Werte nicht, siehe ENV_ONLY_KEYS)
+        if key not in self.ENV_ONLY_KEYS:
+            setting = self.db.query(Setting).filter_by(key=key).first()
+            if setting and setting.value is not None:
+                return setting.value
 
         # 2. Fallback auf Environment
         env_value = os.getenv(key)
@@ -250,7 +307,7 @@ class SettingsService:
     def get_category_display_name(self, category: str) -> str:
         """Deutsche Anzeigenamen für Kategorien"""
         names = {
-            "llm": "LLM Einstellungen",
+            "llm": "LLM (veraltet)",
             "stt": "Spracheingabe (STT)",
             "embedding": "Embedding Einstellungen",
             "retriever": "Retriever Einstellungen",
@@ -327,3 +384,27 @@ class SettingsService:
     def get_embedding_dimension(self) -> int:
         """Embedding Dimension"""
         return self.get_int("EMBEDDING_DIMENSION", 384)
+
+
+class LiveSettingsService:
+    """Wie ``SettingsService``, aber jeder Aufruf nutzt eine frische, kurze Session.
+
+    Eine dauerhaft gehaltene Session cacht geladene Settings und liefert nach Aenderungen
+    anderer Sessions (Admin-Seite) veraltete Werte.
+    """
+
+    def __getattr__(self, name):
+        method = getattr(SettingsService, name)
+        if not callable(method):
+            raise AttributeError(name)
+
+        def call(*args, **kwargs):
+            from app.database_service import get_db_service
+
+            session = get_db_service().get_session()
+            try:
+                return getattr(SettingsService(session), name)(*args, **kwargs)
+            finally:
+                session.close()
+
+        return call

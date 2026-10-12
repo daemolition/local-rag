@@ -29,3 +29,16 @@ data/
 dist
 build
 ephemeral
+
+# Frontend (wird im Dockerfile in einem eigenen Node-Stage gebaut; nur
+# Quellcode + Lockfile werden dort gebraucht, node_modules nie).
+frontend/node_modules
+frontend/dist
+
+# Generierte React-SPA (kommt aus dem Node-Stage, nicht vom Host).
+app/static/index.html
+app/static/assets
+app/static/favicon.svg
+app/static/pcm-worklet-processor.js
+# Alt-Artefakt früherer Builds
+app/static/dist

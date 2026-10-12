@@ -23,15 +23,16 @@ def upgrade() -> None:
     conn = op.get_bind()
     conn.execute(
         sa.text(
-            "INSERT OR IGNORE INTO settings "
+            "INSERT INTO settings "
             "(key, value, default_value, category, is_sensitive, description) "
-            "VALUES (:key, :value, :value, :category, :is_sensitive, :description)"
+            "VALUES (:key, :value, :value, :category, :is_sensitive, :description) "
+                "ON CONFLICT (key) DO NOTHING"
         ),
         {
             "key": "UI_THEME",
             "value": "system",
             "category": "ui",
-            "is_sensitive": 0,
+            "is_sensitive": False,
             "description": "Oberflaeche: light, dark oder system (folgt OS)",
         },
     )

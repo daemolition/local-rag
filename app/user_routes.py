@@ -20,7 +20,6 @@ User Routes für Dokumentenverwaltung, Vektordatenbank, Settings und Summaries
 """
 
 import os
-from datetime import datetime
 from logging import getLogger
 from pathlib import Path
 
@@ -31,15 +30,15 @@ from flask import (
     flash,
     jsonify,
     redirect,
-    render_template,
     request,
     send_file,
     url_for,
 )
 from qdrant_client import models
-from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.auth import auth_required
+from app import summaries as summaries_store
+from app.auth import auth_required, current_user
+from app.users import role_at_least, set_password, verify_password
 from app.database_service import get_db_service
 from app.settings_service import SettingsService
 
@@ -47,134 +46,56 @@ logger = getLogger(__name__)
 
 user_bp = Blueprint("user", __name__, url_prefix="/user")
 
+
+@user_bp.before_request
+def _admins_only():
+    """Diese aelteren Routen (Einstellungen, Vektordatenbank, ...) werden von der
+    SPA nicht mehr genutzt; sie bleiben Admins vorbehalten, damit sie die
+    Rollenpruefung der /api-Routen nicht umgehen."""
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Nicht authentifiziert"}), 401
+    if not role_at_least(user["role"], "admin"):
+        return jsonify({"error": "Keine Berechtigung"}), 403
+    return None
+
 COLLECTION_NAME = "local_rag"
 
 
 @user_bp.route("/documents")
 @auth_required
 def my_documents():
-    """Alle Dokumente im file-level View"""
-    db = get_db_service()
-    user_docs = db.get_all_documents()
-
-    client = current_app.extensions.get("client")
-    documents = []
-
-    if client:
-        for user_doc in user_docs:
-            try:
-                points, _ = client.scroll(
-                    collection_name=COLLECTION_NAME,
-                    scroll_filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="file_group_id",
-                                match=models.MatchValue(value=user_doc.document_id),
-                            )
-                        ]
-                    ),
-                    limit=1,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                if points:
-                    payload = points[0].payload or {}
-
-                    from app.utils.file_manager import check_data_file_exists
-
-                    has_data_file = check_data_file_exists(user_doc.filename)
-
-                    documents.append(
-                        {
-                            "id": user_doc.id,
-                            "document_id": user_doc.document_id,
-                            "filename": user_doc.filename,
-                            "uploaded_at": user_doc.uploaded_at,
-                            "content_preview": (
-                                payload.get("page_content", "")
-                                or payload.get("original_content", "")
-                            )[:100]
-                            + "...",
-                            "source": payload.get("source", "N/A"),
-                            "has_data_file": has_data_file,
-                        }
-                    )
-                else:
-                    documents.append(
-                        {
-                            "id": user_doc.id,
-                            "document_id": user_doc.document_id,
-                            "filename": user_doc.filename,
-                            "uploaded_at": user_doc.uploaded_at,
-                            "content_preview": "[Nicht mehr in Qdrant]",
-                            "source": "N/A",
-                        }
-                    )
-            except Exception as e:
-                documents.append(
-                    {
-                        "id": user_doc.id,
-                        "document_id": user_doc.document_id,
-                        "filename": user_doc.filename,
-                        "uploaded_at": user_doc.uploaded_at,
-                        "content_preview": f"[Fehler: {e!s}]",
-                        "source": "N/A",
-                    }
-                )
-
-    return render_template("user/documents.html", documents=documents)
+    """Legacy-HTML-Route: die React-SPA übernimmt die Anzeige."""
+    return redirect("/documents")
 
 
 @user_bp.route("/documents/upload", methods=["GET", "POST"])
 @auth_required
 def upload_document():
-    """Dokumente hochladen - GET zeigt Formular, POST verarbeitet Upload"""
+    """Legacy-Upload. GET leitet zur SPA; POST nutzt denselben Helper wie die API."""
     if request.method == "GET":
-        return render_template("user/upload.html")
+        return redirect("/documents/upload")
 
-    project_root = Path(current_app.root_path).parent
-    files = request.files.getlist("files")
+    from app.utils.file_manager import store_uploaded_files
 
-    target_dir = project_root / "data" / "files"
-    processed_dir = project_root / "data" / "processed_files"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    processed_dir.mkdir(parents=True, exist_ok=True)
+    result = store_uploaded_files(request.files.getlist("files"))
 
-    saved_files = []
-
-    for file in files:
-        if file.filename == "":
-            continue
-
-        ext = Path(file.filename).suffix.lower()
-        allowed_exts = [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv"]
-        if ext not in allowed_exts:
-            continue
-
-        processed_path = processed_dir / file.filename
-        if processed_path.exists():
-            return jsonify(
-                {
-                    "success": False,
-                    "error": f'Datei "{file.filename}" wurde bereits hochgeladen und verarbeitet. '
-                    f"Bitte zuerst das bestehende Dokument löschen, um es zu ersetzen.",
-                }
-            ), 409
-
-        filepath = target_dir / file.filename
-        file.save(filepath)
-        saved_files.append(file.filename)
-
-    if saved_files:
+    if result["duplicate"]:
         return jsonify(
             {
-                "success": True,
-                "files": saved_files,
-                "message": f"{len(saved_files)} Datei(en) hochgeladen. Bitte Ingestion starten.",
+                "success": False,
+                "error": (
+                    f'Datei "{result["duplicate"]}" wurde bereits hochgeladen und '
+                    f"verarbeitet. Bitte zuerst das bestehende Dokument löschen, "
+                    f"um es zu ersetzen."
+                ),
             }
-        )
+        ), 409
 
-    return jsonify({"success": False, "error": "Keine gültigen Dateien"}), 400
+    if not result["documents"] and not result["data_files"]:
+        return jsonify({"success": False, "error": "Keine gültigen Dateien"}), 400
+
+    return jsonify({"success": True, **result})
 
 
 @user_bp.route("/documents/upload/clear", methods=["POST"])
@@ -289,7 +210,6 @@ def trigger_ingestion():
     status["is_ingesting"] = True
     try:
         ingest = DocumentIngestion(
-            embeddings=current_app.extensions.get("dense_embeddings"),
             sparse_embeddings=current_app.extensions.get("sparse_embeddings"),
         )
         ingest.ingest_documents()
@@ -310,137 +230,15 @@ def trigger_ingestion():
 @user_bp.route("/vectordb")
 @auth_required
 def vectordb():
-    """Chunk-level Dokumentenansicht (ex /admin/documents)"""
-    client = current_app.extensions.get("client")
-    if not client:
-        flash("Qdrant Client nicht initialisiert")
-        return redirect(url_for("main.index"))
-
-    limit = request.args.get("limit", 20, type=int)
-    offset = request.args.get("offset", None)
-    filename_filter = request.args.get("filename", "").strip()
-    file_status_filter = request.args.get("file_status", "").strip()
-
-    try:
-        scroll_filter = None
-        if filename_filter:
-            scroll_filter = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="filename", match=models.MatchValue(value=filename_filter)
-                    )
-                ]
-            )
-
-        result = client.scroll(
-            collection_name=COLLECTION_NAME,
-            limit=limit,
-            offset=offset,
-            with_payload=True,
-            with_vectors=False,
-            scroll_filter=scroll_filter,
-        )
-
-        points, next_offset = result
-
-        documents = []
-        for point in points:
-            payload = point.payload or {}
-            filename = payload.get("filename", "N/A")
-
-            from app.utils.file_manager import check_data_file_exists
-
-            has_data_file = (
-                check_data_file_exists(filename) if filename != "N/A" else False
-            )
-
-            if file_status_filter:
-                if file_status_filter == "has_file" and not has_data_file:
-                    continue
-                if file_status_filter == "no_file" and has_data_file:
-                    continue
-
-            documents.append(
-                {
-                    "id": str(point.id),
-                    "filename": filename,
-                    "source": payload.get("source", "N/A"),
-                    "content_preview": (
-                        payload.get("page_content", "")
-                        or payload.get("original_content", "")
-                    )[:50]
-                    + "...",
-                    "has_data_file": has_data_file,
-                }
-            )
-
-        all_points, _ = client.scroll(
-            collection_name=COLLECTION_NAME,
-            limit=1000,
-            with_payload=True,
-            with_vectors=False,
-        )
-        filenames = sorted(
-            set(p.payload.get("filename", "N/A") for p in all_points if p.payload)
-        )
-
-    except Exception as e:
-        documents = []
-        next_offset = None
-        filenames = []
-        flash(f"Fehler beim Laden der Dokumente: {e!s}")
-
-    return render_template(
-        "user/vectordb.html",
-        documents=documents,
-        next_offset=next_offset,
-        filenames=filenames,
-        current_filter=filename_filter,
-        file_status_filter=file_status_filter,
-        limit=limit,
-    )
+    """Legacy-HTML-Route: die React-SPA übernimmt die Anzeige."""
+    return redirect("/vectordb")
 
 
 @user_bp.route("/vectordb/<doc_id>")
 @auth_required
 def vectordb_detail(doc_id):
-    """Einzelnes Qdrant-Dokument anzeigen"""
-    client = current_app.extensions.get("client")
-    if not client:
-        flash("Qdrant Client nicht initialisiert")
-        return redirect(url_for("user.vectordb"))
-
-    try:
-        result = client.retrieve(
-            collection_name=COLLECTION_NAME,
-            ids=[doc_id],
-            with_payload=True,
-            with_vectors=False,
-        )
-
-        if not result:
-            flash("Dokument nicht gefunden")
-            return redirect(url_for("user.vectordb"))
-
-        point = result[0]
-        payload = point.payload or {}
-
-        document = {
-            "id": str(point.id),
-            "page_content": payload.get("page_content", ""),
-            "original_content": payload.get("original_content", ""),
-            "metadata": {
-                k: v
-                for k, v in payload.items()
-                if k not in ["page_content", "original_content"]
-            },
-        }
-
-    except Exception as e:
-        flash(f"Fehler beim Laden des Dokuments: {e!s}")
-        return redirect(url_for("user.vectordb"))
-
-    return render_template("user/vectordb_detail.html", document=document)
+    """Legacy-HTML-Route: die React-SPA übernimmt die Anzeige."""
+    return redirect(f"/vectordb/{doc_id}")
 
 
 @user_bp.route("/vectordb/<doc_id>/delete", methods=["POST"])
@@ -569,71 +367,11 @@ def vectordb_clear_all():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@user_bp.route("/dashboard")
-@auth_required
-def dashboard():
-    """Dashboard mit Collection-Info (ex /admin/index)"""
-    client = current_app.extensions.get("client")
-    if not client:
-        flash("Qdrant Client nicht initialisiert")
-        return redirect(url_for("main.index"))
-
-    try:
-        collection = client.get_collection(COLLECTION_NAME)
-        stats = {
-            "name": COLLECTION_NAME,
-            "points_count": collection.points_count,
-            "vectors_count": getattr(
-                collection, "indexed_vectors_count", collection.points_count
-            )
-            or 0,
-            "status": collection.status.value
-            if hasattr(collection.status, "value")
-            else str(collection.status),
-            "config": {
-                "size": collection.config.params.vectors.size
-                if hasattr(collection.config.params.vectors, "size")
-                else "N/A",
-                "distance": collection.config.params.vectors.distance.value
-                if hasattr(collection.config.params.vectors, "distance")
-                else "N/A",
-            },
-        }
-    except Exception as e:
-        stats = None
-        flash(f"Fehler beim Laden der Collection: {e!s}")
-
-    return render_template("user/dashboard.html", stats=stats)
-
-
-@user_bp.route("/api/stats")
-@auth_required
-def api_stats():
-    """API: Collection Stats"""
-    client = current_app.extensions.get("client")
-    if not client:
-        return jsonify({"error": "Qdrant Client nicht initialisiert"}), 500
-
-    try:
-        collection = client.get_collection(COLLECTION_NAME)
-        return jsonify(
-            {
-                "points_count": collection.points_count,
-                "status": collection.status.value
-                if hasattr(collection.status, "value")
-                else str(collection.status),
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 # =============================================================================
 # SETTINGS (ex /admin/settings)
 # =============================================================================
 
 SELECT_OPTIONS = {
-    "EMBEDDING_SOURCE": [("local", "Lokal"), ("endpoint", "Remote Endpoint")],
     "UI_THEME": [
         ("system", "System (OS-Präferenz folgen)"),
         ("light", "Hell"),
@@ -648,9 +386,7 @@ SELECT_OPTIONS = {
     ],
 }
 
-DEPENDENT_FIELDS = {
-    "EMBEDDING_SOURCE": {"show_when": "endpoint", "fields": ["EMBEDDING_ENDPOINT"]}
-}
+DEPENDENT_FIELDS: dict = {}
 
 TOGGLE_KEYS = {"SEARCH_SEARXNG_ENABLED", "PII_FILTER_ENABLED"}
 
@@ -658,25 +394,11 @@ TOGGLE_KEYS = {"SEARCH_SEARXNG_ENABLED", "PII_FILTER_ENABLED"}
 @user_bp.route("/settings")
 @auth_required
 def settings():
-    """Settings-Panel anzeigen"""
-    db = get_db_service()
-    settings_svc = SettingsService(db.get_session())
+    """System-Einstellungen öffnen nun als globales Overlay-Modal.
 
-    settings_by_category = settings_svc.get_all_by_category()
-    category_names = {
-        cat: settings_svc.get_category_display_name(cat)
-        for cat in settings_by_category.keys()
-    }
-
-    return render_template(
-        "user/settings.html",
-        settings_by_category=settings_by_category,
-        category_names=category_names,
-        select_options=SELECT_OPTIONS,
-        dependent_fields=DEPENDENT_FIELDS,
-        toggle_keys=TOGGLE_KEYS,
-        testable_categories=TESTABLE_CATEGORIES,
-    )
+    Diese Route bleibt für bestehende Lesezeichen/Deep-Links erhalten und
+    leitet zum Chat mit dem Auto-Open-Flag weiter."""
+    return redirect(url_for("main.index", open="settings"))
 
 
 @user_bp.route("/settings", methods=["POST"])
@@ -762,14 +484,11 @@ def change_password():
             {"success": False, "error": "Passwort muss mindestens 4 Zeichen haben"}
         ), 400
 
-    db = get_db_service()
-    settings_svc = SettingsService(db.get_session())
-
-    current_hash = settings_svc.get("APP_PASSWORD_HASH")
-    if current_hash and not check_password_hash(current_hash, old_password):
+    user = current_user()
+    if not verify_password(user["id"], old_password):
         return jsonify({"success": False, "error": "Altes Passwort ist falsch"}), 403
 
-    settings_svc.set("APP_PASSWORD_HASH", generate_password_hash(new_password))
+    set_password(user["id"], new_password)
     return jsonify({"success": True})
 
 
@@ -807,7 +526,7 @@ def test_service():
                     "error": (
                         f"Unbekannte Kategorie '{category}'. "
                         f"Testbar: {', '.join(sorted(TESTABLE_CATEGORIES))}"
-                    )
+                    ),
                 }
             ),
             400,
@@ -948,45 +667,11 @@ def _test_stt(settings: SettingsService) -> dict:
 
 
 def _test_embedding(settings: SettingsService) -> dict:
-    """Embedding-Service testen. Lokal (fastembed) wird nur gemeldet, nicht geprüft."""
-    source = settings.get("EMBEDDING_SOURCE") or "local"
-    if source != "endpoint":
-        return {
-            "success": True,
-            "message": (
-                "Lokale Embeddings (ONNX/fastembed) sind aktiviert — "
-                "kein Remote-Service zu testen."
-            ),
-        }
-
-    endpoint = settings.get("EMBEDDING_ENDPOINT") or ""
-    api_key = settings.get("API_KEY") or ""
-    if not endpoint:
-        return {"success": False, "error": "EMBEDDING_ENDPOINT ist nicht gesetzt"}
-
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    # /v1/models als Standard-Endpoint
-    models_url = endpoint.rstrip("/").rstrip("v1").rstrip("/") + "/v1/models"
-
-    try:
-        resp = requests.get(models_url, headers=headers, timeout=10)
-        if resp.status_code != 200:
-            return {
-                "success": False,
-                "error": f"HTTP {resp.status_code} von {models_url}",
-                "details": resp.text[:300],
-            }
-        data = resp.json()
-        models = [m.get("id", "?") for m in data.get("data", [])]
-        return {
-            "success": True,
-            "message": f"Verbindung OK. {len(models)} Modell(e) verfügbar.",
-            "details": ", ".join(models[:15]),
-        }
-    except requests.exceptions.Timeout:
-        return {"success": False, "error": f"Timeout (10s) bei {models_url}"}
-    except requests.exceptions.RequestException as e:
-        return {"success": False, "error": f"Verbindung fehlgeschlagen: {e}"}
+    """Embedding wird auf der Admin-Seite "Einlesen & Modelle" geprueft."""
+    return {
+        "success": True,
+        "message": "Embedding und Reranking werden unter Admin › Einlesen & Modelle eingerichtet und getestet.",
+    }
 
 
 def _test_qdrant(settings: SettingsService) -> dict:
@@ -998,11 +683,13 @@ def _test_qdrant(settings: SettingsService) -> dict:
     api_key = settings.get("QDRANT_API_KEY") or None
 
     try:
-        client = get_qdrant_client(
-            custom_host=host, custom_port=port, api_key=api_key
-        )
+        client = get_qdrant_client(custom_host=host, custom_port=port, api_key=api_key)
         ok, msg = test_connection(client, timeout=5)
-        return {"success": ok, "message": msg if ok else None, "error": None if ok else msg}
+        return {
+            "success": ok,
+            "message": msg if ok else None,
+            "error": None if ok else msg,
+        }
     except Exception as e:
         return {"success": False, "error": f"Qdrant-Verbindung fehlgeschlagen: {e}"}
 
@@ -1059,17 +746,23 @@ def _test_pii_filter(settings: SettingsService) -> dict:
         return {"success": False, "error": "PII_FILTER_URL ist nicht gesetzt"}
 
     test_text = "Test-Text ohne PII für Verbindungsprüfung."
-    json_body = {"text": test_text}
+    headers = {"Content-Type": "application/json"}
     if api_key:
-        json_body["api_key"] = api_key
+        headers["Authorization"] = f"Bearer {api_key}"
 
     try:
         resp = requests.post(
             url,
-            json=json_body,
-            headers={"Content-Type": "application/json"},
+            json={"text": test_text},
+            headers=headers,
             timeout=10,
         )
+        if resp.status_code in (401, 403):
+            return {
+                "success": False,
+                "error": f"API-Key ungültig oder fehlt (HTTP {resp.status_code})",
+                "details": resp.text[:300],
+            }
         if resp.status_code != 200:
             return {
                 "success": False,
@@ -1096,67 +789,25 @@ def _test_pii_filter(settings: SettingsService) -> dict:
 @user_bp.route("/summaries")
 @auth_required
 def my_summaries():
-    """Alle Summary-Dateien anzeigen"""
-    db = get_db_service()
-    settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get("SUMMARIES_DIR", "./data/summaries"))
-
-    md_files = []
-    if summaries_dir.exists():
-        for file_path in sorted(summaries_dir.glob("*.md")):
-            stat = file_path.stat()
-
-            md_files.append(
-                {
-                    "filename": file_path.name,
-                    "size": stat.st_size,
-                    "size_human": _format_file_size(stat.st_size),
-                    "modified": stat.st_mtime,
-                    "created_at": datetime.fromtimestamp(stat.st_ctime),
-                }
-            )
-
-    return render_template("user/summaries.html", summaries=md_files)
+    """Legacy-HTML-Route: die React-SPA übernimmt die Anzeige."""
+    return redirect("/summaries")
 
 
 @user_bp.route("/summaries/<path:filename>/edit")
 @auth_required
 def edit_my_summary(filename):
-    """Summary-Datei bearbeiten"""
-    from pathlib import Path
+    """Legacy-HTML-Route: die React-SPA übernimmt die Anzeige."""
+    from urllib.parse import quote
 
-    db = get_db_service()
-    settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get("SUMMARIES_DIR", "./data/summaries"))
-
-    file_path = summaries_dir / filename
-
-    if (
-        not file_path.exists()
-        or not file_path.suffix == ".md"
-        or not str(file_path).startswith(str(summaries_dir))
-    ):
-        flash("Datei nicht gefunden")
-        return redirect(url_for("user.my_summaries"))
-
-    try:
-        content = file_path.read_text(encoding="utf-8")
-    except Exception as e:
-        flash(f"Fehler beim Lesen: {e!s}")
-        content = ""
-
-    return render_template("user/edit_summary.html", filename=filename, content=content)
+    return redirect(f"/summaries/{quote(filename)}")
 
 
 @user_bp.route("/summaries/<path:filename>/save", methods=["POST"])
 @auth_required
 def save_my_summary(filename):
     """Summary-Datei speichern"""
-    from pathlib import Path
 
-    db = get_db_service()
-    settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get("SUMMARIES_DIR", "./data/summaries"))
+    summaries_dir = summaries_store.user_dir(current_user()["id"], create=True)
 
     file_path = summaries_dir / filename
 
@@ -1180,11 +831,9 @@ def save_my_summary(filename):
 @auth_required
 def delete_my_summary(filename):
     """Summary-Datei löschen"""
-    from pathlib import Path
 
     db = get_db_service()
-    settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get("SUMMARIES_DIR", "./data/summaries"))
+    summaries_dir = summaries_store.user_dir(current_user()["id"], create=True)
 
     file_path = summaries_dir / filename
 
@@ -1211,9 +860,7 @@ def delete_my_summary(filename):
 @auth_required
 def download_summary_as_md(filename):
     """Download Summary als Markdown-Datei."""
-    db = get_db_service()
-    settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get("SUMMARIES_DIR", "./data/summaries")).resolve()
+    summaries_dir = summaries_store.user_dir(current_user()["id"], create=True).resolve()
 
     file_path = (summaries_dir / filename).resolve()
 
@@ -1248,9 +895,7 @@ def download_summary_as_docx(filename):
     from docx.shared import Pt, RGBColor
     from markdown_it import MarkdownIt
 
-    db = get_db_service()
-    settings = SettingsService(db.get_session())
-    summaries_dir = Path(settings.get("SUMMARIES_DIR", "./data/summaries"))
+    summaries_dir = summaries_store.user_dir(current_user()["id"], create=True)
 
     file_path = summaries_dir / filename
 

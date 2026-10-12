@@ -19,8 +19,8 @@ DOCX/DOC/ODT-spezifisches Preprocessing via Docling.
 
 Frueher wurde DOCX per python-docx + ZIP-Bildextraktion verarbeitet, damit
 Bilder an der richtigen Textfluss-Position landen. Docling loest das ueber
-die einheitliche DoclingDocument-Repraesentation: doc.iterate_items()
- liefert Text, Tabellen und Bilder in Lesereihenfolge. Damit entfaellt der
+die einheitliche DoclingDocument-Repraesentation (Markdown-Export in
+Lesereihenfolge, Bilder an ihrer Stelle). Damit entfaellt der
 komplette python-docx-Sonderweg.
 
 DOCX/DOC nutzen den Word-Backend (WordFormatOption), ODT den ODT-Backend
@@ -55,9 +55,9 @@ class PreprocessDOCX(PreprocessBase):
         # .docx und .doc nutzen beide den Word-Backend (.doc best-effort).
         return InputFormat.DOCX, WordFormatOption()
 
-    def process_document(self, file_path: str) -> list:
-        """Verarbeitet DOCX/DOC/ODT und gibt LangChain-Dokumente zurueck."""
+    def process_document(self, file_path: str, table_sink=None) -> str:
+        """Verarbeitet DOCX/DOC/ODT und gibt Markdown (inkl. Bildbeschreibungen) zurueck."""
         input_format, format_option = self._format_option_for(file_path)
         converter = DocumentConverter(format_options={input_format: format_option})
         result = converter.convert(file_path)
-        return self.build_chunks_from_docling(result.document, file_path)
+        return self.build_markdown_from_docling(result.document, file_path, table_sink)

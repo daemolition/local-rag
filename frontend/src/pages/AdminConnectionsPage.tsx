@@ -1,0 +1,175 @@
+import { useCallback, useEffect, useState } from "react";
+import { KeyRound, Pencil, Plug, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  ConnectionDialog,
+  type ConnectionValues,
+} from "@/components/ConnectionDialog";
+import { AdminLink } from "@/components/AdminNav";
+import { api, errorMessage } from "@/lib/api";
+import type { Connection } from "@/lib/types";
+
+export function AdminConnectionsPage() {
+  const [items, setItems] = useState<Connection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Connection | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Connection | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setItems(await api.get<Connection[]>("/api/connections"));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async (values: ConnectionValues) => {
+    try {
+      if (editing) {
+        await api.patch(`/api/connections/${editing.id}`, values);
+      } else {
+        await api.post("/api/connections", values);
+      }
+      await load();
+    } catch (e) {
+      toast.error(errorMessage(e));
+      throw e;
+    }
+  };
+
+  const toggle = async (c: Connection, enabled: boolean) => {
+    setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, enabled } : x)));
+    try {
+      await api.patch(`/api/connections/${c.id}`, { enabled });
+    } catch (e) {
+      toast.error(errorMessage(e));
+      await load();
+    }
+  };
+
+  const remove = async () => {
+    if (!deleteTarget) return;
+    try {
+      await api.del(`/api/connections/${deleteTarget.id}`);
+      toast.success("Connection gelöscht");
+      await load();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setDeleteTarget(null);
+    }
+  };
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-4xl space-y-6 p-6">
+        <div className="flex flex-col items-start justify-between gap-4 border-b border-border-base pb-4 sm:flex-row sm:items-center">
+          <div>
+            <h1 className="text-2xl font-semibold">Verbindungen</h1>
+            <p className="text-sm text-muted-foreground">
+              LLM-Endpunkte (OpenAI-kompatibel). Ihre Modelle erscheinen unter{" "}
+              <AdminLink tab="models">
+                Modelle
+              </AdminLink>
+              .
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
+          >
+            <Plus className="size-4" />
+            Neue Connection
+          </Button>
+        </div>
+
+        {loading ? (
+          <p className="text-muted-foreground">Lade…</p>
+        ) : items.length === 0 ? (
+          <p className="text-muted-foreground">Noch keine Connections.</p>
+        ) : (
+          <div className="space-y-3">
+            {items.map((c) => (
+              <Card key={c.id}>
+                <CardContent className="flex flex-wrap items-center gap-3 p-4">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
+                    <Plug className="size-5 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{c.name}</p>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {c.base_url}
+                    </p>
+                    <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                      <KeyRound className="size-3" />
+                      {c.has_key ? "API-Key gesetzt" : "Kein API-Key"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Switch
+                      checked={c.enabled}
+                      onCheckedChange={(v) => void toggle(c, v)}
+                      aria-label="Aktiv"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      title="Bearbeiten"
+                      onClick={() => {
+                        setEditing(c);
+                        setDialogOpen(true);
+                      }}
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      title="Löschen"
+                      onClick={() => setDeleteTarget(c)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <ConnectionDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        connection={editing}
+        onSubmit={save}
+      />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title="Connection löschen?"
+        description={
+          deleteTarget
+            ? `„${deleteTarget.name}“ samt aller Modell-Anpassungen und Klone wird gelöscht.`
+            : undefined
+        }
+        confirmLabel="Löschen"
+        destructive
+        onConfirm={remove}
+      />
+    </div>
+  );
+}

@@ -15,31 +15,28 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Gemeinsame Basisklasse fuer Dokumenten-Preprocessing (PDF, DOCX, etc.).
+Gemeinsame Basisklasse fuer Dokumenten-Preprocessing (PDF, DOCX, ODT).
 
-Verarbeitung erfolgt einheitlich ueber Docling (DoclingDocument). Diese
-Basis stellt bereit:
-  - ChunkBuilder: Titel-zu-Titel-Chunking, Tabellen = eigener Chunk,
-    gleiche Metadata-Shape wie bisher (source/filename/title/type).
-  - build_chunks_from_docling(): iteriert doc.iterate_items() in
-    Lesereihenfolge (SECTION_HEADER -> neuer Abschnitt, TableItem -> HTML,
-    PictureItem -> VisionLLM-Beschreibung, TextItem -> Text).
-  - Bild-Deduplikation via perceptual Hash (imagehash).
-  - VisionLLM-Aufrufe mit Retry/Backoff.
+Verarbeitung erfolgt einheitlich ueber Docling (DoclingDocument). Das Ergebnis
+ist **Markdown** (``build_markdown_from_docling``):
+  - Ueberschriften mit Ebenen, Listen, Tabellen als Markdown-Tabellen
+    (Docling-Export in Lesereihenfolge),
+  - Bilder als ``[BILD-BESCHREIBUNG: ...]`` an ihrer Stelle (VisionLLM mit Retry,
+    Deduplikation via perceptual Hash).
+Das Markdown wird gespeichert und spaeter von ``app/ingest/splitter.py`` geteilt;
+so muss das teure Parsen (Layout, OCR, Vision) beim Neu-Indexieren nicht wiederholt
+werden.
 """
 
 # Standard library
 import base64
 import logging
-import os
+import re
 import time
 from io import BytesIO
 
 import imagehash
-from docling_core.types.doc import PictureItem, TableItem, TextItem
-
-# Third party
-from langchain_core.documents import Document
+from docling_core.types.doc import PictureItem, TableItem
 
 # Custom imports
 from app.llm.local_llm import VisionLLM
@@ -69,71 +66,33 @@ def _get_picture_image(picture):
         return None
 
 
-class ChunkBuilder:
-    """Akkumulator fuer Titel-zu-Titel-Chunking.
+# Eindeutige Platzhalter im Docling-Markdown-Export.
+IMAGE_MARKER = "@@DOCLING-BILD@@"
+TABLE_MARKER = "@@DOCLING-TABELLE-{}@@"
 
-    Erzeugt LangChain-Dokumente mit der festen Metadata-Shape
-    (source/filename/title/type='document_chunk' + optionale zusaetzliche
-    Metadata pro Abschnitt). Tabellen werden als eigener Chunk ausgegeben
-    (Flush vorher und nachher) und erben den Titel des aktuellen Abschnitts.
-    Bildbeschreibungen werden als [BILD-BESCHREIBUNG: ...]-Marker eingebettet.
-    Der Titel bleibt ueber Flushes hinweg erhalten (nur content wird
-    zurueckgesetzt) — genauso wie die bisherige DOCX-Implementierung.
+
+def _picture_block(description: str) -> str:
+    """Bildbeschreibung als eigener Absatz.
+
+    Zeilen, die mit ``#`` beginnen, werden entschaerft, sonst wuerde der
+    Markdown-Splitter sie als Ueberschriften behandeln.
     """
+    text = re.sub(r"(?m)^(\s*)#", r"\1\\#", description.strip())
+    return f"\n\n[BILD-BESCHREIBUNG: {text}]\n\n"
 
-    def __init__(self, file_path: str):
-        self.file_path = file_path
-        self.filename = os.path.basename(file_path)
-        self.chunks: list[Document] = []
-        self.title = self.filename
-        self.metadata: dict = {}
-        self.content: list = []
 
-    def _doc(self) -> Document:
-        text_parts = []
-        for item in self.content:
-            if isinstance(item, dict) and "image" in item:
-                text_parts.append(f"[BILD-BESCHREIBUNG: {item['image']}]")
-            else:
-                text_parts.append(str(item))
-        return Document(
-            page_content="\n".join(text_parts),
-            metadata={
-                "source": self.file_path,
-                "filename": self.filename,
-                "title": self.title,
-                "type": "document_chunk",
-                **self.metadata,
-            },
-        )
+def _vision_enabled() -> bool:
+    try:
+        from app.database_service import get_db_service
+        from app.settings_service import SettingsService
 
-    def _flush(self):
-        if self.content:
-            self.chunks.append(self._doc())
-        self.content = []
-
-    def start_section(self, title: str, metadata: dict | None = None) -> None:
-        """Schliesst den laufenden Chunk ab und beginnt einen neuen Abschnitt."""
-        self._flush()
-        self.title = title
-        self.metadata = metadata or {}
-
-    def add_text(self, text: str) -> None:
-        if text and text.strip():
-            self.content.append(text)
-
-    def add_image(self, description: str) -> None:
-        self.content.append({"image": description})
-
-    def add_table(self, rendered_text: str) -> None:
-        """Tabelle als eigener Chunk (erbt den aktuellen Abschnittstitel)."""
-        self._flush()
-        self.content.append(rendered_text)
-        self._flush()
-
-    def finish(self) -> list[Document]:
-        self._flush()
-        return self.chunks
+        session = get_db_service().get_session()
+        try:
+            return SettingsService(session).get_bool("INGEST_VISION_ENABLED", True)
+        finally:
+            session.close()
+    except Exception:
+        return True
 
 
 class PreprocessBase:
@@ -216,62 +175,98 @@ class PreprocessBase:
             unique_pil[pic.self_ref] = pil
         return unique_pil
 
-    # ---- Chunk-Building (formatunabhaengig, Docling-basiert) ----
+    # ---- Markdown-Erzeugung (formatunabhaengig, Docling-basiert) ----
 
-    def build_chunks_from_docling(self, doc, file_path: str) -> list[Document]:
-        """Baut LangChain-Dokumente aus einem DoclingDocument.
+    def build_markdown_from_docling(self, doc, file_path: str, table_sink=None) -> str:
+        """Baut aus einem DoclingDocument Markdown mit Bildbeschreibungen.
 
-        Iteriert doc.iterate_items() in Lesereihenfolge:
-          - SECTION_HEADER / TITLE  -> neuer Abschnitt (Titel-zu-Titel-Split)
-          - TableItem               -> HTML im eigenen Chunk (Spans erhalten)
-          - PictureItem             -> VisionLLM-Beschreibung (mit Dedup)
-          - sonstiges TextItem      -> Text im aktuellen Abschnitt
+        Der Docling-Export liefert Ueberschriften, Listen und Tabellen in
+        Lesereihenfolge; fuer Bilder setzt er einen Marker, der durch die
+        VisionLLM-Beschreibung ersetzt wird. Doppelte Bilder (phash) bekommen keine
+        zweite Beschreibung.
 
         Args:
             doc: DoclingDocument (aus DocumentConverter.convert().document).
-            file_path: Pfad zur Quelldatei.
+            file_path: Pfad zur Quelldatei (nur fuer Log-Meldungen).
+            table_sink: optional ``sink(dataframe, nummer) -> info | None`` (siehe
+                ``app/ingest/tables.py``); Tabellen werden dann als CSV gespeichert und
+                im Markdown durch einen Verweis ersetzt.
 
         Returns:
-            Liste von LangChain Document-Objekten.
+            Markdown-Text.
         """
-        builder = ChunkBuilder(file_path)
+        # Bildbeschreibung abschaltbar (Einlesen & Modelle): dann kein Vision-Aufruf,
+        # die Bild-Marker verschwinden aus dem Text.
+        unique_pil = self._collect_unique_pictures(doc) if _vision_enabled() else {}
+        pictures = [item for item, _ in doc.iterate_items() if isinstance(item, PictureItem)]
 
-        unique_pil = self._collect_unique_pictures(doc)
-        unique_image_count = len(unique_pil)
+        descriptions: list[str] = []
         current_image = 0
+        for item in pictures:
+            pil = unique_pil.get(item.self_ref)
+            if pil is None:
+                descriptions.append("")  # Duplikat oder ohne Bild
+                continue
+            current_image += 1
+            print(f"Verarbeite Bild {current_image}/{len(unique_pil)}", flush=True)
+            result = self.process_image_with_retry(
+                _pil_to_b64(pil),
+                f"<docling_picture:{item.self_ref}>",
+                current_image,
+                len(unique_pil),
+            )
+            if "image" in result:
+                descriptions.append(_picture_block(result["image"]))
+            else:
+                logger.error(f"Bild übersprungen: {result.get('error')}")
+                descriptions.append("")
 
-        for item, _level in doc.iterate_items():
-            if isinstance(item, TableItem):
-                try:
-                    html = item.export_to_html(doc=doc)
-                except TypeError:
-                    html = item.export_to_html()
-                if html and html.strip():
-                    builder.add_table(html)
-            elif isinstance(item, PictureItem):
-                pil = unique_pil.get(item.self_ref)
-                if pil is None:
-                    continue  # Duplikat oder ohne Bild
-                current_image += 1
-                print(
-                    f"Verarbeite Bild {current_image}/{unique_image_count}", flush=True
-                )
-                b64image = _pil_to_b64(pil)
-                result = self.process_image_with_retry(
-                    b64image,
-                    f"<docling_picture:{item.self_ref}>",
-                    current_image,
-                    unique_image_count,
-                )
-                if "image" in result:
-                    builder.add_image(result["image"])
-                elif "error" in result:
-                    logger.error(f"Bild übersprungen: {result['error']}")
-            elif isinstance(item, TextItem):
-                label_name = item.label.name if hasattr(item, "label") else ""
-                if label_name in ("SECTION_HEADER", "TITLE") and item.text.strip():
-                    builder.start_section(item.text.strip())
-                else:
-                    builder.add_text(item.text)
+        markdown = doc.export_to_markdown(image_placeholder=IMAGE_MARKER)
+        if table_sink is not None:
+            markdown = self._extract_tables(doc, markdown, table_sink, file_path)
+        parts = markdown.split(IMAGE_MARKER)
+        if len(parts) - 1 == len(descriptions):
+            out = [parts[0]]
+            for description, tail in zip(descriptions, parts[1:], strict=True):
+                out.append(description)
+                out.append(tail)
+            markdown = "".join(out)
+        else:
+            # Sollte nicht vorkommen (Export und Iteration laufen ueber dieselben Elemente).
+            logger.warning(
+                f"{file_path}: {len(parts) - 1} Bild-Marker, {len(descriptions)} Bilder; "
+                "Beschreibungen werden am Ende angehaengt"
+            )
+            markdown = "".join(parts) + "".join(f"\n\n{d}" for d in descriptions if d)
 
-        return builder.finish()
+        return re.sub(r"\n{3,}", "\n\n", markdown).strip() + "\n"
+
+    def _extract_tables(self, doc, markdown: str, table_sink, file_path: str) -> str:
+        """Speichert Tabellen als CSV und ersetzt sie im Markdown durch Verweise.
+
+        Die Tabellen-Markdown aus ``TableItem.export_to_markdown`` steht woertlich im
+        Dokument-Export; in zwei Schritten (Marker, dann Text) ersetzt, damit identische
+        Tabellen und Ersatztexte, die die Tabelle selbst enthalten, nichts durcheinanderbringen.
+        """
+        from app.ingest.tables import render_reference
+
+        replacements: dict[str, str] = {}
+        number = 0
+        for item, _ in doc.iterate_items():
+            if not isinstance(item, TableItem):
+                continue
+            number += 1
+            try:
+                table_markdown = item.export_to_markdown(doc=doc)
+                info = table_sink(item.export_to_dataframe(doc=doc), number)
+            except Exception as e:
+                logger.warning(f"{file_path}: Tabelle {number} nicht extrahierbar: {e}")
+                continue
+            if info is None or table_markdown not in markdown:
+                continue
+            marker = TABLE_MARKER.format(number)
+            markdown = markdown.replace(table_markdown, marker, 1)
+            replacements[marker] = render_reference(info, number, table_markdown)
+        for marker, text in replacements.items():
+            markdown = markdown.replace(marker, text, 1)
+        return markdown

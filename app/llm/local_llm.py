@@ -19,149 +19,60 @@ Local LLM with vision - supports separate chat and vision models
 """
 
 # Standard library
-import os
 import time
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from app.utils.phase_logger import phase_logger, Phase
+
+from app.llm.factory import build_chat_llm
+from app.utils.phase_logger import Phase, phase_logger
 
 
 class VisionLLM:
+    """Modell fuer Bildbeschreibungen und die Kontextanreicherung beim Einlesen.
+
+    Das Modell kommt aus Verbindungen und Modellen (Administration): ``VISION_MODEL_REF``
+    waehlt es auf der Seite "Einlesen & Modelle", ohne Auswahl gilt das Standardmodell.
+    Aufgeloest wird bei jedem Aufruf, Aenderungen wirken also sofort.
+    """
+
     def __init__(self):
-        """
-        Initialisiert das LLM mit getrennten Chat- und Vision-Modellen.
+        self._llm = None
+        self._signature = None
 
-        Chat-/Vision-Konfiguration wird aus der Settings-DB gelesen (UI = Source of
-        Truth), mit Fallback auf env fuer den Standalone-Betrieb ohne App-Context.
+    def _resolve(self):
+        from app.database_service import get_db_service
+        from app.llm import registry
+        from app.settings_service import SettingsService
 
-        Args:
-            Chat-Modell: Fuer Agent-Interaktionen und normale Chats
-            Vision-Modell: Fuer Bildverarbeitung
-
-        Methods:
-            initialize_llm: Initialisiert das llm in der Klasse
-        """
-
-        # Defaults
-        chat_model = "qwen3:8b"
-        chat_base_url = "http://localhost:11434/v1"
-        chat_temperature = "0.1"
-        chat_top_p = "0.2"
-        chat_top_k = "40"
-        chat_max_tokens = ""
-        chat_num_ctx = "4096"
-        chat_thinking = "none"
-        api_key = "ollama"
-
+        session = get_db_service().get_session()
         try:
-            # Settings aus DB lesen (eigene Session, thread-safe via Engine)
-            from app.database_service import get_db_service
-            from app.settings_service import SettingsService
-
-            db = get_db_service()
-            session = db.get_session()
-            settings = SettingsService(session)
-            chat_model = settings.get("CHAT_MODEL", chat_model) or chat_model
-            chat_base_url = settings.get("CHAT_BASEURL", chat_base_url) or chat_base_url
-            chat_temperature = (
-                settings.get("CHAT_TEMPERATURE", chat_temperature) or chat_temperature
-            )
-            chat_top_p = settings.get("CHAT_TOP_P", chat_top_p) or chat_top_p
-            chat_top_k = settings.get("CHAT_TOP_K", chat_top_k) or chat_top_k
-            chat_max_tokens = settings.get("CHAT_MAX_TOKENS", "") or ""
-            chat_num_ctx = settings.get("CHAT_NUM_CTX", chat_num_ctx) or chat_num_ctx
-            chat_thinking = settings.get("CHAT_THINKING", chat_thinking) or chat_thinking
-            vision_model = settings.get("VISION_MODEL", chat_model) or chat_model
-            vision_base_url = (
-                settings.get("VISION_BASEURL", chat_base_url) or chat_base_url
-            )
-            api_key = settings.get("API_KEY", api_key) or api_key
+            ref = SettingsService(session).get("VISION_MODEL_REF", "") or None
+        finally:
             session.close()
-        except Exception:
-            # Standalone-Fallback (kein DB-Kontext, z. B. Skripte): env
-            chat_model = os.getenv("CHAT_MODEL", chat_model)
-            chat_base_url = os.getenv("CHAT_BASEURL", chat_base_url)
-            chat_temperature = os.getenv("CHAT_TEMPERATURE", chat_temperature)
-            chat_top_p = os.getenv("CHAT_TOP_P", chat_top_p)
-            chat_top_k = os.getenv("CHAT_TOP_K", chat_top_k)
-            chat_max_tokens = os.getenv("CHAT_MAX_TOKENS", "")
-            chat_num_ctx = os.getenv("CHAT_NUM_CTX", chat_num_ctx)
-            chat_thinking = os.getenv("CHAT_THINKING", chat_thinking)
-            vision_model = os.getenv("VISION_MODEL", chat_model)
-            vision_base_url = os.getenv("VISION_BASEURL", chat_base_url)
-            api_key = os.getenv("API_KEY", api_key)
+        try:
+            return registry.resolve_model(ref)
+        except registry.ModelUnavailableError:
+            if ref:  # gewaehltes Modell weg: auf das Standardmodell zurueckfallen
+                return registry.resolve_model(None)
+            raise
 
-        self.chat_model = chat_model
-        self.chat_base_url = chat_base_url
-        self.chat_temperature = float(chat_temperature or "0.1")
-        self.chat_top_p = float(chat_top_p or "0.2")
-        self.chat_top_k = int(chat_top_k or "40")
-        self.chat_max_tokens = int(chat_max_tokens) if chat_max_tokens.strip() else None
-        self.chat_num_ctx = int(chat_num_ctx or "4096")
-        self.chat_thinking = chat_thinking or "none"
+    @property
+    def llm(self):
+        """Nicht-streamendes LLM des Vision-Modells (nach Aenderungen neu gebaut)."""
+        resolved = self._resolve()
+        if self._llm is None or self._signature != resolved.signature():
+            self._llm = build_chat_llm(
+                resolved.base_url,
+                resolved.api_key,
+                resolved.model_id,
+                {**resolved.params, "thinking": "none"},
+                streaming=False,
+            )
+            self._signature = resolved.signature()
+            self.vision_model = resolved.model_id
+        return self._llm
 
-        # Vision model configuration (fallback to chat model settings)
-        self.vision_model = vision_model
-        self.vision_base_url = vision_base_url
-
-        self.api_key = api_key
-
-        # Initialize LLMs
-        self.llm = self._initialize_vision_llm()
-        self.llm_stream = self._initialize_chat_llm(streaming=True)
-
-    def _initialize_chat_llm(self, streaming: bool = False):
-        """Initialisiert das Chat-LLM (für Agent-Interaktionen)"""
-        # extra_body wird vom OpenAI-SDK ungeprueft als extra_body im Request
-        # mitgeschickt - ideal fuer provider-spezifische Parameter wie
-        # Ollamas/llama.cpps top_k und num_ctx. (model_kwargs wuerden als
-        # top-level kwargs validiert und vom SDK abgelehnt - "unexpected
-        # keyword argument 'top_k'".)
-        extra_body = {}
-        if self.chat_top_k:
-            extra_body["top_k"] = self.chat_top_k
-        if self.chat_num_ctx:
-            extra_body["num_ctx"] = self.chat_num_ctx
-
-        kwargs = {
-            "model": self.chat_model,
-            "base_url": self.chat_base_url,
-            "api_key": self.api_key,
-            "streaming": streaming,
-            "temperature": self.chat_temperature,
-            "top_p": self.chat_top_p,
-        }
-        if self.chat_max_tokens is not None:
-            kwargs["max_tokens"] = self.chat_max_tokens
-        if extra_body:
-            kwargs["extra_body"] = extra_body
-        # Thinking/Reasoning:
-        # - Ollama nutzt reasoning_effort (none/low/medium/high/max).
-        # - llama.cpp parst die Think-Tags standardmaessig und liefert Thinking
-        #   als separates reasoning_content-Feld. langchain-openai (v1.x) reicht
-        #   reasoning_content aber NICHT in additional_kwargs durch, sodass das
-        #   Frontend den Denk-Block nicht sehen wuerde. Daher erzwingen wir
-        #   reasoning_format=none, damit llama.cpp die Think-Tags inline im
-        #   content belaesst - die Frontend-Regex (processThinkTags) faengt sie
-        #   als ausklappbaren Block ab. reasoning_effort=none deaktiviert
-        #   Thinking bei Ollama/llama.cpp explizit.
-        if self.chat_thinking and self.chat_thinking != "none":
-            kwargs["reasoning_effort"] = self.chat_thinking
-            # llama.cpp: Tags inline halten, nicht als reasoning_content parsen
-            extra_body["reasoning_format"] = "none"
-        else:
-            kwargs["reasoning_effort"] = "none"
-        return ChatOpenAI(**kwargs)
-
-    def _initialize_vision_llm(self):
-        """Initialisiert das Vision-LLM (für Bildverarbeitung)"""
-        return ChatOpenAI(
-            model=self.vision_model,
-            base_url=self.vision_base_url,
-            api_key=self.api_key,
-            streaming=False,
-        )
+    vision_model = ""
 
     def generate_image_message(
         self, image: str, instruction: str = None
@@ -214,12 +125,13 @@ class VisionLLM:
 
     def generate(self, message: HumanMessage) -> str:
         """Generiert den Text mit VISION-Modell (für Bilder)"""
+        llm = self.llm  # loest das Modell auf und setzt vision_model
         start_time = time.time()
         phase_logger.log_phase(
             Phase.LLM_CALL, f"LLM-Call gestartet | Model: {self.vision_model}"
         )
 
-        result = self.llm.invoke([message])
+        result = llm.invoke([message])
 
         duration = time.time() - start_time
         phase_logger.log_phase(
@@ -229,22 +141,3 @@ class VisionLLM:
         )
 
         return result.content
-
-    def generate_stream(self, prompt: str):
-        """Generiert gestreamten Text mit CHAT-Modell (für Chat)"""
-        messages = [HumanMessage(content=prompt)]
-
-        start_time = time.time()
-        phase_logger.log_phase(
-            Phase.STREAMING, f"LLM-Streaming gestartet | Model: {self.chat_model}"
-        )
-
-        for chunk in self.llm_stream.stream(messages):
-            yield chunk
-
-        duration = time.time() - start_time
-        phase_logger.log_phase(
-            Phase.STREAMING,
-            f"LLM-Streaming abgeschlossen | Model: {self.chat_model}",
-            duration=duration,
-        )

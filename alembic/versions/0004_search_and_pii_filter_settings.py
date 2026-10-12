@@ -67,9 +67,10 @@ def upgrade() -> None:
     for key, value, category, is_sensitive, description in settings:
         conn.execute(
             sa.text(
-                "INSERT OR IGNORE INTO settings "
+                "INSERT INTO settings "
                 "(key, value, default_value, category, is_sensitive, description) "
-                "VALUES (:key, :value, :value, :category, :is_sensitive, :description)"
+                "VALUES (:key, :value, :value, :category, :is_sensitive, :description) "
+                "ON CONFLICT (key) DO NOTHING"
             ),
             {
                 "key": key,

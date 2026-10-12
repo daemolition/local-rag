@@ -1,5 +1,5 @@
 services:
-  local-document-rag:
+  rag:
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,6 +11,7 @@ services:
     ports:
       - "8083:5000"
     environment:
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD:-rag}@postgres:5432/${POSTGRES_DB:-rag}
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
       - QDRANT_PORT=${QDRANT_PORT:-6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
@@ -24,10 +25,25 @@ services:
       # vorgeladenen Modelle aus dem Image ins Volume kopiert und persistieren
       # danach ueber Image-Rebuilds hinweg.
       - fastembed-cache:/root/.cache/fastembed
+      # HuggingFace-Cache: heruntergeladene Embedding-/Reranking-Modelle (z. B. bge-m3)
+      # und die Docling-Modelle bleiben ueber Neustarts und Rebuilds erhalten.
+      - hf-cache:/root/.cache/huggingface
     networks:
       - local-rag-network
+    # GPU fuer Embedding, Reranking und Docling (braucht NVIDIA Container Toolkit).
+    # Ohne GPU diesen Block entfernen und mit --build-arg TORCH_BACKEND=cpu bauen;
+    # die App faellt ohne GPU automatisch auf die CPU zurueck.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       qdrant:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
@@ -50,7 +66,7 @@ services:
       - local-rag-network
 
   entityguard:
-    image: entityguard-entityguard:latest
+    image: ghcr.io/s2a-open-technologies/entityguard:latest-cpu 
     container_name: local-document-rag-entityguard
     restart: always
     ports:
@@ -72,13 +88,36 @@ services:
       - PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
     networks:
       - local-rag-network
-    #deploy:
-    #  resources:
-    #    reservations:
-    #      devices:
-    #        - driver: nvidia
-    #          count: 1
-    #          capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Datenbank der App (Benutzer, Chats, Einstellungen, Modelle). Zugangsdaten in .env
+  # (POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB); der Standardwert "rag" ist nur fuer
+  # lokale Tests gedacht und sollte fuer den Betrieb geaendert werden. Kein Host-Port: nur
+  # aus dem local-rag-network erreichbar.
+  postgres:
+    image: postgres:17
+    container_name: local-document-rag-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-rag}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-rag}
+      - POSTGRES_DB=${POSTGRES_DB:-rag}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - local-rag-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -104,7 +143,9 @@ networks:
     driver: bridge
 
 volumes:
+  pgdata:
   qdrant:
   app-data:
   fastembed-cache:
+  hf-cache:
   entityguard-data:

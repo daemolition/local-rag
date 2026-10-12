@@ -36,7 +36,6 @@ import threading
 import urllib.parse
 
 import websocket
-from flask import session
 from flask_sock import Sock
 from simple_websocket import ConnectionClosed
 
@@ -67,7 +66,9 @@ def _build_stream_url(base_url: str) -> str:
 @sock.route("/ws/stt-stream")
 def stt_stream(ws):
     """Relay: Live-PCM-Audio vom Browser an Parakeet, Transkripte zurückstreamen."""
-    if not session.get("authenticated"):
+    from app.auth import current_user
+
+    if current_user() is None:
         ws.close()
         return
 

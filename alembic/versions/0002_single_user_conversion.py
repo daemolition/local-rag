@@ -21,16 +21,17 @@ def upgrade() -> None:
 
     # Admin-Passwort übernehmen, damit das Login-Passwort gleich bleibt.
     admin_pw = conn.execute(
-        sa.text("SELECT password_hash FROM users WHERE is_admin = 1 LIMIT 1")
+        sa.text("SELECT password_hash FROM users WHERE is_admin = :yes LIMIT 1"),
+        {"yes": True},
     ).scalar()
     if admin_pw:
         conn.execute(
             sa.text(
                 "INSERT INTO settings (key, value, default_value, category, is_sensitive, description) "
-                "VALUES ('APP_PASSWORD_HASH', :pw, '', 'auth', 1, 'Gehashtes App-Passwort') "
+                "VALUES ('APP_PASSWORD_HASH', :pw, '', 'auth', :yes, 'Gehashtes App-Passwort') "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
             ),
-            {"pw": admin_pw},
+            {"pw": admin_pw, "yes": True},
         )
 
     # user_id FKs und Spalten entfernen (SQLite-kompatibel via batch_alter_table)
@@ -53,9 +54,9 @@ def upgrade() -> None:
         sa.text(
             "INSERT INTO settings (key, value, default_value, category, is_sensitive, description) "
             "VALUES "
-            "('STT_MODEL', 'nemo-parakeet-tdt-0.6b-v3', 'nemo-parakeet-tdt-0.6b-v3', 'stt', 0, 'STT Modell'), "
-            "('STT_BASEURL', 'http://parakeet:5001/v1', 'http://parakeet:5001/v1', 'stt', 0, 'STT API URL'), "
-            "('STT_API_KEY', 'ollama', 'ollama', 'stt', 1, 'STT API Key') "
+            "('STT_MODEL', 'nemo-parakeet-tdt-0.6b-v3', 'nemo-parakeet-tdt-0.6b-v3', 'stt', false, 'STT Modell'), "
+            "('STT_BASEURL', 'http://parakeet:5001/v1', 'http://parakeet:5001/v1', 'stt', false, 'STT API URL'), "
+            "('STT_API_KEY', 'ollama', 'ollama', 'stt', true, 'STT API Key') "
             "ON CONFLICT(key) DO NOTHING"
         )
     )
@@ -78,10 +79,10 @@ def downgrade() -> None:
     admin_id = conn.execute(
         sa.text(
             "INSERT INTO users (username, password_hash, is_admin) "
-            "VALUES ('admin', :pw, 1)"
+            "VALUES ('admin', :pw, :yes) RETURNING id"
         ),
-        {"pw": _hash("admin")},
-    ).lastrowid
+        {"pw": _hash("admin"), "yes": True},
+    ).scalar()
 
     with op.batch_alter_table("sessions") as batch_op:
         batch_op.add_column(sa.Column("user_id", sa.Integer(), nullable=True))

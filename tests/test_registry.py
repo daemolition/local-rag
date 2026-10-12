@@ -1,0 +1,178 @@
+import pytest
+
+from app import connections as store
+from app.agent.document_agent import DocumentAgent
+from app.llm import registry
+
+
+@pytest.fixture(autouse=True)
+def fresh_registry():
+    registry.clear_caches()
+    yield
+    registry.clear_caches()
+
+
+@pytest.fixture
+def conn(db):
+    return store.create_connection("LiteLLM", "http://litellm:4000/v1", "sk-1")
+
+
+class FakeAgent:
+    def __init__(self, llm, tools, system_prompt=None):
+        self.llm, self.tools, self.system_prompt = llm, tools, system_prompt
+
+
+@pytest.fixture
+def fake_agent(monkeypatch):
+    monkeypatch.setattr(registry, "DocumentAgent", FakeAgent)
+    FakeAgent.compose_prompt = DocumentAgent.compose_prompt
+    monkeypatch.setattr(registry, "build_chat_llm", lambda *a, **k: ("llm", a, k))
+
+
+def test_compose_prompt_appends_or_replaces():
+    base = DocumentAgent.SYSTEM_PROMPT
+    assert DocumentAgent.compose_prompt("") == base
+    appended = DocumentAgent.compose_prompt("Sei knapp.")
+    assert appended.startswith(base) and "Sei knapp." in appended
+    assert DocumentAgent.compose_prompt("Nur das.", replace=True) == "Nur das."
+
+
+def test_resolve_base_model_without_config(conn):
+    r = registry.resolve_model(store.make_base_ref(conn["id"], "qwen"))
+    assert (r.model_id, r.base_url, r.api_key) == ("qwen", "http://litellm:4000/v1", "sk-1")
+    assert r.params == {} and r.system_prompt == "" and r.knowledge_ids is None
+
+
+def test_resolve_clone_uses_its_config_and_base_model(conn):
+    base = store.make_base_ref(conn["id"], "qwen")
+    clone = store.clone_model(base, "Recht")
+    store.save_model_config(
+        clone["ref"], {"system_prompt": "Juristisch", "params": {"top_k": 10}, "knowledge_ids": [4]}
+    )
+    r = registry.resolve_model(clone["ref"])
+    assert (r.model_id, r.display_name) == ("qwen", "Recht")
+    assert (r.system_prompt, r.params, r.knowledge_ids) == ("Juristisch", {"top_k": 10}, (4,))
+
+
+def test_resolve_errors(conn):
+    with pytest.raises(registry.ModelUnavailableError):
+        registry.resolve_model("clone:999")
+    with pytest.raises(registry.ModelUnavailableError):
+        registry.resolve_model("base:999:x")
+    store.update_connection(conn["id"], enabled=False)
+    with pytest.raises(registry.ModelUnavailableError, match="deaktiviert"):
+        registry.resolve_model(store.make_base_ref(conn["id"], "qwen"))
+
+
+def test_default_falls_back_to_legacy_chat_model(db):
+    # Bestandsinstallation: CHAT_MODEL an der Standard-Connection
+    first = store.list_connections()[0]
+    ref = registry.default_model_ref()
+    kind, cid, model = store.parse_ref(ref)
+    assert (kind, cid) == ("base", first["id"]) and model
+
+    explicit = store.make_base_ref(first["id"], "anderes")
+    store.set_default_model(explicit)
+    assert registry.default_model_ref() == explicit
+    store.set_default_model("base:999:weg")  # verwaiste Referenz
+    assert registry.default_model_ref() == ref
+
+
+def test_agent_is_cached_and_rebuilt_when_config_changes(conn, fake_agent):
+    ref = store.make_base_ref(conn["id"], "qwen")
+    tools = ["t"]
+    a1 = registry.get_agent(registry.resolve_model(ref), tools)
+    assert registry.get_agent(registry.resolve_model(ref), tools) is a1
+
+    store.save_model_config(ref, {"system_prompt": "Neu"})
+    a2 = registry.get_agent(registry.resolve_model(ref), tools)
+    assert a2 is not a1 and "Neu" in a2.system_prompt
+
+    store.update_connection(conn["id"], api_key="sk-2")
+    assert registry.get_agent(registry.resolve_model(ref), tools) is not a2
+
+
+def test_different_models_get_different_agents(conn, fake_agent):
+    a = registry.get_agent(registry.resolve_model(store.make_base_ref(conn["id"], "a")), [])
+    b = registry.get_agent(registry.resolve_model(store.make_base_ref(conn["id"], "b")), [])
+    assert a is not b
+
+
+def test_list_models_merges_remote_clones_and_reports_errors(conn, monkeypatch):
+    base = store.make_base_ref(conn["id"], "qwen")
+    store.save_model_config(base, {"visible": False, "system_prompt": "x"})
+    clone = store.clone_model(base, "Qwen Recht")
+
+    monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["llama", "qwen"])
+    result = registry.list_models()
+    by_ref = {m["ref"]: m for m in result["models"]}
+    assert by_ref[base]["visible"] is False and by_ref[base]["customized"] is True
+    assert by_ref[store.make_base_ref(conn["id"], "llama")]["customized"] is False
+    assert by_ref[clone["ref"]]["is_clone"] and by_ref[clone["ref"]]["available"]
+    assert result["errors"] == []
+
+    def boom(c, force=False):
+        raise registry.RemoteModelsError("kaputt")
+
+    monkeypatch.setattr(registry, "fetch_remote_models", boom)
+    result = registry.list_models()
+    refs = [m["ref"] for m in result["models"]]
+    assert refs == [clone["ref"]]  # Klon bleibt sichtbar, aber nicht verfuegbar
+    assert result["models"][0]["available"] is False
+    assert result["errors"][0]["error"] == "kaputt"
+
+
+def test_fetch_remote_models_parses_openai_format_and_maps_errors(monkeypatch):
+    class Resp:
+        def __init__(self, status, body):
+            self.status_code, self._body = status, body
+
+        def json(self):
+            return self._body
+
+    connection = {"id": 1, "base_url": "http://x/v1", "api_key": "k"}
+    seen = {}
+
+    def ok(url, headers, timeout, **kw):
+        seen["url"], seen["auth"] = url, headers.get("Authorization")
+        return Resp(200, {"data": [{"id": "b"}, {"id": "a"}, {"id": "a"}, {}]})
+
+    monkeypatch.setattr(registry.requests, "get", ok)
+    assert registry.fetch_remote_models(connection, force=True) == ["a", "b"]
+    assert seen == {"url": "http://x/v1/models", "auth": "Bearer k"}
+
+    monkeypatch.setattr(registry.requests, "get", lambda *a, **k: Resp(401, {}))
+    with pytest.raises(registry.RemoteModelsError, match="API-Key"):
+        registry.fetch_remote_models(connection, force=True)
+
+    # Weiterleitungen werden nicht verfolgt (koennten auf gesperrte Adressen zeigen)
+    monkeypatch.setattr(registry.requests, "get", lambda *a, **k: Resp(302, {}))
+    with pytest.raises(registry.RemoteModelsError, match="Weiterleitung"):
+        registry.fetch_remote_models(connection, force=True)
+
+    monkeypatch.setattr(registry.requests, "get", lambda *a, **k: Resp(200, ["kein", "dict"]))
+    with pytest.raises(registry.RemoteModelsError, match="OpenAI-Format"):
+        registry.fetch_remote_models(connection, force=True)
+
+
+@pytest.mark.parametrize(
+    "url", ["http://169.254.169.254/v1", "http://[fe80::1]/v1", "http://169.254.1.1:8080/v1"]
+)
+def test_link_local_targets_are_rejected(url, monkeypatch):
+    called = []
+    monkeypatch.setattr(registry.requests, "get", lambda *a, **k: called.append(1))
+    with pytest.raises(registry.RemoteModelsError, match="Link-Local"):
+        registry.fetch_remote_models({"id": 1, "base_url": url, "api_key": "k"}, force=True)
+    assert called == []  # nie eine Anfrage (und damit nie ein Key) gesendet
+
+
+def test_private_lan_targets_stay_allowed(monkeypatch):
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"id": "m"}]}
+
+    monkeypatch.setattr(registry.requests, "get", lambda *a, **k: Resp())
+    conn = {"id": 1, "base_url": "http://192.168.1.100:10002/v1", "api_key": ""}
+    assert registry.fetch_remote_models(conn, force=True) == ["m"]

@@ -65,6 +65,7 @@ dependencies = [
     "gunicorn>=25.3.0",
     "alembic>=1.18.4",
     "websocket-client>=1.8.0",
+    "psycopg[binary]>=3.2",
 ]
 
 # torch/torchvision auf den CPU-only-Wheel-Index pinnen (kein CUDA-Download).

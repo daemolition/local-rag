@@ -21,44 +21,97 @@ Database Service mit SQLAlchemy (Single-User)
 import os
 import uuid
 from datetime import datetime
-from typing import Optional, List
-from werkzeug.security import generate_password_hash
+from typing import List, Optional
 
+from flask import after_this_request, g, has_request_context
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session as SQLAlchemySession
+from sqlalchemy.orm import Session as SQLAlchemySession
+from sqlalchemy.orm import sessionmaker
+from werkzeug.security import generate_password_hash
 
 from app.models import (
     Base,
+    ChatAttachment,
     ChatSession,
     Message,
+    Setting,
     UserDocument,
     UserSummaryFile,
-    Setting,
 )
+
+
+def _close_request_sessions(response):
+    for session in g.pop("_opened_sessions", []):
+        try:
+            session.close()  # idempotent; bereits geschlossene Sessions schaden nicht
+        except Exception:
+            pass
+    return response
 
 
 class DatabaseService:
     """Zentraler Database Service für SQLAlchemy (Single-User)"""
 
     def __init__(self, db_path: str = "./data/app.db"):
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            echo=False,
-            connect_args={"check_same_thread": False},
-        )
-        Base.metadata.create_all(self.engine)
+        """``db_path``: SQLite-Dateipfad (Tests, lokale Entwicklung) oder eine SQLAlchemy-URL
+        (``postgresql+psycopg://...``). Betrieb ist Postgres; Standard ist ``DATABASE_URL``."""
+        if "://" in db_path:
+            url = db_path
+        else:
+            url = f"sqlite:///{db_path}"
+        if url.startswith("sqlite"):
+            self.engine = create_engine(
+                url, echo=False, connect_args={"check_same_thread": False}
+            )
+            # Nur SQLite legt Tabellen selbst an; Postgres kommt ausschliesslich ueber Alembic
+            # (sonst widerspricht der Tabellenstand dem Migrationsstand).
+            Base.metadata.create_all(self.engine)
+        else:
+            self.engine = create_engine(
+                url, echo=False, pool_pre_ping=True, pool_size=10, max_overflow=10
+            )
         self.Session = sessionmaker(bind=self.engine)
 
     def get_session(self) -> SQLAlchemySession:
-        """Neue Session erstellen"""
-        return self.Session()
+        """Neue Session erstellen.
+
+        Innerhalb eines Requests wird sie nach der Antwort automatisch geschlossen, auch
+        wenn der Aufrufer es vergisst (z. B. ``SettingsService(db.get_session())``).
+        Sonst bliebe die Verbindung belegt: SQLite sperrt, der Postgres-Pool laeuft voll.
+        """
+        session = self.Session()
+        if has_request_context():
+            opened = g.setdefault("_opened_sessions", [])
+            if not opened:
+                after_this_request(_close_request_sessions)
+            opened.append(session)
+        return session
 
     def init_default_data(self):
         """Erst-Setup: Settings und App-Passwort initialisieren"""
         db = self.get_session()
         try:
+            from app.models import Setting
+
+            # Frische Installation? (vor dem Anlegen der Standard-Settings pruefen)
+            fresh = db.query(Setting).filter_by(key="EMBEDDING_MODEL").first() is None
             self._init_settings(db)
+            from app.rag.model_settings import ensure_model_settings
+
+            ensure_model_settings(db, fresh)
             self._init_app_password(db)
+            from app.knowledge import ensure_default_knowledge
+
+            ensure_default_knowledge(db)
+            from app.connections import ensure_default_connection
+
+            ensure_default_connection(db)
+            from app.users import ensure_admin_user
+
+            ensure_admin_user(db)
+            from app.rag.profiles import ensure_default_profiles
+
+            ensure_default_profiles(db)
             db.commit()
         except Exception as e:
             db.rollback()
@@ -95,7 +148,7 @@ class DatabaseService:
             "EMBEDDING_SOURCE": ("embedding", "local", "Quelle: local oder endpoint"),
             "EMBEDDING_MODEL": (
                 "embedding",
-                "paraphrase-multilingual-MiniLM-L12-v2",
+                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
                 "Embedding Modell",
             ),
             "EMBEDDING_ENDPOINT": (
@@ -117,7 +170,46 @@ class DatabaseService:
             "SUMMARIES_DIR": ("storage", "./data/summaries", "Summaries-Verzeichnis"),
             "QDRANT_HOST": ("qdrant", "localhost", "Qdrant Host"),
             "QDRANT_PORT": ("qdrant", "6333", "Qdrant Port"),
+            "INGEST_CHUNK_SIZE": ("ingest", "1000", "Chunk-Groesse in Zeichen"),
+            "INGEST_CHUNK_OVERLAP": ("ingest", "150", "Ueberlappung beim Zerlegen langer Absaetze"),
+            "INGEST_CONTEXT_ENRICHMENT": (
+                "ingest",
+                "true",
+                "LLM-Kontextanreicherung pro Chunk (langsamer, aber mit Einordnung)",
+            ),
+            "INGEST_KEEP_ORIGINAL": (
+                "ingest",
+                "true",
+                "Originaldatei nach dem Einlesen archivieren (aus: nur das Markdown bleibt)",
+            ),
+            "INGEST_VISION_ENABLED": (
+                "ingest",
+                "true",
+                "Bilder in Dokumenten per Vision-Modell beschreiben (aus: Bilder werden uebersprungen)",
+            ),
+            "INGEST_INDEX_ENABLED": (
+                "ingest",
+                "true",
+                "Inhaltsverzeichnis (index.md) pro Knowledge erzeugen und dem Modell geben",
+            ),
             "UI_THEME": ("ui", "system", "Oberflaeche: light, dark oder system"),
+            "SEARCH_SEARXNG_URL": (
+                "search",
+                "",
+                "SearXNG-URL (z. B. http://localhost:8081). Die Websuche wird pro Modell zugeschaltet.",
+            ),
+            "SEARCH_SEARXNG_CATEGORIES": (
+                "search",
+                "general",
+                "Durchsuchbare Kategorien (Komma-getrennt, z. B. general,news,science)",
+            ),
+            "PII_FILTER_URL": (
+                "pii_filter",
+                "",
+                "Vollstaendige PII-Filter-Endpoint-URL (z. B. http://localhost:8082/api/v1/sanitize)",
+            ),
+            "PII_FILTER_API_KEY": ("pii_filter", "", "API-Key des PII-Filters", True),
+            "PII_FILTER_ENABLED": ("pii_filter", "true", "PII-Filter aktivieren (true/false)"),
         }
 
         for key, config in all_settings.items():
@@ -164,11 +256,13 @@ class DatabaseService:
 
     # === ChatSession Methods ===
 
-    def create_session(self, title: Optional[str] = None) -> ChatSession:
+    def create_session(
+        self, title: Optional[str] = None, user_id: Optional[int] = None
+    ) -> ChatSession:
         """Neue Session erstellen"""
         db = self.get_session()
         try:
-            session = ChatSession(id=str(uuid.uuid4()), title=title)
+            session = ChatSession(id=str(uuid.uuid4()), title=title, user_id=user_id)
             db.add(session)
             db.commit()
             db.refresh(session)
@@ -179,27 +273,38 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_chat_session(self, session_id: str) -> Optional[ChatSession]:
-        """Chat-Session nach ID finden"""
+    def get_chat_session(
+        self, session_id: str, user_id: Optional[int] = None
+    ) -> Optional[ChatSession]:
+        """Chat-Session nach ID finden; mit ``user_id`` nur wenn sie ihm gehoert"""
         db = self.get_session()
         try:
-            return db.query(ChatSession).filter_by(id=session_id).first()
+            q = db.query(ChatSession).filter_by(id=session_id)
+            if user_id is not None:
+                q = q.filter_by(user_id=user_id)
+            return q.first()
         finally:
             db.close()
 
-    def list_sessions(self) -> List[ChatSession]:
-        """Alle Sessions auflisten"""
+    def list_sessions(self, user_id: Optional[int] = None) -> List[ChatSession]:
+        """Sessions auflisten (mit ``user_id`` nur die eigenen)"""
         db = self.get_session()
         try:
-            return db.query(ChatSession).order_by(ChatSession.updated_at.desc()).all()
+            q = db.query(ChatSession)
+            if user_id is not None:
+                q = q.filter_by(user_id=user_id)
+            return q.order_by(ChatSession.updated_at.desc()).all()
         finally:
             db.close()
 
-    def delete_session(self, session_id: str) -> bool:
-        """Session löschen"""
+    def delete_session(self, session_id: str, user_id: Optional[int] = None) -> bool:
+        """Session löschen (mit ``user_id`` nur eine eigene)"""
         db = self.get_session()
         try:
-            session = db.query(ChatSession).filter_by(id=session_id).first()
+            q = db.query(ChatSession).filter_by(id=session_id)
+            if user_id is not None:
+                q = q.filter_by(user_id=user_id)
+            session = q.first()
             if session:
                 db.delete(session)
                 db.commit()
@@ -274,11 +379,26 @@ class DatabaseService:
 
     # === UserDocument Methods ===
 
-    def add_document(self, document_id: str, filename: str) -> UserDocument:
+    def add_document(
+        self,
+        document_id: str,
+        filename: str,
+        knowledge_id: Optional[int] = None,
+        markdown_path: Optional[str] = None,
+        parser_version: Optional[int] = None,
+        uploaded_by: Optional[int] = None,
+    ) -> UserDocument:
         """Dokument-Zuordnung erstellen"""
         db = self.get_session()
         try:
-            doc = UserDocument(document_id=document_id, filename=filename)
+            doc = UserDocument(
+                document_id=document_id,
+                filename=filename,
+                knowledge_id=knowledge_id,
+                markdown_path=markdown_path,
+                parser_version=parser_version,
+                uploaded_by=uploaded_by,
+            )
             db.add(doc)
             db.commit()
             db.refresh(doc)
@@ -289,13 +409,105 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_all_documents(self) -> List[UserDocument]:
-        """Alle Dokumente auflisten"""
+    def get_all_documents(self, knowledge_id: Optional[int] = None) -> List[UserDocument]:
+        """Dokumente auflisten (optional nur eines Knowledge-Bereichs)"""
         db = self.get_session()
         try:
-            return (
-                db.query(UserDocument).order_by(UserDocument.uploaded_at.desc()).all()
+            q = db.query(UserDocument)
+            if knowledge_id is not None:
+                q = q.filter(UserDocument.knowledge_id == knowledge_id)
+            return q.order_by(UserDocument.uploaded_at.desc()).all()
+        finally:
+            db.close()
+
+    # === ChatAttachment Methods ===
+
+    def create_attachment(
+        self, session_id: str, filename: str, user_id: Optional[int] = None
+    ) -> ChatAttachment:
+        db = self.get_session()
+        try:
+            att = ChatAttachment(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                filename=filename,
+                status="processing",
+                user_id=user_id,
             )
+            db.add(att)
+            db.commit()
+            db.refresh(att)
+            return att
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def get_attachment(self, attachment_id: str) -> Optional[ChatAttachment]:
+        db = self.get_session()
+        try:
+            return db.query(ChatAttachment).filter_by(id=attachment_id).first()
+        finally:
+            db.close()
+
+    def list_session_attachments(
+        self, session_id: str, status: Optional[str] = None
+    ) -> List[ChatAttachment]:
+        db = self.get_session()
+        try:
+            q = db.query(ChatAttachment).filter_by(session_id=session_id)
+            if status:
+                q = q.filter_by(status=status)
+            return q.order_by(ChatAttachment.created_at).all()
+        finally:
+            db.close()
+
+    def set_attachment_status(
+        self, attachment_id: str, status: str, error: Optional[str] = None
+    ) -> None:
+        db = self.get_session()
+        try:
+            att = db.query(ChatAttachment).filter_by(id=attachment_id).first()
+            if att:
+                att.status = status
+                att.error = error
+                db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def set_attachment_markdown(self, attachment_id: str, path: str) -> None:
+        db = self.get_session()
+        try:
+            att = db.query(ChatAttachment).filter_by(id=attachment_id).first()
+            if att:
+                att.markdown_path = path
+                db.commit()
+        finally:
+            db.close()
+
+    def delete_attachment_row(self, attachment_id: str) -> None:
+        db = self.get_session()
+        try:
+            db.query(ChatAttachment).filter_by(id=attachment_id).delete()
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def delete_session_attachments(self, session_id: str) -> None:
+        db = self.get_session()
+        try:
+            db.query(ChatAttachment).filter_by(session_id=session_id).delete()
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()
 
@@ -401,9 +613,13 @@ class DatabaseService:
 db_service = None
 
 
-def init_db_service(db_path: str = "./data/app.db") -> DatabaseService:
-    """Database Service initialisieren (Singleton)"""
+def init_db_service(db_path: str | None = None) -> DatabaseService:
+    """Database Service initialisieren (Singleton).
+
+    Ohne Argument gilt ``DATABASE_URL`` aus der Umgebung, sonst ``./data/app.db``.
+    """
     global db_service
+    db_path = db_path or os.getenv("DATABASE_URL") or "./data/app.db"
     if db_service is None:
         db_service = DatabaseService(db_path)
     return db_service

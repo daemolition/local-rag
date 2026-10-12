@@ -14,35 +14,80 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-import json
-import io
 import asyncio
+import io
+import json
+import re
+import logging
+import os
 import queue
 import threading
-import logging
+
+import openai
 from flask import (
     Blueprint,
-    render_template,
-    request,
-    session,
-    redirect,
-    url_for,
-    flash,
     Response,
     current_app,
+    flash,
     jsonify,
+    redirect,
+    request,
+    session,
+    url_for,
 )
-from werkzeug.security import check_password_hash
-import openai
 
-from app.auth import auth_required
+from app import resources_ready, wait_for_resources
+from app.tools.web_access import build_web_search_tool, pii_client
+from app.access import accessible_knowledge_ids, can_use_model
+from app.auth import auth_required_api, current_user
+from app.users import LoginThrottledError, authenticate
 from app.database_service import get_db_service
+from app.llm.registry import ModelUnavailableError, get_agent, resolve_model
+from app.retrieval import RetrievalScope, set_scope
 from app.settings_service import SettingsService
-from app.utils.phase_logger import phase_logger, Phase
-from app import wait_for_resources, resources_ready
+from app.utils.phase_logger import Phase, phase_logger
 
 bp = Blueprint("main", __name__)
 logger = logging.getLogger(__name__)
+
+_STATIC_DIR = None
+
+
+def serve_spa():
+    """Liefert die gebaute React-SPA (app/static/index.html).
+
+    Der Vite-Build schreibt direkt nach ``app/static/`` (siehe
+    ``frontend/vite.config.ts``); Flask serviert dieses Verzeichnis unter
+    ``/static/...``. Fällt mit einer klaren Meldung zurück, falls das Frontend
+    noch nicht gebaut wurde (``cd frontend && npm run build``)."""
+    global _STATIC_DIR
+    if _STATIC_DIR is None:
+        _STATIC_DIR = os.path.join(current_app.root_path, "static")
+
+    index_path = os.path.join(_STATIC_DIR, "index.html")
+    if not os.path.isfile(index_path):
+        return (
+            (
+                "<h1>Frontend nicht gebaut</h1>"
+                "<p>Bitte zuerst ausführen: <code>cd frontend &amp;&amp; npm install "
+                "&amp;&amp; npm run build</code></p>"
+            ),
+            503,
+        )
+
+    # Server-seitigen Theme-Default (UI_THEME) in die SPA-Index einbetten,
+    # damit index.html vor dem ersten Paint den richtigen Fallback hat.
+    try:
+        settings = SettingsService(get_db_service().get_session())
+        ui_theme = settings.get("UI_THEME", "system") or "system"
+    except Exception:
+        ui_theme = "system"
+
+    with open(index_path, encoding="utf-8") as fh:
+        html = fh.read()
+    html = html.replace("__RAG_UI_THEME__", ui_theme)
+    return Response(html, mimetype="text/html")
+
 
 # Globale Cancel-Events für laufende Chat-Streams, keyed by session_id.
 _cancel_events = {}
@@ -78,11 +123,11 @@ def _clear_cancelled(session_id):
 
 
 @bp.route("/api/sessions", methods=["GET"])
-@auth_required
+@auth_required_api
 def get_sessions():
     """List all sessions"""
     db = get_db_service()
-    sessions = db.list_sessions()
+    sessions = db.list_sessions(user_id=current_user()["id"])
 
     result = []
     for sess in sessions:
@@ -99,11 +144,11 @@ def get_sessions():
 
 
 @bp.route("/api/sessions", methods=["POST"])
-@auth_required
+@auth_required_api
 def new_session():
     """Create a new session"""
     db = get_db_service()
-    new_sess = db.create_session()
+    new_sess = db.create_session(user_id=current_user()["id"])
 
     return jsonify(
         {
@@ -120,11 +165,11 @@ def new_session():
 
 
 @bp.route("/api/sessions/<session_id>", methods=["GET"])
-@auth_required
+@auth_required_api
 def get_session_messages(session_id):
     """Get session with messages"""
     db = get_db_service()
-    sess = db.get_chat_session(session_id)
+    sess = db.get_chat_session(session_id, user_id=current_user()["id"])
 
     if not sess:
         return jsonify({"error": "Session nicht gefunden"}), 404
@@ -153,14 +198,18 @@ def get_session_messages(session_id):
 
 
 @bp.route("/api/sessions/<session_id>", methods=["DELETE"])
-@auth_required
+@auth_required_api
 def delete_session_route(session_id):
     """Delete a session"""
     db = get_db_service()
-    deleted = db.delete_session(session_id)
+    deleted = db.delete_session(session_id, user_id=current_user()["id"])
 
     if not deleted:
         return jsonify({"error": "Session nicht gefunden"}), 404
+
+    from app.attachments import cleanup_session_attachments
+
+    cleanup_session_attachments(session_id, current_app.extensions.get("client"))
 
     return jsonify({"success": True})
 
@@ -169,38 +218,49 @@ def delete_session_route(session_id):
 def health():
     """Health check endpoint for Docker (Liveness). ready=False waehrend
     die Embedding-Modelle im Hintergrund geladen werden."""
-    return {"status": "healthy", "ready": resources_ready()}, 200
+    from app.version import get_version
+
+    return {
+        "status": "healthy",
+        "ready": resources_ready(),
+        "version": get_version(),
+    }, 200
 
 
 @bp.route("/api/ingestion-status", methods=["GET"])
-@auth_required
+@auth_required_api
 def ingestion_status():
     """Geteilter Ingestion-Status fuer den Navbar-Indikator per Polling."""
     return jsonify(current_app.extensions["ingestion_status"])
 
 
 @bp.route("/", methods=["GET"])
-@auth_required
 def index():
-    return render_template("index.html")
+    # Die React-SPA übernimmt das Routing (Chat unter '/'). Der Login-Status
+    # wird clientseitig über /api/auth/me geprüft.
+    return serve_spa()
 
 
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        password = request.form.get("password", "")
-
-        db = get_db_service()
-        settings = SettingsService(db.get_session())
-        password_hash = settings.get("APP_PASSWORD_HASH")
-
-        if password_hash and check_password_hash(password_hash, password):
-            session["authenticated"] = True
+        try:
+            user = authenticate(
+                request.form.get("username", ""),
+                request.form.get("password", ""),
+                client_ip=request.remote_addr,
+            )
+        except LoginThrottledError:
+            user = None
+            flash("Zu viele Fehlversuche. Bitte später erneut versuchen.")
+        if user:
+            session.clear()
+            session["user_id"] = user["id"]
             return redirect(url_for("main.index"))
 
-        flash("Ungültiges Passwort")
+        flash("Benutzername oder Passwort falsch")
 
-    return render_template("login.html")
+    return serve_spa()
 
 
 @bp.route("/logout", methods=["GET"])
@@ -210,10 +270,10 @@ def logout():
 
 
 @bp.route("/history/<session_id>", methods=["GET"])
-@auth_required
+@auth_required_api
 def history(session_id):
     db = get_db_service()
-    sess = db.get_chat_session(session_id)
+    sess = db.get_chat_session(session_id, user_id=current_user()["id"])
 
     if not sess:
         return {"error": "Session nicht gefunden"}, 404
@@ -234,11 +294,13 @@ def history(session_id):
 
 
 @bp.route("/chat", methods=["POST"])
-@auth_required
+@auth_required_api
 def chat():
     data = request.get_json()
     user_message = data.get("message", "")
     session_id = data.get("session_id")
+    # None = alle Knowledge-Bereiche; Liste = nur diese (leer = keiner).
+    knowledge_ids = data.get("knowledge_ids")
 
     if not user_message:
         return Response(
@@ -250,13 +312,13 @@ def chat():
     sess = None
 
     if session_id:
-        sess = db.get_chat_session(session_id)
+        sess = db.get_chat_session(session_id, user_id=current_user()["id"])
         if not sess:
             return Response(
                 'data: {"error": "Ungültige Session"}\n\n', mimetype="text/event-stream"
             )
     else:
-        new_sess = db.create_session()
+        new_sess = db.create_session(user_id=current_user()["id"])
         final_session_id = new_sess.id
         sess = new_sess
 
@@ -266,8 +328,7 @@ def chat():
 
     phase_logger.log_phase(Phase.USER_INPUT, f"User-Query: {user_message[:100]}...")
 
-    agent = current_app.extensions.get("agent")
-    if not agent:
+    if not resources_ready():
         try:
             ready = wait_for_resources(timeout=180)
         except RuntimeError as e:
@@ -281,11 +342,40 @@ def chat():
                 'erneut versuchen."}\n\n',
                 mimetype="text/event-stream",
             )
-        agent = current_app.extensions.get("agent")
 
-    if not agent:
+    # Modell des Requests (oder Standardmodell) -> eigener Agent mit Prompt,
+    # Parametern und ggf. angehaengtem Knowledge. Ohne Modell gibt es keinen Chat.
+    model_ref = data.get("model")
+    user = current_user()
+    # Knowledge, das das Modell selbst mitbringt (vom Admin kuratiert): wer das
+    # Modell nutzen darf, darf es durchsuchen. Sonst gelten die Rechte des Nutzers.
+    model_locked = False
+    resolved = None
+    try:
+        resolved = resolve_model(model_ref)
+        if not can_use_model(user, resolved.ref):
+            return Response(
+                'data: {"error": "Kein Zugriff auf dieses Modell."}\n\n',
+                mimetype="text/event-stream",
+            )
+        tools = list(current_app.extensions["agent_tools"])
+        # Websuche nur, wenn das Modell sie hat UND SearXNG samt PII-Filter eingerichtet sind.
+        if resolved.web_search:
+            web_tool = build_web_search_tool()
+            if web_tool:
+                tools.append(web_tool)
+        agent = get_agent(resolved, tools)
+        if resolved.knowledge_ids:
+            knowledge_ids = list(resolved.knowledge_ids)
+            model_locked = True
+    except ModelUnavailableError as e:
+        message = (
+            f"{e} Bitte in der Administration eine Verbindung anlegen und ein Standardmodell wählen."
+            if not model_ref
+            else str(e)
+        )
         return Response(
-            'data: {"error": "Agent nicht initialisiert"}\n\n',
+            f"data: {json.dumps({'error': message})}\n\n",
             mimetype="text/event-stream",
         )
 
@@ -294,12 +384,13 @@ def chat():
 
     for msg in messages[-10:]:
         role = "user" if msg.role == "user" else "assistant"
-        message_list.append({"role": role, "content": msg.content})
+        # Quellenblock der Anzeige gehoert nicht in den Verlauf fuers Modell
+        content = re.sub(r"\n*<sources>.*?</sources>\s*$", "", msg.content, flags=re.S)
+        message_list.append({"role": role, "content": content})
 
     # User-Nachricht durch PII-Filter schicken (vor LLM-Call)
-    pii_filter = current_app.extensions.get("pii_filter")
-    settings = SettingsService(db.get_session())
-    pii_filter_enabled = settings.get_bool("PII_FILTER_ENABLED", True)
+    pii_filter = pii_client()  # None, wenn nicht eingerichtet oder abgeschaltet
+    pii_filter_enabled = pii_filter is not None
 
     filtered_user_message = user_message
     pii_mapping = []  # Mapping für spätere Demaskierung der Antwort speichern
@@ -320,11 +411,65 @@ def chat():
         except Exception as e:
             logger.warning(f"PII-Filter Exception: {e} - verwende Original-Nachricht")
 
-    message_list.append({"role": "user", "content": filtered_user_message})
+    # Hinweis auf Chat-Anhaenge (nur fuer den Agent, wird nicht gespeichert),
+    # damit er die Dokumentsuche auch tatsaechlich darauf anwendet.
+    agent_user_message = filtered_user_message
+    attached = db.list_session_attachments(final_session_id, status="ready")
+    if attached:
+        names = ", ".join(f"„{a.filename}“" for a in attached)
+        agent_user_message += (
+            f"\n\n[Hinweis: Der Nutzer hat in diesem Chat folgende Dateien "
+            f"angehängt: {names}. Ihr Inhalt ist über document_search_tool "
+            f"durchsuchbar.]"
+        )
+
+    message_list.append({"role": "user", "content": agent_user_message})
 
     logger.info(f"[DEBUG] Messages an Agent: {len(message_list)} Nachrichten")
 
     input_data = {"messages": message_list}
+
+    # Durchsuchte Collections dieses Requests: gewaehlte Knowledge-Bereiche plus
+    # (falls vorhanden) die Anhaenge dieser Session.
+    from app.knowledge import list_knowledge
+
+    all_knowledge = list_knowledge()
+    if not model_locked:
+        # Nie Collections aus dem Request ungeprueft uebernehmen.
+        readable = accessible_knowledge_ids(user, "read")
+        all_knowledge = [k for k in all_knowledge if k["id"] in readable]
+    if knowledge_ids is not None:
+        wanted = {int(i) for i in knowledge_ids if str(i).lstrip("-").isdigit()}
+        all_knowledge = [k for k in all_knowledge if k["id"] in wanted]
+    from app.ingest.index_doc import index_path, inline_hint
+    from app.knowledge import knowledge_paths
+    from app.rag import model_settings
+    from app.rag.helper import make_helper
+    from app.rag.profiles import config_for_knowledge
+
+    scope = RetrievalScope(
+        user_id=user["id"],
+        collections=tuple(k["collection_name"] for k in all_knowledge),
+        session_id=final_session_id,
+        # Jedes Knowledge sucht mit seinem Retrieval-Profil (sonst Standardprofil).
+        profiles=tuple((k["collection_name"], config_for_knowledge(k)) for k in all_knowledge),
+        helper=make_helper(resolved, user),
+        # pandas-Tools sehen nur die strukturierten Dateien dieser Knowledge-Bereiche
+        data_dirs=tuple(
+            (paths.name_prefix, str(paths.data_dir))
+            for paths in (knowledge_paths(k) for k in all_knowledge)
+        ),
+        indexes=tuple((k["name"], str(index_path(knowledge_paths(k)))) for k in all_knowledge),
+        # jedes Knowledge wird mit dem Modell abgefragt, mit dem es indexiert wurde
+        specs=tuple(
+            (k["collection_name"], json.dumps(model_settings.knowledge_spec(k).to_dict()))
+            for k in all_knowledge
+        ),
+    )
+    # Kleines Inhaltsverzeichnis gleich mitgeben ("zuerst lesen"), grosses nur per Werkzeug.
+    hint = inline_hint(scope.indexes)
+    if hint:
+        message_list[-1]["content"] += hint
 
     def generate():
         result_queue = queue.Queue()
@@ -340,8 +485,12 @@ def chat():
         async def run_agent_async():
             nonlocal full_response
             nonlocal full_reasoning
+            sources_sent = 0
             try:
                 phase_logger.log_phase(Phase.AGENT_START, "Agent-Stream gestartet")
+                # Scope im Kontext der Agent-Loop setzen; asyncio und die
+                # LangChain-Executors reichen ihn an die Tool-Aufrufe weiter.
+                set_scope(scope)
 
                 async for event in agent.astream_events(input_data, version="v2"):
                     if cancel_event.is_set():
@@ -387,6 +536,10 @@ def chat():
                             Phase.TOOL_EXECUTION, f"Tool beendet: {tool_name}"
                         )
                         result_queue.put(("tool_end", tool_name))
+                        fresh = scope.sources[sources_sent:]
+                        if fresh:
+                            sources_sent += len(fresh)
+                            result_queue.put(("sources", list(fresh)))
                         result_queue.put(
                             ("tool_result", (tool_name, str(tool_output)[:2000]))
                         )
@@ -468,8 +621,13 @@ def chat():
                                     f"PII-Demaskierung (Reasoning) fehlgeschlagen: {e}"
                                 )
                         saved_assistant = (
-                            f"<think>{reasoning_text}</think>\n"
-                            + demasked_response
+                            f"<think>{reasoning_text}</think>\n" + demasked_response
+                        )
+                    if scope.sources:  # Quellen mit Score fuer die Anzeige im Verlauf
+                        saved_assistant += (
+                            "\n\n<sources>"
+                            + json.dumps(scope.sources, ensure_ascii=False)
+                            + "</sources>"
                         )
                     db.save_message(final_session_id, "assistant", saved_assistant)
                     yield f"data: {json.dumps({'done': True, 'session_id': final_session_id})}\n\n"
@@ -493,6 +651,9 @@ def chat():
                 elif msg_type == "tool_end":
                     yield f"data: {json.dumps({'tool_end': msg_data})}\n\n"
 
+                elif msg_type == "sources":
+                    yield f"data: {json.dumps({'source_list': msg_data})}\n\n"
+
                 elif msg_type == "tool_result":
                     tool_name, tool_output = msg_data
                     payload = {
@@ -513,18 +674,21 @@ def chat():
 
 
 @bp.route("/chat/stop", methods=["POST"])
-@auth_required
+@auth_required_api
 def stop_chat():
     """Bricht den laufenden Chat-Stream für eine Session ab."""
     data = request.get_json() or {}
     session_id = data.get("session_id")
-    if session_id:
+    # Nur eigene Chats abbrechen (die Session-ID allein ist kein Berechtigungsnachweis).
+    if session_id and get_db_service().get_chat_session(
+        session_id, user_id=current_user()["id"]
+    ):
         _set_cancelled(session_id)
     return jsonify({"success": True})
 
 
 @bp.route("/api/stt", methods=["POST"])
-@auth_required
+@auth_required_api
 def stt():
     """Wandelt ein aufgenommenes Audio-Blob in Text um (OpenAI-kompatibles STT)."""
     if "audio" not in request.files:
@@ -552,3 +716,38 @@ def stt():
     except Exception as e:
         logger.exception("STT Transkription fehlgeschlagen")
         return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
+# React-SPA Catch-all
+# =============================================================================
+
+# Alle nicht von Flask/API/Assets bedienten GET-Pfade sind clientseitige
+# React-Router-Routen und liefern dieselbe index.html aus. Bewusst über einen
+# 404-Handler (echter Catch-all) statt einer Routen-Whitelist: neue SPA-Seiten
+# funktionieren damit automatisch, ohne hier etwas nachzutragen.
+_RESERVED_PREFIXES = ("/api/", "/static/", "/user/", "/ws/")
+_RESERVED_EXACT = {"/health", "/logout"}
+
+
+@bp.app_errorhandler(404)
+def spa_fallback(error):
+    path = request.path
+
+    # Backend-/API-/Asset-Pfade niemals mit der SPA überschreiben.
+    if (
+        request.method != "GET"
+        or path.startswith(_RESERVED_PREFIXES)
+        or path in _RESERVED_EXACT
+    ):
+        return error.get_response()
+
+    # Nur Navigation (HTML) oder extension-lose Pfade als SPA ausliefern;
+    # fehlende Dateien mit Endung bleiben echte 404s.
+    accepts_html = "text/html" in request.headers.get("Accept", "")
+    looks_like_file = "." in os.path.basename(path)
+    if accepts_html or not looks_like_file:
+        return serve_spa()
+
+    return error.get_response()
+

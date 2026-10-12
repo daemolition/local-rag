@@ -1,0 +1,598 @@
+# Local Document RAG - A privacy-focused, local RAG system
+# Copyright (C) 2026 Christopher Abanilla
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+"""JSON-API fuer LLM-Connections und Modell-Konfigurationen (Admin-Bereich)."""
+
+from logging import getLogger
+
+from flask import Blueprint, jsonify, request
+
+from app import connections as store
+from app.access import can_use_model
+from app.auth import auth_required_api, current_user, require_role
+from app.llm import registry
+from app.users import role_at_least
+from app.utils.device import torch_device
+
+admin_bp = Blueprint("admin_api", __name__, url_prefix="/api")
+
+logger = getLogger(__name__)
+
+
+def _error(message: str, status: int):
+    return jsonify({"success": False, "error": message}), status
+
+
+# =============================================================================
+# Connections
+# =============================================================================
+
+
+@admin_bp.route("/connections", methods=["GET"])
+@require_role("admin")
+def connections_list():
+    return jsonify(store.list_connections())
+
+
+@admin_bp.route("/connections", methods=["POST"])
+@require_role("admin")
+def connections_create():
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    base_url = store.normalize_base_url(data.get("base_url") or "")
+    if not name or not base_url:
+        return _error("Name und Base-URL sind erforderlich", 400)
+    if not base_url.startswith(("http://", "https://")):
+        return _error("Base-URL muss mit http:// oder https:// beginnen", 400)
+
+    try:
+        registry._reject_link_local(base_url)
+    except registry.RemoteModelsError as e:
+        return _error(str(e), 400)
+
+    created = store.create_connection(
+        name, base_url, data.get("api_key") or "", bool(data.get("enabled", True))
+    )
+    registry.clear_caches()
+    return jsonify(created), 201
+
+
+@admin_bp.route("/connections/<int:connection_id>", methods=["PATCH"])
+@require_role("admin")
+def connections_update(connection_id):
+    data = request.get_json() or {}
+    base_url = data.get("base_url")
+    if base_url and not store.normalize_base_url(base_url).startswith(
+        ("http://", "https://")
+    ):
+        return _error("Base-URL muss mit http:// oder https:// beginnen", 400)
+    if base_url:
+        try:
+            registry._reject_link_local(store.normalize_base_url(base_url))
+        except registry.RemoteModelsError as e:
+            return _error(str(e), 400)
+
+    # Wird die URL geaendert, muss der Key neu eingegeben werden (siehe oben).
+    current = store.get_connection(connection_id)
+    if (
+        current
+        and base_url
+        and store.normalize_base_url(base_url) != current["base_url"]
+        and current["has_key"]
+        and not (data.get("api_key") or "").strip()
+    ):
+        return _error(
+            "Bei geänderter Base-URL bitte den API-Key erneut eingeben.", 400
+        )
+
+    updated = store.update_connection(
+        connection_id,
+        name=data.get("name"),
+        base_url=base_url,
+        api_key=data.get("api_key"),
+        enabled=data.get("enabled"),
+    )
+    if not updated:
+        return _error("Connection nicht gefunden", 404)
+    registry.clear_caches()
+    return jsonify(updated)
+
+
+@admin_bp.route("/connections/<int:connection_id>", methods=["DELETE"])
+@require_role("admin")
+def connections_delete(connection_id):
+    if not store.delete_connection(connection_id):
+        return _error("Connection nicht gefunden", 404)
+    registry.clear_caches()
+    return jsonify({"success": True})
+
+
+@admin_bp.route("/connections/test", methods=["POST"])
+@require_role("admin")
+def connections_test():
+    """Testet Base-URL + Key, auch fuer noch ungespeicherte Eingaben. Ein leerer
+    Key bei vorhandener ``id`` verwendet den gespeicherten."""
+    data = request.get_json() or {}
+    base_url = store.normalize_base_url(data.get("base_url") or "")
+    if not base_url:
+        return _error("Base-URL erforderlich", 400)
+
+    api_key = (data.get("api_key") or "").strip()
+    connection_id = data.get("id")
+    if not api_key and connection_id:
+        # Den gespeicherten Key nur an die gespeicherte URL senden, sonst liesse
+        # er sich per geaenderter Base-URL an einen fremden Server ausleiten.
+        stored = store.get_connection(int(connection_id), with_key=True)
+        if stored and store.normalize_base_url(stored["base_url"]) == base_url:
+            api_key = stored["api_key"]
+
+    result = registry.test_connection(
+        {"id": int(connection_id or 0), "base_url": base_url, "api_key": api_key}
+    )
+    return jsonify(result), 200 if result["success"] else 502
+
+
+# =============================================================================
+# Modelle
+# =============================================================================
+
+
+@admin_bp.route("/models", methods=["GET"])
+@auth_required_api
+def models_list():
+    """Alle Modelle der aktiven Connections. ``visible=1`` filtert auf die im
+    Chat sichtbaren (Modell-Dropdown), ``refresh=1`` umgeht den kurzen Cache."""
+    is_admin = role_at_least(current_user()["role"], "admin")
+    result = registry.list_models(force=is_admin and request.args.get("refresh") == "1")
+    if request.args.get("visible") == "1" or not is_admin:
+        result["models"] = [
+            m for m in result["models"] if m["visible"] and m["available"]
+        ]
+    if not is_admin:
+        user = current_user()
+        result["models"] = [m for m in result["models"] if can_use_model(user, m["ref"])]
+        if result["default"] and not can_use_model(user, result["default"]):
+            result["default"] = ""
+        # Prompts, Parameter und Knowledge-Zuordnung sind Admin-Sache; Nutzer
+        # brauchen nur Namen und Referenz fuers Dropdown. Das Flag
+        # ``knowledge_locked`` sagt dem Chat, ob die Knowledge-Auswahl greift.
+        for m in result["models"]:
+            cfg = m.pop("config", None)
+            m["knowledge_locked"] = bool(cfg and cfg["knowledge_ids"])
+            m["customized"] = False
+        result["errors"] = []
+    return jsonify(result)
+
+
+@admin_bp.route("/models/config", methods=["PUT"])
+@require_role("admin")
+def models_config_save():
+    data = request.get_json() or {}
+    ref = data.pop("ref", "")
+    if data.get("web_search"):
+        from app.tools.web_access import web_search_available
+
+        if not web_search_available():
+            return _error(
+                "Die Websuche braucht einen eingerichteten PII-Filter und SearXNG "
+                "(Administration › Allgemein). Suchanfragen verlassen das System und werden vorher maskiert.",
+                400,
+            )
+    try:
+        saved = store.save_model_config(ref, data)
+    except ValueError as e:
+        return _error(str(e), 400)
+    if not saved:
+        return _error("Modell oder Connection nicht gefunden", 404)
+    return jsonify(saved)
+
+
+@admin_bp.route("/models/config", methods=["DELETE"])
+@require_role("admin")
+def models_config_delete():
+    ref = request.args.get("ref", "")
+    try:
+        deleted = store.delete_model_config(ref)
+    except ValueError as e:
+        return _error(str(e), 400)
+    # Ein nie angepasstes Basismodell hat nichts zurueckzusetzen: auch ok.
+    return jsonify({"success": True, "deleted": deleted})
+
+
+@admin_bp.route("/models/clone", methods=["POST"])
+@require_role("admin")
+def models_clone():
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return _error("Name erforderlich", 400)
+    try:
+        clone = store.clone_model(data.get("ref", ""), name)
+    except ValueError as e:
+        return _error(str(e), 400)
+    if not clone:
+        return _error("Modell oder Connection nicht gefunden", 404)
+    return jsonify(clone), 201
+
+
+@admin_bp.route("/models/default", methods=["PUT"])
+@require_role("admin")
+def models_set_default():
+    ref = (request.get_json() or {}).get("ref", "")
+    try:
+        store.parse_ref(ref)
+    except ValueError as e:
+        return _error(str(e), 400)
+    store.set_default_model(ref)
+    return jsonify({"success": True, "default": ref})
+
+
+# =============================================================================
+# Einlesen & Modelle (Embedding, Reranker, Zerlegen)
+# =============================================================================
+
+INGEST_FIELDS = {
+    "chunk_size": ("INGEST_CHUNK_SIZE", int, (200, 4000)),
+    "chunk_overlap": ("INGEST_CHUNK_OVERLAP", int, (0, 1000)),
+    "context_enrichment": ("INGEST_CONTEXT_ENRICHMENT", bool, None),
+    "keep_original": ("INGEST_KEEP_ORIGINAL", bool, None),
+    "index_enabled": ("INGEST_INDEX_ENABLED", bool, None),
+    "vision_enabled": ("INGEST_VISION_ENABLED", bool, None),
+}
+
+MODEL_SUGGESTIONS = {
+    "embedding": ["BAAI/bge-m3", "intfloat/multilingual-e5-large", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"],
+    "reranker": ["BAAI/bge-reranker-v2-m3", "BAAI/bge-reranker-base"],
+}
+
+
+def _ingest_values() -> dict:
+    from app.database_service import get_db_service
+    from app.settings_service import SettingsService
+
+    db = get_db_service().get_session()
+    try:
+        s = SettingsService(db)
+        return {
+            "chunk_size": s.get_int("INGEST_CHUNK_SIZE", 1000),
+            "chunk_overlap": s.get_int("INGEST_CHUNK_OVERLAP", 150),
+            "context_enrichment": s.get_bool("INGEST_CONTEXT_ENRICHMENT", True),
+            "keep_original": s.get_bool("INGEST_KEEP_ORIGINAL", True),
+            "index_enabled": s.get_bool("INGEST_INDEX_ENABLED", True),
+            "vision_enabled": s.get_bool("INGEST_VISION_ENABLED", True),
+        }
+    finally:
+        db.close()
+
+
+def _parse_spec(raw):
+    from app.rag import models_runtime
+
+    if not isinstance(raw, dict):
+        raise ValueError("Modell fehlt")
+    spec = models_runtime.ModelSpec.from_dict(raw)  # prueft Quelle, Modell, Connection
+    if spec.source == "endpoint" and not store.get_connection(spec.connection_id):
+        raise ValueError("Connection nicht gefunden")
+    return spec
+
+
+def _setting_value(key: str) -> str:
+    from app.database_service import get_db_service
+    from app.settings_service import SettingsService
+
+    db = get_db_service().get_session()
+    try:
+        return SettingsService(db).get(key, "") or ""
+    finally:
+        db.close()
+
+
+def _embedding_overview() -> dict:
+    from app.knowledge import list_knowledge
+    from app.rag import model_settings, models_runtime
+
+    emb, rr = model_settings.embedding_spec(), model_settings.reranker_spec()
+    stale = [k for k in list_knowledge() if model_settings.is_stale(k)]
+    return {
+        "embedding": {**emb.to_dict(), "status": models_runtime.status("embedding", emb)},
+        "reranker": {**rr.to_dict(), "status": models_runtime.status("reranker", rr)},
+        "ingest": _ingest_values(),
+        "device": torch_device(),
+        "vision_model": _setting_value("VISION_MODEL_REF"),
+        "stale": [{"id": k["id"], "name": k["name"], "error": k.get("last_reindex_error")} for k in stale],
+        "suggestions": MODEL_SUGGESTIONS,
+    }
+
+
+@admin_bp.route("/admin/embedding", methods=["GET"])
+@require_role("admin")
+def embedding_overview():
+    return jsonify(_embedding_overview())
+
+
+@admin_bp.route("/admin/embedding", methods=["PUT"])
+@require_role("admin")
+def embedding_save():
+    """Speichert Modelle und Einlese-Einstellungen; neue Modelle werden im Hintergrund geladen.
+
+    Ein anderes Embedding-Modell macht bestehende Knowledge "veraltet" (Neu indexieren); bis
+    dahin werden sie weiter mit ihrem bisherigen Modell abgefragt.
+    """
+    from app.database_service import get_db_service
+    from app.rag import model_settings, models_runtime
+    from app.settings_service import SettingsService
+
+    data = request.get_json() or {}
+    try:
+        emb = _parse_spec(data["embedding"]) if "embedding" in data else None
+        rr = _parse_spec(data["reranker"]) if "reranker" in data else None
+    except (ValueError, TypeError) as e:
+        return _error(str(e), 400)
+
+    values: dict[str, str] = {}
+    if "vision_model" in data:
+        ref = (data["vision_model"] or "").strip()
+        if ref:  # leer = Standardmodell
+            try:
+                store.parse_ref(ref)
+            except ValueError:
+                return _error("Ungültiges Vision-Modell", 400)
+            if not any(m["ref"] == ref for m in registry.list_models()["models"]):
+                return _error("Das Vision-Modell existiert nicht (mehr)", 400)
+        values["VISION_MODEL_REF"] = ref
+    ingest = data.get("ingest") or {}
+    for field, raw in ingest.items():
+        if field not in INGEST_FIELDS:
+            return _error(f"Unbekannte Einstellung: {field}", 400)
+        key, kind, bounds = INGEST_FIELDS[field]
+        if kind is bool:
+            values[key] = "true" if bool(raw) else "false"
+        else:
+            try:
+                number = int(raw)
+            except (TypeError, ValueError):
+                return _error(f"{field}: ganze Zahl erwartet", 400)
+            if not bounds[0] <= number <= bounds[1]:
+                return _error(f"{field}: erlaubt sind {bounds[0]} bis {bounds[1]}", 400)
+            values[key] = str(number)
+    size = int(values.get("INGEST_CHUNK_SIZE") or _ingest_values()["chunk_size"])
+    overlap = int(values.get("INGEST_CHUNK_OVERLAP") or _ingest_values()["chunk_overlap"])
+    if overlap >= size:
+        return _error("Die Überlappung muss kleiner als die Chunk-Größe sein", 400)
+
+    db = get_db_service().get_session()
+    try:
+        SettingsService(db).set_batch(values)
+    finally:
+        db.close()
+    model_settings.save_specs(emb, rr)
+    if emb:
+        models_runtime.load_in_background("embedding", emb)
+    if rr:
+        models_runtime.load_in_background("reranker", rr)
+    return jsonify(_embedding_overview())
+
+
+@admin_bp.route("/admin/embedding/test", methods=["POST"])
+@require_role("admin")
+def embedding_test():
+    """Laedt das Modell (beim ersten Mal mit Download) und meldet Dimension bzw. Fehler."""
+    import time
+
+    from app.rag import models_runtime
+
+    data = request.get_json() or {}
+    kind = data.get("kind")
+    if kind not in ("embedding", "reranker"):
+        return _error("kind muss embedding oder reranker sein", 400)
+    try:
+        spec = _parse_spec(data.get("spec"))
+    except (ValueError, TypeError) as e:
+        return _error(str(e), 400)
+    started = time.time()
+    try:
+        if kind == "embedding":
+            model = models_runtime.get_embedder(spec)
+            result = {"dimension": model.dimension}
+        else:
+            scores = models_runtime.get_reranker(spec).score(
+                "Wie hoch ist die Miete?", ["Die Miete beträgt 800 Euro.", "Das Wetter ist schön."]
+            )
+            result = {"ranking_ok": scores[0] > scores[1]}
+    except models_runtime.ModelLoadError as e:
+        return jsonify({"success": False, "error": str(e)}), 502
+    return jsonify({"success": True, "seconds": round(time.time() - started, 1), **result})
+
+
+@admin_bp.route("/admin/embedding/remote-models", methods=["GET"])
+@require_role("admin")
+def embedding_remote_models():
+    """Modell-IDs einer Connection (fuer die Auswahl bei Quelle "Endpoint")."""
+    conn = store.get_connection(request.args.get("connection_id", type=int) or 0, with_key=True)
+    if not conn:
+        return _error("Connection nicht gefunden", 404)
+    try:
+        return jsonify(registry.fetch_remote_models(conn))
+    except registry.RemoteModelsError as e:
+        return _error(str(e), 502)
+
+
+# =============================================================================
+# Tools (Spracheingabe, Websuche, PII-Filter)
+# =============================================================================
+
+
+class _FormSettings:
+    """Stellt die Werte aus dem Formular wie Settings bereit (Test vor dem Speichern)."""
+
+    def __init__(self, values: dict):
+        self.values = values
+
+    def get(self, key, default=None):
+        value = self.values.get(key)
+        return default if value is None else value
+
+
+def _tools_overview() -> dict:
+    from app.database_service import get_db_service
+    from app.settings_service import SettingsService
+    from app.tools.web_access import web_search_available
+
+    db = get_db_service().get_session()
+    try:
+        s = SettingsService(db)
+        return {
+            "stt": {
+                "base_url": s.get("STT_BASEURL", "") or "",
+                "model": s.get("STT_MODEL", "") or "",
+                "has_key": bool(s.get("STT_API_KEY")),
+            },
+            "search": {
+                "url": s.get("SEARCH_SEARXNG_URL", "") or "",
+                "categories": s.get("SEARCH_SEARXNG_CATEGORIES", "general") or "general",
+            },
+            "pii": {
+                "url": s.get("PII_FILTER_URL", "") or "",
+                "enabled": s.get_bool("PII_FILTER_ENABLED", True),
+                "has_key": bool(s.get("PII_FILTER_API_KEY")),
+            },
+            # Die Websuche ist je Modell zuschaltbar, sobald SearXNG und der PII-Filter laufen
+            "web_search_available": web_search_available(),
+        }
+    finally:
+        db.close()
+
+
+def _clean_url(raw, label: str) -> str:
+    url = store.normalize_base_url((raw or "").strip()) if raw else ""
+    if url and not url.startswith(("http://", "https://")):
+        raise ValueError(f"{label}: Adresse muss mit http:// oder https:// beginnen")
+    if url:
+        try:
+            registry._reject_link_local(url)
+        except registry.RemoteModelsError as e:
+            raise ValueError(f"{label}: {e}") from None
+    return url
+
+
+@admin_bp.route("/admin/tools", methods=["GET"])
+@require_role("admin")
+def tools_overview():
+    return jsonify(_tools_overview())
+
+
+@admin_bp.route("/admin/tools", methods=["PUT"])
+@require_role("admin")
+def tools_save():
+    """Speichert die Tool-Einstellungen. API-Keys werden nie ausgeliefert: ein leeres Feld
+    behaelt den gespeicherten Key, ``clear_key`` loescht ihn."""
+    from app.database_service import get_db_service
+    from app.settings_service import SettingsService
+
+    data = request.get_json() or {}
+    values: dict[str, str] = {}
+    try:
+        if "stt" in data:
+            stt = data["stt"] or {}
+            values["STT_BASEURL"] = _clean_url(stt.get("base_url"), "Spracheingabe")
+            values["STT_MODEL"] = (stt.get("model") or "").strip()
+            if stt.get("clear_key"):
+                values["STT_API_KEY"] = ""
+            elif (stt.get("api_key") or "").strip():
+                values["STT_API_KEY"] = stt["api_key"].strip()
+        if "search" in data:
+            search = data["search"] or {}
+            values["SEARCH_SEARXNG_URL"] = _clean_url(search.get("url"), "Websuche")
+            values["SEARCH_SEARXNG_CATEGORIES"] = (search.get("categories") or "general").strip()
+        if "pii" in data:
+            pii = data["pii"] or {}
+            url = (pii.get("url") or "").strip()
+            if url and not url.startswith(("http://", "https://")):
+                raise ValueError("PII-Filter: Adresse muss mit http:// oder https:// beginnen")
+            if url:
+                try:
+                    registry._reject_link_local(url)
+                except registry.RemoteModelsError as e:
+                    raise ValueError(f"PII-Filter: {e}") from None
+            values["PII_FILTER_URL"] = url
+            values["PII_FILTER_ENABLED"] = "true" if pii.get("enabled", True) else "false"
+            if pii.get("clear_key"):
+                values["PII_FILTER_API_KEY"] = ""
+            elif (pii.get("api_key") or "").strip():
+                values["PII_FILTER_API_KEY"] = pii["api_key"].strip()
+    except ValueError as e:
+        return _error(str(e), 400)
+
+    if values:
+        db = get_db_service().get_session()
+        try:
+            SettingsService(db).set_batch(values)
+        finally:
+            db.close()
+    # Ohne PII-Filter darf keine Websuche an Modellen haengen (sie steht dann nicht mehr bereit)
+    return jsonify(_tools_overview())
+
+
+@admin_bp.route("/admin/tools/test", methods=["POST"])
+@require_role("admin")
+def tools_test():
+    """Testet die eingegebenen Werte (auch ungespeichert). Ein leeres Key-Feld nutzt den
+    gespeicherten Key nur fuer die gespeicherte Adresse (sonst liesse er sich ausleiten)."""
+    from app.database_service import get_db_service
+    from app.settings_service import SettingsService
+    from app.user_routes import _test_pii_filter, _test_search, _test_stt
+
+    data = request.get_json() or {}
+    kind = data.get("kind")
+    values_in = data.get("values") or {}
+    if kind not in ("stt", "search", "pii"):
+        return _error("kind muss stt, search oder pii sein", 400)
+
+    db = get_db_service().get_session()
+    try:
+        saved = SettingsService(db)
+        if kind == "stt":
+            url = (values_in.get("base_url") or "").strip()
+            key = (values_in.get("api_key") or "").strip()
+            if not key and store.normalize_base_url(url) == store.normalize_base_url(saved.get("STT_BASEURL", "") or ""):
+                key = saved.get("STT_API_KEY") or ""
+            form = _FormSettings({"STT_BASEURL": url, "STT_MODEL": values_in.get("model", ""), "STT_API_KEY": key})
+            test = _test_stt
+        elif kind == "search":
+            form = _FormSettings({"SEARCH_SEARXNG_URL": (values_in.get("url") or "").strip()})
+            test = _test_search
+        else:
+            url = (values_in.get("url") or "").strip()
+            key = (values_in.get("api_key") or "").strip()
+            if not key and url == (saved.get("PII_FILTER_URL", "") or ""):
+                key = saved.get("PII_FILTER_API_KEY") or ""
+            form = _FormSettings({"PII_FILTER_URL": url, "PII_FILTER_API_KEY": key})
+            test = _test_pii_filter
+    finally:
+        db.close()
+
+    for field, label in (("base_url", "stt"), ("url", "search")):
+        raw = values_in.get(field) if kind == label else None
+        if raw:
+            try:
+                registry._reject_link_local(store.normalize_base_url(raw.strip()))
+            except registry.RemoteModelsError as e:
+                return jsonify({"success": False, "error": str(e)}), 400
+    try:
+        result = test(form)
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Unerwarteter Fehler: {e}"}), 500
+    return jsonify(result), 200 if result.get("success") else 502
