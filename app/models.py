@@ -28,6 +28,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -45,6 +46,10 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default="user")
     is_active = Column(Boolean, nullable=False, default=True)
+    # Herkunft des Kontos: 'local' (Passwort hier), 'ldap' oder 'oidc' (extern angemeldet)
+    auth_source = Column(String(20), nullable=False, default="local", server_default="local")
+    external_id = Column(String(255), index=True)  # OIDC-sub bzw. LDAP-DN
+    external_groups = Column(Text)  # JSON: beim letzten Login gemeldete Gruppennamen
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def __repr__(self):
@@ -202,6 +207,8 @@ class GroupMember(Base):
     user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
+    # vom Login gesetzte Mitgliedschaft (nur diese raeumt der Gruppenabgleich wieder ab)
+    external = Column(Boolean, nullable=False, default=False, server_default=false())
 
 
 class ResourceGrant(Base):

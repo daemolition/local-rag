@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from "react";
-import { FileText, Lock, User } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { FileText, KeyRound, Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
-import { errorMessage } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -12,6 +12,18 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [oidc, setOidc] = useState<{ enabled: boolean; name: string } | null>(null);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("login_error")) {
+      setError("Die Anmeldung über den Anbieter ist fehlgeschlagen.");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    api
+      .get<{ oidc: { enabled: boolean; name: string } }>("/api/auth/providers")
+      .then((p) => setOidc(p.oidc))
+      .catch(() => setOidc(null));
+  }, []);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -82,6 +94,15 @@ export function LoginPage() {
             {submitting ? "Anmelden…" : "Anmelden"}
           </Button>
         </form>
+
+        {oidc?.enabled ? (
+          <Button variant="outline" className="mt-3 w-full" asChild>
+            <a href="/api/auth/oidc/login">
+              <KeyRound className="size-4" />
+              Mit {oidc.name} anmelden
+            </a>
+          </Button>
+        ) : null}
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Lokale KI-gestützte Dokumentenanalyse

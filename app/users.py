@@ -21,6 +21,7 @@ Rollen sind fest und aufsteigend: ``user`` < ``editor`` < ``admin``.
 Rueckgaben sind dicts (nie ORM-Objekte oder Passwort-Hashes).
 """
 
+import json
 import threading
 import time
 from logging import getLogger
@@ -58,12 +59,18 @@ def role_at_least(role: str, required: str) -> bool:
 
 
 def _user_dict(u: User) -> dict:
+    try:
+        groups = json.loads(u.external_groups) if u.external_groups else []
+    except ValueError:
+        groups = []
     return {
         "id": u.id,
         "username": u.username,
         "display_name": u.display_name or u.username,
         "role": u.role,
         "is_active": bool(u.is_active),
+        "auth_source": u.auth_source or "local",
+        "external_groups": groups,
     }
 
 
@@ -158,11 +165,21 @@ def authenticate(
         ):
             raise LoginThrottledError()
 
-        ok = check_password_hash(u.password_hash if u else _DUMMY_HASH, password or "")
-        if u and ok and u.is_active:
-            with _failures_lock:
-                _failures.pop(account_key, None)
-            return _user_dict(u)
+        source = (u.auth_source or "local") if u else None
+        if u is None or source == "local":
+            ok = check_password_hash(u.password_hash if u else _DUMMY_HASH, password or "")
+            if u and ok and u.is_active:
+                with _failures_lock:
+                    _failures.pop(account_key, None)
+                return _user_dict(u)
+        # LDAP: bestehendes LDAP-Konto oder unbekannter Name (lokale Konten bleiben lokal)
+        if u is None or source == "ldap":
+            ldap_user = _try_ldap(name or username, password)
+            if ldap_user is not None:
+                with _failures_lock:
+                    _failures.pop(account_key, None)
+                return ldap_user
+        # OIDC-Konten haben kein Passwort hier: sie melden sich nur ueber den Anbieter an
     finally:
         db.close()
 
@@ -172,10 +189,31 @@ def authenticate(
     return None
 
 
+def _try_ldap(username: str, password: str) -> dict | None:
+    """LDAP-Anmeldung, falls eingerichtet. Fehler des Verzeichnisses gelten als nicht angemeldet."""
+    try:
+        from app import auth_external, auth_ldap
+
+        cfg = auth_external.load_config()
+        if not cfg["ldap"]["enabled"] or not username or not password:
+            return None
+        found = auth_ldap.authenticate_ldap(cfg["ldap"], username, password)
+        if found is None:
+            return None
+        return auth_external.login_external_user(
+            "ldap", found["external_id"], found["username"], found["display_name"], found["groups"]
+        )
+    except Exception as e:  # LdapError, ExternalLoginError, ...
+        logger.warning(f"LDAP-Anmeldung fehlgeschlagen: {type(e).__name__}: {e}")
+        return None
+
+
 def verify_password(user_id: int, password: str) -> bool:
     db = get_db_service().get_session()
     try:
         u = db.query(User).filter_by(id=user_id).first()
+        if u and (u.auth_source or "local") != "local":
+            return False  # externe Konten haben hier kein Passwort
         return bool(u and check_password_hash(u.password_hash, password or ""))
     finally:
         db.close()
@@ -185,8 +223,8 @@ def set_password(user_id: int, new_password: str) -> bool:
     db = get_db_service().get_session()
     try:
         u = db.query(User).filter_by(id=user_id).first()
-        if not u:
-            return False
+        if not u or (u.auth_source or "local") != "local":
+            return False  # Passwort externer Konten verwaltet der Anbieter
         u.password_hash = generate_password_hash(new_password)
         db.commit()
         return True

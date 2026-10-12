@@ -60,6 +60,14 @@ python run_linux.py                             # http://localhost:5000
 
 Unter Windows genügt ein Doppelklick auf `start.bat` (bzw. `python run_windows.py`). Das lädt bei Bedarf `qdrant.exe` herunter und startet es lokal, ohne Administratorrechte. Mit `--no-qdrant` wird ein vorhandener Qdrant genutzt.
 
+### Anmeldung mit LDAP / OIDC (optional)
+
+Unter *Administration › Authentifizierung* lässt sich die Anmeldung an ein Verzeichnis oder einen SSO-Anbieter anbinden. Die lokale Anmeldung (z. B. `admin`) bleibt immer erhalten.
+
+- **LDAP / Active Directory**: Adresse (`ldaps://ad.firma.de`), Basis-DN, Service-Konto zum Suchen. Der Standardfilter passt für AD (`sAMAccountName`), für OpenLDAP z. B. `(&(objectClass=inetOrgPerson)(uid={username}))` mit Benutzernamen-Attribut `uid`. Mit dem Probe-Benutzer prüft „Testen“ die ganze Kette.
+- **OIDC** (Keycloak, Entra ID, Okta …): Issuer-Adresse, Client-ID und -Secret eintragen und die angezeigte **Rückruf-Adresse** beim Anbieter als Redirect-URI hinterlegen (z. B. `https://rag.firma.de/api/auth/oidc/callback`). Läuft die App hinter einem Proxy, trage die öffentliche Adresse als „Öffentliche Adresse der App“ ein. Für Gruppen muss der Anbieter den Gruppen-Claim (`groups`) ins ID-Token legen (Keycloak: Mapper „Group Membership“, Entra: Gruppenansprüche).
+- **Gruppen**: Es wird nichts importiert. Legst du unter *Benutzer & Gruppen* eine Gruppe an, die genauso heißt wie eine Gruppe im Verzeichnis (z. B. `opendox-admin`), kommt jeder Benutzer mit dieser Gruppe beim Login automatisch hinein. Rollen vergibst du weiter selbst; neue Konten erhalten die eingestellte Standardrolle.
+
 ### Erster Start
 
 Beim ersten Start gibt es den Benutzer **`admin`** mit Passwort **`admin`** (bei frischer Datenbank über `ADMIN_PASSWORD` in `.env` änderbar). Bitte sofort das Passwort ändern (Kontomenü unten links).

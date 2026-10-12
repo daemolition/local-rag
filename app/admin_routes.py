@@ -667,3 +667,65 @@ def tools_test():
     except Exception as e:
         return jsonify({"success": False, "error": f"Unerwarteter Fehler: {e}"}), 500
     return jsonify(result), 200 if result.get("success") else 502
+
+
+# =============================================================================
+# Authentifizierung (LDAP, OIDC)
+# =============================================================================
+
+
+@admin_bp.route("/admin/auth", methods=["GET"])
+@require_role("admin")
+def auth_overview():
+    from app import auth_external
+
+    cfg = auth_external.load_config()
+    pub = auth_external.public_config(cfg)
+    base = cfg["base_url"] or request.host_url.rstrip("/")
+    pub["redirect_uri"] = f"{base}/api/auth/oidc/callback"
+    return jsonify(pub)
+
+
+@admin_bp.route("/admin/auth", methods=["PUT"])
+@require_role("admin")
+def auth_save():
+    """Speichert die Einstellungen. Leere Geheimnis-Felder behalten den gespeicherten Wert."""
+    from app import auth_external
+
+    try:
+        auth_external.save_config(request.get_json() or {})
+    except auth_external.AuthConfigError as e:
+        return _error(str(e), 400)
+    return auth_overview()
+
+
+@admin_bp.route("/admin/auth/test", methods=["POST"])
+@require_role("admin")
+def auth_test():
+    """Testet LDAP bzw. OIDC mit den eingegebenen Werten (ohne zu speichern, ohne Sitzung).
+
+    Ein leeres Geheimnis-Feld nutzt das gespeicherte, aber nur bei unveraenderter Adresse."""
+    from app import auth_external, auth_ldap, auth_oidc
+
+    data = request.get_json() or {}
+    kind = data.get("kind")
+    if kind not in ("ldap", "oidc"):
+        return _error("kind muss ldap oder oidc sein", 400)
+    saved = auth_external.load_config()
+    current = saved[kind]
+    incoming = dict(data.get("values") or {})
+    target_key = "url" if kind == "ldap" else "issuer"
+    same_target = (incoming.get(target_key) or "").strip() == current.get(target_key)
+    merged = {**current}
+    try:
+        merged = auth_external._clean_block(kind, incoming, current if same_target else {**current, **{s: "" for s in auth_external.SECRET_FIELDS[kind]}})
+    except auth_external.AuthConfigError as e:
+        return _error(str(e), 400)
+    try:
+        if kind == "ldap":
+            result = auth_ldap.probe_ldap(merged, str(data.get("test_user") or ""), str(data.get("test_password") or ""))
+        else:
+            result = auth_oidc.probe_oidc(merged, saved["base_url"] or request.host_url.rstrip("/"))
+    except (auth_ldap.LdapError, auth_oidc.OidcError) as e:
+        return jsonify({"success": False, "error": str(e)}), 502
+    return jsonify({"success": True, **result})

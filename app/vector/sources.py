@@ -43,6 +43,15 @@ DEFAULT_FIELDS = {
     "group": "file_group_id",
 }
 KINDS = ("qdrant",)
+DEFAULT_ACCESS = {
+    "enabled": False,
+    "user_field": "",  # Payload-Feld, das den Benutzer enthaelt
+    "user_attr": "username",  # username | display_name
+    "group_field": "",  # Payload-Feld mit Gruppennamen
+    "groups_from": "local",  # local | external | both
+    "static": [],  # feste Bedingungen fuer alle: [{"field": "mandant", "values": ["A"]}]
+    "admins_unfiltered": False,
+}
 
 
 class SourceError(Exception):
@@ -58,6 +67,7 @@ class SourceConfig:
     dense_vector: str = ""  # leer = unbenannter Vektor
     sparse_vector: str = ""  # leer = keine Stichwortsuche (nur dense)
     fields: dict = field(default_factory=lambda: dict(DEFAULT_FIELDS))
+    access: dict = field(default_factory=lambda: dict(DEFAULT_ACCESS))
 
     def to_dict(self, with_key: bool = True) -> dict:
         d = {
@@ -67,6 +77,7 @@ class SourceConfig:
             "dense_vector": self.dense_vector,
             "sparse_vector": self.sparse_vector,
             "fields": dict(self.fields),
+            "access": dict(self.access),
         }
         if with_key:
             d["api_key"] = self.api_key
@@ -89,7 +100,14 @@ def parse_config(raw: dict | str | None) -> SourceConfig:
         raw = json.loads(raw or "{}")
     raw = raw or {}
     fields = {**DEFAULT_FIELDS, **{k: (v or DEFAULT_FIELDS[k]) for k, v in (raw.get("fields") or {}).items() if k in DEFAULT_FIELDS}}
+    access = {**DEFAULT_ACCESS, **{k: v for k, v in (raw.get("access") or {}).items() if k in DEFAULT_ACCESS}}
+    access["static"] = [
+        {"field": str(c.get("field", "")).strip(), "values": [str(v) for v in (c.get("values") or [])]}
+        for c in (access.get("static") or [])
+        if isinstance(c, dict) and str(c.get("field", "")).strip()
+    ]
     return SourceConfig(
+        access=access,
         kind=raw.get("kind") or "qdrant",
         url=(raw.get("url") or "").strip().rstrip("/"),
         api_key=raw.get("api_key") or "",
@@ -262,3 +280,70 @@ def layout_for(cfg: SourceConfig) -> dict:
         "normalize": lambda payload: normalize_payload(payload, cfg),
         "neighbors": cfg.uses_default_neighbor_fields,
     }
+
+
+def validate_access(cfg: SourceConfig) -> None:
+    """Pruefung des Zugriffsfilters (nur wenn aktiviert)."""
+    a = cfg.access
+    if not a.get("enabled"):
+        return
+    if a["user_attr"] not in ("username", "display_name"):
+        raise SourceError("Zugriffsfilter: Benutzerattribut muss username oder display_name sein")
+    if a["groups_from"] not in ("local", "external", "both"):
+        raise SourceError("Zugriffsfilter: Gruppenquelle muss local, external oder both sein")
+    if not (a["user_field"] or a["group_field"] or a["static"]):
+        raise SourceError(
+            "Zugriffsfilter: mindestens ein Benutzerfeld, ein Gruppenfeld oder eine feste Bedingung angeben"
+        )
+    for cond in a["static"]:
+        if not cond["values"]:
+            raise SourceError(f"Zugriffsfilter: die feste Bedingung für „{cond['field']}“ braucht Werte")
+
+
+def _variants(value: str) -> list[str]:
+    """Schreibweisen eines Namens (Qdrant vergleicht exakt): wie eingegeben, klein, gross,
+    erster Buchstabe gross, jedes Wort gross. Exotische Mischschreibweisen muessen exakt passen."""
+    return list(dict.fromkeys([value, value.lower(), value.upper(), value.capitalize(), value.title()]))
+
+
+def build_filter(cfg: SourceConfig, identity: dict):
+    """Qdrant-Filter fuer diesen Benutzer oder ``None`` (kein Filter konfiguriert).
+
+    Rueckgabe ``(filter, blocked)``: ``blocked=True`` heisst, der Benutzer hat keine passende
+    Identitaet, die Quelle liefert dann **nichts** (fail closed, nie ungefiltert).
+    Semantik: alle festen Bedingungen UND mindestens eine Benutzer-/Gruppenbedingung.
+    """
+    from qdrant_client import models as qm
+
+    a = cfg.access
+    if not a.get("enabled"):
+        return None, False
+    if a.get("admins_unfiltered") and identity.get("is_admin"):
+        return None, False
+
+    must = [
+        qm.FieldCondition(key=c["field"], match=qm.MatchAny(any=c["values"]))
+        for c in a["static"]
+    ]
+    should = []
+    if a["user_field"]:
+        name = identity.get("display_name" if a["user_attr"] == "display_name" else "username") or ""
+        if name:
+            should.append(qm.FieldCondition(key=a["user_field"], match=qm.MatchAny(any=_variants(name))))
+    if a["group_field"]:
+        groups: list[str] = []
+        if a["groups_from"] in ("local", "both"):
+            groups += identity.get("groups") or []
+        if a["groups_from"] in ("external", "both"):
+            groups += identity.get("external_groups") or []
+        names = list(dict.fromkeys(v for g in groups for v in _variants(str(g)) if str(g).strip()))
+        if names:
+            should.append(qm.FieldCondition(key=a["group_field"], match=qm.MatchAny(any=names)))
+    wants_identity = bool(a["user_field"] or a["group_field"])
+    if wants_identity and not should:
+        return None, True  # Filter verlangt eine Identitaet, der Benutzer hat keine
+    flt = qm.Filter(
+        must=must or None,
+        min_should=qm.MinShould(conditions=should, min_count=1) if should else None,
+    )
+    return flt, False

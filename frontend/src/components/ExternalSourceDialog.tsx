@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage } from "@/lib/api";
-import type { ExternalSource, Knowledge, ModelSpec } from "@/lib/types";
+import { Switch } from "@/components/ui/switch";
+import type { ExternalAccess, ExternalSource, Knowledge, ModelSpec } from "@/lib/types";
 
 interface Facts {
   collections: string[];
@@ -59,6 +60,27 @@ const EMPTY_FIELDS: ExternalSource["fields"] = {
   group: "file_group_id",
 };
 
+// "mandant=A|B" je Zeile -> feste Bedingung (Feld, Werte)
+function parseStatic(text: string): { field: string; values: string[] }[] {
+  return text
+    .split("\n")
+    .map((line) => {
+      const [field, rest = ""] = line.split("=");
+      return { field: field.trim(), values: rest.split("|").map((v) => v.trim()).filter(Boolean) };
+    })
+    .filter((c) => c.field);
+}
+
+const EMPTY_ACCESS: ExternalAccess = {
+  enabled: false,
+  user_field: "",
+  user_attr: "username",
+  group_field: "",
+  groups_from: "local",
+  static: [],
+  admins_unfiltered: false,
+};
+
 // Externe Quelle (fremder Qdrant, nur lesen) anlegen oder ändern. Nichts wird geraten: Modell,
 // Collection, Vektor- und Feldnamen trägt der Admin ein; "Verbindung testen" zeigt nur Fakten.
 export function ExternalSourceDialog({
@@ -80,6 +102,10 @@ export function ExternalSourceDialog({
   const [dense, setDense] = useState("");
   const [sparse, setSparse] = useState("");
   const [fields, setFields] = useState(EMPTY_FIELDS);
+  const [access, setAccess] = useState<ExternalAccess>(EMPTY_ACCESS);
+  const [staticText, setStaticText] = useState("");
+  const [probe, setProbe] = useState({ username: "", groups: "", external: "" });
+  const [probeResult, setProbeResult] = useState<{ blocked: boolean; count: number; samples: string[] } | null>(null);
   const [embedding, setEmbedding] = useState<ModelSpec>({ source: "hf", model: "" });
   const [connections, setConnections] = useState<Connection[]>([]);
   const [facts, setFacts] = useState<Facts | null>(null);
@@ -98,6 +124,11 @@ export function ExternalSourceDialog({
     setDense(src?.dense_vector ?? "");
     setSparse(src?.sparse_vector ?? "");
     setFields({ ...EMPTY_FIELDS, ...(src?.fields ?? {}) });
+    setAccess({ ...EMPTY_ACCESS, ...(src?.access ?? {}) });
+    setStaticText(
+      (src?.access?.static ?? []).map((c) => `${c.field}=${c.values.join("|")}`).join("\n"),
+    );
+    setProbeResult(null);
     api.get<Connection[]>("/api/connections").then(setConnections).catch(() => {});
     if (existing) {
       // Das Modell der Quelle steht am Knowledge (embedding_spec als JSON)
@@ -120,7 +151,29 @@ export function ExternalSourceDialog({
     dense_vector: dense.trim(),
     sparse_vector: sparse.trim(),
     fields,
+    access: { ...access, static: parseStatic(staticText) },
   });
+
+  const filterTest = async () => {
+    try {
+      const split = (t: string) => t.split(",").map((x) => x.trim()).filter(Boolean);
+      setProbeResult(
+        await api.post("/api/knowledge/external/filter-test", {
+          knowledge_id: existing?.id,
+          source: source(),
+          identity: {
+            username: probe.username.trim(),
+            display_name: probe.username.trim(),
+            groups: split(probe.groups),
+            external_groups: split(probe.external),
+          },
+        }),
+      );
+    } catch (e) {
+      setProbeResult(null);
+      toast.error(errorMessage(e));
+    }
+  };
 
   const test = async () => {
     setTesting(true);
@@ -274,6 +327,85 @@ export function ExternalSourceDialog({
                   <Input value={fields[key]} onChange={(e) => setFields({ ...fields, [key]: e.target.value })} />
                 </div>
               ))}
+            </div>
+          </details>
+
+          <details className="rounded-lg border border-border-base p-3" open={access.enabled}>
+            <summary className="cursor-pointer text-sm font-medium">
+              Zugriffsfilter (Benutzer und Gruppen){access.enabled ? " · aktiv" : ""}
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div className="flex items-start justify-between rounded-lg border border-border-base px-3 py-2">
+                <div>
+                  <Label className="text-sm">Treffer nach Benutzer und Gruppen filtern</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Der Filter läuft in der Abfrage an der Quelle. Ohne passende Identität liefert die Quelle
+                    nichts (nie ungefiltert).
+                  </p>
+                </div>
+                <Switch checked={access.enabled} onCheckedChange={(v) => setAccess({ ...access, enabled: v })} />
+              </div>
+              {access.enabled ? (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Feld mit dem Benutzer (optional)</Label>
+                      <Input value={access.user_field} placeholder="z. B. owner" onChange={(e) => setAccess({ ...access, user_field: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Benutzer als</Label>
+                      <Select value={access.user_attr} onValueChange={(v) => setAccess({ ...access, user_attr: v as ExternalAccess["user_attr"] })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="username">Benutzername</SelectItem>
+                          <SelectItem value="display_name">Anzeigename</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Feld mit den Gruppen (optional)</Label>
+                      <Input value={access.group_field} placeholder="z. B. allowed_groups" onChange={(e) => setAccess({ ...access, group_field: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Gruppen aus</Label>
+                      <Select value={access.groups_from} onValueChange={(v) => setAccess({ ...access, groups_from: v as ExternalAccess["groups_from"] })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="local">lokalen Gruppen</SelectItem>
+                          <SelectItem value="external">Gruppen aus LDAP/OIDC</SelectItem>
+                          <SelectItem value="both">beiden</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Feste Bedingungen für alle (eine pro Zeile: feld=Wert1|Wert2)</Label>
+                    <Textarea rows={2} value={staticText} onChange={(e) => setStaticText(e.target.value)} placeholder="mandant=A" className="font-mono text-xs" />
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-border-base px-3 py-2">
+                    <Label className="text-sm">Admins ohne Filter</Label>
+                    <Switch checked={access.admins_unfiltered} onCheckedChange={(v) => setAccess({ ...access, admins_unfiltered: v })} />
+                  </div>
+                  <div className="space-y-2 rounded-lg bg-surface-muted p-3">
+                    <p className="text-xs font-medium">Filter testen (ohne zu speichern)</p>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Input value={probe.username} onChange={(e) => setProbe({ ...probe, username: e.target.value })} placeholder="Benutzername" />
+                      <Input value={probe.groups} onChange={(e) => setProbe({ ...probe, groups: e.target.value })} placeholder="lokale Gruppen, mit Komma" />
+                      <Input value={probe.external} onChange={(e) => setProbe({ ...probe, external: e.target.value })} placeholder="externe Gruppen, mit Komma" />
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => void filterTest()} disabled={!url.trim() || !collection.trim()}>
+                      Filter testen
+                    </Button>
+                    {probeResult ? (
+                      <p className="text-xs">
+                        {probeResult.blocked
+                          ? "Gesperrt: Der Benutzer hat keine passende Identität, die Quelle liefert nichts."
+                          : `${probeResult.count} Treffer sichtbar${probeResult.samples.length ? `, z. B.: ${probeResult.samples.join(" · ")}` : ""}`}
+                      </p>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
             </div>
           </details>
 

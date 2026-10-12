@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Cpu, Layers, Plug, SlidersHorizontal, Users, Wrench } from "lucide-react";
+import { Cpu, KeyRound, Layers, Plug, SlidersHorizontal, Users, Wrench } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { AdminAuthPage } from "@/pages/AdminAuthPage";
 import { AdminConnectionsPage } from "@/pages/AdminConnectionsPage";
 import { AdminEmbeddingPage } from "@/pages/AdminEmbeddingPage";
 import { AdminModelsPage } from "@/pages/AdminModelsPage";
@@ -18,6 +19,7 @@ const TABS: { id: AdminTab; label: string; icon: ReactNode; page: ReactNode }[] 
   { id: "retrieval", label: "Retrieval", icon: <SlidersHorizontal className="size-4" />, page: <AdminRetrievalPage /> },
   { id: "tools", label: "Tools", icon: <Wrench className="size-4" />, page: <AdminToolsPage /> },
   { id: "users", label: "Benutzer & Gruppen", icon: <Users className="size-4" />, page: <AdminUsersPage /> },
+  { id: "auth", label: "Authentifizierung", icon: <KeyRound className="size-4" />, page: <AdminAuthPage /> },
   { id: "connections", label: "Verbindungen", icon: <Plug className="size-4" />, page: <AdminConnectionsPage /> },
 ];
 

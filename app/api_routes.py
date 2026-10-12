@@ -39,6 +39,7 @@ from flask import (
     g,
     jsonify,
     make_response,
+    redirect,
     request,
     send_file,
     session,
@@ -259,6 +260,61 @@ def auth_login():
     return jsonify({"success": True, "user": user})
 
 
+@api_bp.route("/auth/providers", methods=["GET"])
+def auth_providers():
+    """Welche externen Anmeldungen der Login-Bildschirm anbieten soll (ohne Anmeldung abrufbar)."""
+    from app import auth_external
+
+    cfg = auth_external.load_config()
+    return jsonify(
+        {
+            "ldap": bool(cfg["ldap"]["enabled"]),
+            "oidc": {"enabled": bool(cfg["oidc"]["enabled"]), "name": cfg["oidc"]["name"] or "SSO"},
+        }
+    )
+
+
+def _public_base_url() -> str:
+    from app import auth_external
+
+    return auth_external.load_config()["base_url"] or request.host_url.rstrip("/")
+
+
+@api_bp.route("/auth/oidc/login", methods=["GET"])
+def auth_oidc_login():
+    from app import auth_external, auth_oidc
+
+    cfg = auth_external.load_config()["oidc"]
+    if not cfg["enabled"]:
+        return redirect("/?login_error=oidc_off")
+    try:
+        return redirect(auth_oidc.start_login(cfg, _public_base_url(), session))
+    except auth_oidc.OidcError as e:
+        logger.warning(f"OIDC-Start fehlgeschlagen: {e}")
+        return redirect("/?login_error=oidc")
+
+
+@api_bp.route("/auth/oidc/callback", methods=["GET"])
+def auth_oidc_callback():
+    from app import auth_external, auth_oidc
+
+    cfg = auth_external.load_config()["oidc"]
+    if not cfg["enabled"]:
+        return redirect("/?login_error=oidc_off")
+    try:
+        found = auth_oidc.finish_login(cfg, _public_base_url(), session, request.args)
+        user = auth_external.login_external_user(
+            "oidc", found["external_id"], found["username"], found["display_name"], found["groups"]
+        )
+    except (auth_oidc.OidcError, auth_external.ExternalLoginError) as e:
+        logger.warning(f"OIDC-Anmeldung abgelehnt: {e}")
+        session.pop("oidc", None)
+        return redirect("/?login_error=oidc")
+    session.clear()  # neue Session (verhindert Session-Fixation)
+    session["user_id"] = user["id"]
+    return redirect("/")
+
+
 @api_bp.route("/auth/logout", methods=["POST"])
 def auth_logout():
     session.clear()
@@ -375,6 +431,7 @@ def _parse_external_body(data: dict, stored: dict | None = None):
     except models_runtime.ModelLoadError as e:
         raise ValueError(f"Embedding-Modell nicht verfügbar: {e}") from None
     try:
+        sources.validate_access(cfg)
         embedder = models_runtime.get_embedder(spec)
         facts = sources.validate_source(cfg, dimension, embed=lambda text: embedder.embed_documents([text])[0])
     except sources.SourceError as e:
@@ -415,6 +472,56 @@ def knowledge_external_test():
     except sources.SourceError as e:
         return jsonify({"success": False, "error": str(e)}), 502
     return jsonify({"success": True, **facts})
+
+
+@api_bp.route("/knowledge/external/filter-test", methods=["POST"])
+@require_role("admin")
+def knowledge_external_filter_test():
+    """Zeigt, was ein Benutzer mit diesem Zugriffsfilter sehen wuerde (ohne zu speichern).
+
+    Body: ``source`` (inkl. ``access``), optional ``knowledge_id`` (gespeicherter Key) und
+    ``identity`` (``username``, ``display_name``, ``groups``, ``external_groups``).
+    """
+    data = request.get_json() or {}
+    cfg = sources.parse_config(data.get("source"))
+    if data.get("knowledge_id"):
+        stored = get_knowledge(int(data["knowledge_id"]))
+        if is_external(stored) and not cfg.api_key:
+            old = sources.parse_config(stored.get("source_config"))
+            if old.url == cfg.url:
+                cfg = sources.parse_config({**cfg.to_dict(), "api_key": old.api_key})
+    ident = data.get("identity") or {}
+    identity = {
+        "username": str(ident.get("username") or ""),
+        "display_name": str(ident.get("display_name") or ""),
+        "groups": [str(g) for g in (ident.get("groups") or [])],
+        "external_groups": [str(g) for g in (ident.get("external_groups") or [])],
+        "is_admin": False,
+    }
+    try:
+        sources.validate_access(cfg)
+        flt, blocked = sources.build_filter(cfg, identity)
+        if blocked:
+            return jsonify({"success": True, "blocked": True, "count": 0, "samples": []})
+        client = sources.connect(cfg)
+        try:
+            count = int(client.count(cfg.collection, count_filter=flt, exact=True).count)
+            points, _ = client.scroll(cfg.collection, scroll_filter=flt, limit=3, with_payload=True)
+        finally:
+            client.close()
+    except sources.SourceError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300]}), 502
+    texts = cfg.fields["text"]
+    return jsonify(
+        {
+            "success": True,
+            "blocked": False,
+            "count": count,
+            "samples": [str((p.payload or {}).get(texts, ""))[:120] for p in points],
+        }
+    )
 
 
 @api_bp.route("/knowledge/<int:knowledge_id>", methods=["PATCH"])

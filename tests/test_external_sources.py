@@ -290,3 +290,130 @@ def test_same_dimension_but_wrong_model_is_caught_by_the_sample_probe(app, db, r
     assert r.status_code == 400 and "passt nicht" in r.json["error"]
     monkeypatch.setattr(mr, "get_embedder", lambda spec: Embedder())
     assert create(app, body_a()).status_code == 201
+
+
+# --- Zugriffsfilter (Benutzer und Gruppen) ---------------------------------------------------
+
+
+@pytest.fixture
+def secured(remote):
+    """Fremde Collection mit Zugriffsfeldern: Gruppen, Besitzer, Mandant."""
+    rows = [
+        ("Die Kaution betraegt drei Monatsmieten", {"allowed_groups": ["Vertrieb"], "owner": "alice", "mandant": "A", "chunk_index": 0, "file_group_id": "d1"}),
+        ("Die Kuendigung erfolgt mit Frist", {"allowed_groups": ["Recht", "Vertrieb"], "owner": "bob", "mandant": "A", "chunk_index": 1, "file_group_id": "d1"}),
+        ("Das Dach wurde saniert", {"allowed_groups": ["Technik"], "owner": "alice", "mandant": "B", "chunk_index": 0, "file_group_id": "d2"}),
+        ("Strom wird abgerechnet", {"allowed_groups": ["Technik"], "owner": "carol", "mandant": "A", "chunk_index": 0, "file_group_id": "d3"}),
+    ]
+    fill(remote._c, "gesichert", [(t, {"page_content": t, "filename": f"datei{i}.md", **p}) for i, (t, p) in enumerate(rows)])
+    return remote
+
+
+def body_secured(**access):
+    base = {"enabled": True, "group_field": "allowed_groups", "groups_from": "local"}
+    return {"name": "Gesichert", "kind": "external", "embedding": SPEC,
+            "source": {"url": URL, "collection": "gesichert", "access": {**base, **access}}}
+
+
+def ask(retriever, k, query, **identity):
+    scope = scope_for(k)
+    scope.identity.update(identity)
+    with_scope(scope)
+    return {d.metadata["filename"] for d in retriever.invoke(query)}, scope
+
+
+ALL = "Kaution Kuendigung Frist Dach Strom"
+
+
+def test_group_filter_shows_only_matching_chunks(app, db, secured, retriever):
+    k = knowledge.get_knowledge(create(app, body_secured()).json["id"])
+    sales, _ = ask(retriever, k, ALL, username="x", groups=["Vertrieb"])
+    assert sales == {"datei0.md", "datei1.md"}
+    tech, _ = ask(retriever, k, ALL, username="x", groups=["technik"])  # Schreibweise egal
+    assert tech == {"datei2.md", "datei3.md"}
+    both, _ = ask(retriever, k, ALL, username="x", groups=["Recht", "Technik"])
+    assert both == {"datei1.md", "datei2.md", "datei3.md"}
+
+
+def test_user_without_a_matching_identity_gets_nothing_not_everything(app, db, secured, retriever):
+    k = knowledge.get_knowledge(create(app, body_secured()).json["id"])
+    none, _ = ask(retriever, k, ALL, username="x", groups=[])
+    assert none == set()
+    other, _ = ask(retriever, k, ALL, username="x", groups=["Marketing"])
+    assert other == set()
+
+
+def test_user_field_group_field_and_static_conditions_combine(app, db, secured, retriever):
+    only_owner = knowledge.get_knowledge(create(app, body_secured(group_field="", user_field="owner")).json["id"])
+    mine, _ = ask(retriever, only_owner, ALL, username="alice", groups=[])
+    assert mine == {"datei0.md", "datei2.md"}
+    combined = knowledge.get_knowledge(
+        create(app, {**body_secured(user_field="owner", static=[{"field": "mandant", "values": ["A"]}]), "name": "Kombi"}).json["id"]
+    )
+    # alice (Besitzerin) ODER Gruppe Technik, aber nur Mandant A: datei0 (alice, A) + datei3 (Technik, A), nicht datei2 (B)
+    got, _ = ask(retriever, combined, ALL, username="alice", groups=["Technik"])
+    assert got == {"datei0.md", "datei3.md"}
+
+
+def test_filter_also_applies_to_neighbor_chunks_and_hybrid_search(app, db, secured, retriever):
+    k = knowledge.get_knowledge(create(app, body_secured()).json["id"])
+    # Nachbar-Chunks (Standardfelder chunk_index/file_group_id) duerfen nichts Fremdes mitbringen
+    scope = scope_for(k, profile=cfg(neighbors=1, search={"mode": "dense"}))
+    scope.identity.update({"username": "x", "groups": ["Recht"]})
+    with_scope(scope)
+    texts = " ".join(d.page_content for d in retriever.invoke("Kuendigung Frist"))
+    assert "Kuendigung" in texts and "Kaution" not in texts  # Chunk 0 von d1 ist nur fuer Vertrieb
+
+
+def test_admins_can_be_exempt_only_when_switched_on(app, db, secured, retriever):
+    k = knowledge.get_knowledge(create(app, body_secured()).json["id"])
+    strict, _ = ask(retriever, k, ALL, username="admin", groups=[], is_admin=True)
+    assert strict == set()
+    k2 = knowledge.get_knowledge(create(app, {**body_secured(admins_unfiltered=True), "name": "Offen"}).json["id"])
+    open_, _ = ask(retriever, k2, ALL, username="admin", groups=[], is_admin=True)
+    assert len(open_) == 4
+
+
+def test_external_groups_can_feed_the_filter(app, db, secured, retriever):
+    k = knowledge.get_knowledge(create(app, body_secured(groups_from="external")).json["id"])
+    got, _ = ask(retriever, k, ALL, username="x", groups=["Vertrieb"], external_groups=["Recht"])
+    assert got == {"datei1.md"}  # nur die externe Gruppe zaehlt
+    both = knowledge.get_knowledge(create(app, {**body_secured(groups_from="both"), "name": "Beide"}).json["id"])
+    got2, _ = ask(retriever, both, ALL, username="x", groups=["Technik"], external_groups=["Recht"])
+    assert got2 == {"datei1.md", "datei2.md", "datei3.md"}
+
+
+def test_access_configuration_is_validated(app, db, secured):
+    r = create(app, body_secured(group_field="", user_field="", static=[]))
+    assert r.status_code == 400 and "Zugriffsfilter" in r.json["error"]
+    r = create(app, body_secured(groups_from="alle"))
+    assert r.status_code == 400
+    r = create(app, body_secured(group_field="", static=[{"field": "mandant", "values": []}]))
+    assert r.status_code == 400 and "Werte" in r.json["error"]
+
+
+def test_the_filter_test_shows_counts_without_saving_and_only_for_admins(app, db, secured):
+    admin = client_for(app, ADMIN)
+    src = body_secured()["source"]
+    r = admin.post("/api/knowledge/external/filter-test", json={"source": src, "identity": {"username": "x", "groups": ["Vertrieb"]}})
+    assert r.status_code == 200 and r.json["count"] == 2 and r.json["blocked"] is False and len(r.json["samples"]) == 2
+    blocked = admin.post("/api/knowledge/external/filter-test", json={"source": src, "identity": {"username": "x"}}).json
+    assert blocked["blocked"] is True and blocked["count"] == 0
+    assert [k["kind"] for k in knowledge.list_knowledge()] == ["local"]  # nichts gespeichert
+    ed = add_user(db, "ed2", "editor")
+    assert client_for(app, ed).post("/api/knowledge/external/filter-test", json={"source": src}).status_code == 403
+
+
+def test_chat_scope_carries_the_users_identity(app, db, remote):
+    from app.access import user_group_names
+
+    ed = add_user(db, "ed3", "editor")
+    s = db.get_session()
+    from app.models import Group, GroupMember
+
+    g = Group(name="Vertrieb")
+    s.add(g)
+    s.flush()
+    s.add(GroupMember(group_id=g.id, user_id=ed["id"]))
+    s.commit()
+    s.close()
+    assert user_group_names(ed["id"]) == ["Vertrieb"]

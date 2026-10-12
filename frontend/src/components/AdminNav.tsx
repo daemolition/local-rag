@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 
-export type AdminTab = "models" | "embedding" | "retrieval" | "users" | "connections" | "tools";
+export type AdminTab = "models" | "embedding" | "retrieval" | "users" | "connections" | "tools" | "auth";
 
 // Querverweise zwischen den Admin-Bereichen (z. B. "Verbindungen" auf der Modelle-Seite).
 export const AdminNav = createContext<((tab: AdminTab) => void) | null>(null);

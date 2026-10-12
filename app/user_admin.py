@@ -49,6 +49,7 @@ def _user_row(u: User, group_ids: list[int]) -> dict:
         "role": u.role,
         "is_active": bool(u.is_active),
         "group_ids": sorted(group_ids),
+        "auth_source": u.auth_source or "local",
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
 
@@ -144,6 +145,8 @@ def update_user(user_id: int, actor_id: int, data: dict) -> dict:
         if "display_name" in data:
             u.display_name = (data["display_name"] or "").strip() or u.username
         if data.get("password"):
+            if (u.auth_source or "local") != "local":
+                raise AdminError("Das Passwort externer Konten verwaltet der Anmeldedienst", 400)
             u.password_hash = generate_password_hash(_validate_password(data["password"]))
         db.commit()
         groups = [m.group_id for m in db.query(GroupMember).filter_by(user_id=user_id)]

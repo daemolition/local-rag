@@ -26,7 +26,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuth } from "@/context/AuthContext";
 import { api, errorMessage } from "@/lib/api";
-import type { Group, ManagedUser, Role } from "@/lib/types";
+import type { AuthSource, Group, ManagedUser, Role } from "@/lib/types";
+
+const SOURCE_LABEL: Record<AuthSource, string> = { local: "lokal", ldap: "LDAP", oidc: "OIDC" };
 
 const ROLE_LABEL: Record<Role, string> = {
   admin: "Admin",
@@ -136,18 +138,25 @@ function UserDialog({
               placeholder={form.username}
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="u-pw">
-              {user ? "Neues Passwort (leer = unverändert)" : "Passwort"}
-            </Label>
-            <Input
-              id="u-pw"
-              type="password"
-              autoComplete="new-password"
-              value={form.password}
-              onChange={(e) => set("password", e.target.value)}
-            />
-          </div>
+          {user && user.auth_source && user.auth_source !== "local" ? (
+            <p className="rounded-md bg-surface-muted p-3 text-xs text-muted-foreground">
+              Dieses Konto meldet sich über {SOURCE_LABEL[user.auth_source]} an. Ein Passwort
+              lässt sich hier nicht setzen.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="u-pw">
+                {user ? "Neues Passwort (leer = unverändert)" : "Passwort"}
+              </Label>
+              <Input
+                id="u-pw"
+                type="password"
+                autoComplete="new-password"
+                value={form.password}
+                onChange={(e) => set("password", e.target.value)}
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Rolle</Label>
             <Select
@@ -418,6 +427,11 @@ export function AdminUsersPage() {
                           ) : null}
                         </p>
                         <div className="mt-1 flex flex-wrap gap-1">
+                          {u.auth_source && u.auth_source !== "local" ? (
+                            <Badge variant="outline" className="mr-1">
+                              {SOURCE_LABEL[u.auth_source]}
+                            </Badge>
+                          ) : null}
                           <Badge variant={u.role === "admin" ? "default" : "secondary"}>
                             {ROLE_LABEL[u.role]}
                           </Badge>

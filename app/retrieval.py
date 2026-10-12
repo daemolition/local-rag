@@ -76,6 +76,9 @@ class RetrievalScope:
     sources: list = field(default_factory=list, compare=False)
     # Externe Quellen: (Knowledge-Collection "ext_<id>", JSON der Quellen-Konfiguration inkl. Key)
     externals: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+    # Wer fragt (fuer Zugriffsfilter externer Quellen): username, display_name, groups,
+    # external_groups, is_admin
+    identity: dict = field(default_factory=dict, compare=False)
     # Hinweise zu nicht erreichbaren Quellen (fuer die Anzeige), vom Retriever befuellt
     warnings: list = field(default_factory=list, compare=False)
     # Nutzer des Requests: bestimmt den Ordner der Analysen (Werkzeuge des Modells)
@@ -141,6 +144,9 @@ class MultiCollectionRetriever(BaseRetriever):
     def _run_external(self, question: str, collection: str, raw: str, cfg: dict, scope, spec):
         """Fragt eine externe Quelle (nur lesend) mit deren Collection, Vektornamen und Feldern ab."""
         src = sources.parse_config(raw)
+        flt, blocked = sources.build_filter(src, scope.identity)
+        if blocked:  # Zugriffsfilter ohne passende Identitaet: nichts liefern, nie ungefiltert
+            return []
         client = sources.connect(src)
         try:
             layout = sources.layout_for(src)
@@ -154,6 +160,7 @@ class MultiCollectionRetriever(BaseRetriever):
                 sparse=self.sparse_embeddings,
                 helper=scope.helper,
                 layout=layout,
+                query_filter=flt,
                 **kwargs,
             )
         finally:

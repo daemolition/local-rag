@@ -211,6 +211,11 @@ class DatabaseService:
             "CONTEXT_MODEL_REF": ("ingest", "", "Modell der Kontext-Anreicherung (leer = Standardmodell)"),
             "CONTEXT_TEMPERATURE": ("ingest", "", "Temperatur der Kontext-Anreicherung (leer = Wert des Modells)"),
             "CONTEXT_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge der Kontext-Anreicherung (leer = Wert des Modells)"),
+            "AUTH_LDAP": ("auth", "{}", "LDAP/AD-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)", True),
+            "AUTH_OIDC": ("auth", "{}", "OIDC-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)", True),
+            "AUTH_DEFAULT_ROLE": ("auth", "user", "Rolle neuer externer Konten"),
+            "AUTH_AUTO_CREATE": ("auth", "true", "Externe Konten beim ersten Login automatisch anlegen"),
+            "APP_BASE_URL": ("auth", "", "Oeffentliche Adresse der App (fuer den OIDC-Rueckruf)"),
             "SEARCH_SEARXNG_URL": (
                 "search",
                 "",

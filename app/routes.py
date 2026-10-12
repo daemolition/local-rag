@@ -40,7 +40,7 @@ from app import resources_ready, wait_for_resources
 from app.tools.web_access import build_web_search_tool, pii_client
 from app.access import accessible_knowledge_ids, can_use_model
 from app.auth import auth_required_api, current_user
-from app.users import LoginThrottledError, authenticate
+from app.users import LoginThrottledError, authenticate, role_at_least
 from app.database_service import get_db_service
 from app.llm.registry import ModelUnavailableError, get_agent, resolve_model
 from app.retrieval import RetrievalScope, set_scope
@@ -447,8 +447,17 @@ def chat():
     from app.rag.helper import make_helper
     from app.rag.profiles import config_for_knowledge
 
+    from app.access import user_group_names
+
     scope = RetrievalScope(
         user_id=user["id"],
+        identity={
+            "username": user.get("username", ""),
+            "display_name": user.get("display_name", ""),
+            "groups": user_group_names(user["id"]),
+            "external_groups": user.get("external_groups") or [],
+            "is_admin": role_at_least(user["role"], "admin"),
+        },
         collections=tuple(k["collection_name"] for k in all_knowledge),
         session_id=final_session_id,
         # Jedes Knowledge sucht mit seinem Retrieval-Profil (sonst Standardprofil).

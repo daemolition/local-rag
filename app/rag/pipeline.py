@@ -247,7 +247,7 @@ def _mmr(hits: list[Hit], k: int, lambda_mult: float) -> list[Hit]:
     return [hits[i] for i in selected]
 
 
-def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict) -> list[Hit]:
+def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict, extra_filter=None) -> list[Hit]:
     """Ersetzt jeden Treffer durch eine Passage mit ``n`` Chunks davor und danach."""
     groups: dict[tuple[str, str], list[Hit]] = {}
     passthrough: list[Hit] = []
@@ -278,6 +278,7 @@ def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict) -> list[Hit]
                     must=[
                         qm.FieldCondition(key="file_group_id", match=qm.MatchValue(value=fg)),
                         qm.FieldCondition(key="chunk_index", match=qm.MatchAny(any=missing)),
+                        *([extra_filter] if extra_filter is not None else []),
                     ]
                 ),
                 limit=len(missing),
@@ -472,7 +473,7 @@ def run(
     if neighbors > 0 and final:
         with trace.stage("neighbors", n=neighbors) as st:
             try:
-                final = _expand_neighbors(client, final, neighbors, st)
+                final = _expand_neighbors(client, final, neighbors, st, query_filter)
             except Exception as e:
                 logger.warning(f"Kontext-Erweiterung fehlgeschlagen: {e}")
                 st["error"] = f"{type(e).__name__}: {e}"[:300]

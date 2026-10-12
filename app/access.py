@@ -279,3 +279,15 @@ def delete_grants_for_principal(ptype: str, pid: int) -> None:
         raise
     finally:
         db.close()
+
+
+def user_group_names(user_id: int) -> list[str]:
+    """Namen der lokalen Gruppen eines Benutzers (fuer Zugriffsfilter externer Quellen)."""
+    db = get_db_service().get_session()
+    try:
+        ids = _group_ids(db, user_id)
+        if not ids:
+            return []
+        return sorted(g.name for g in db.query(Group).filter(Group.id.in_(ids)))
+    finally:
+        db.close()

@@ -105,8 +105,19 @@ export interface Knowledge {
   source_config?: ExternalSource;
 }
 
+export interface ExternalAccess {
+  enabled: boolean;
+  user_field: string;
+  user_attr: "username" | "display_name";
+  group_field: string;
+  groups_from: "local" | "external" | "both";
+  static: { field: string; values: string[] }[];
+  admins_unfiltered: boolean;
+}
+
 export interface ExternalSource {
   kind: string;
+  access?: ExternalAccess;
   url: string;
   has_key: boolean;
   collection: string;
@@ -198,7 +209,10 @@ export interface AuthUser {
   username: string;
   display_name: string;
   role: Role;
+  auth_source?: AuthSource;
 }
+
+export type AuthSource = "local" | "ldap" | "oidc";
 
 export interface ManagedUser {
   id: number;
@@ -206,6 +220,7 @@ export interface ManagedUser {
   display_name: string;
   role: Role;
   is_active: boolean;
+  auth_source?: AuthSource;
   group_ids: number[];
   created_at: string | null;
 }
