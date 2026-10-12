@@ -134,7 +134,7 @@ export function ConnectionDialog({
                   key={p.label}
                   type="button"
                   onClick={() => setBaseUrl(p.url)}
-                  className="rounded-full border border-border-base px-2.5 py-0.5 text-xs text-muted-foreground hover:bg-surface-muted"
+                  className="rounded-full border border-border-base px-2.5 py-0.5 text-xs text-muted-foreground hover:bg-hover"
                 >
                   {p.label}
                 </button>

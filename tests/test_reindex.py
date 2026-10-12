@@ -201,3 +201,25 @@ def test_knowledge_list_marks_stale(app, db):
     assert admin.get("/api/knowledge").json[0]["stale"] is False
     model_settings.save_specs(NEW)
     assert admin.get("/api/knowledge").json[0]["stale"] is True
+
+
+def test_reindex_keeps_uploader_and_upload_date(db, qd, no_enrichment):
+    from tests.test_access import add_user
+
+    ed = add_user(db, "ed", "editor")
+    ingest_two(qd)
+    s = db.get_session()
+    from app.models import UserDocument
+
+    stamp = None
+    for doc in s.query(UserDocument).all():
+        doc.uploaded_by = ed["id"]
+        stamp = doc.uploaded_at
+    s.commit()
+    s.close()
+    model_settings.save_specs(NEW)
+    reindex.reindex_knowledge(default_kb(), qd, FakeSparse())
+    payload = scroll_all(qd, "local_rag_g1")[0].payload
+    assert payload["uploaded_by"] == ed["id"]
+    assert payload["uploaded_at"].startswith(stamp.date().isoformat())
+    assert payload["file_type"] == "md" and payload["knowledge_id"] == default_kb()["id"]

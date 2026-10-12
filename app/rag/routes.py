@@ -166,16 +166,27 @@ def retrieval_test():
             dense = model_settings.embedder_for(k)
         except models_runtime.ModelLoadError as e:
             return _error(f"Embedding-Modell von „{k['name']}“ nicht verfügbar: {e}", 503)
+        run_client, collection, layout = client, k["collection_name"], None
+        if k.get("kind") == "external":
+            from app.vector import sources
+
+            src = sources.parse_config(k.get("source_config"))
+            try:
+                run_client = sources.connect(src)
+            except sources.SourceError as e:
+                return _error(f"„{k['name']}“: {e}", 502)
+            collection, layout = src.collection, sources.layout_for(src)
         try:
             hits = pipeline.run(
                 question,
-                [k["collection_name"]],
+                [collection],
                 cfg,
-                client=client,
+                client=run_client,
                 dense=dense,
                 sparse=sparse,
                 helper=helper,
                 trace=trace,
+                layout=layout,
             )
         except Exception as e:
             logger.exception("Retrieval-Test fehlgeschlagen")

@@ -5,6 +5,7 @@ import { App } from "@/App";
 import { AuthProvider } from "@/context/AuthContext";
 import { IngestionProvider } from "@/context/IngestionContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import "@fontsource-variable/inter";
 import "@/index.css";
 
 createRoot(document.getElementById("root")!).render(

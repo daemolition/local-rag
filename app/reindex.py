@@ -173,7 +173,14 @@ def reindex_knowledge(k: dict, client, sparse, progress=lambda done, total: None
         for i, doc in enumerate(documents, 1):
             markdown = _markdown_for(doc, k, paths, ingest, client, old_collection)
             if markdown and markdown.strip():
-                ingest.index_markdown(markdown, doc.filename, doc.document_id, sparse)
+                ingest.index_markdown(
+                    markdown,
+                    doc.filename,
+                    doc.document_id,
+                    sparse,
+                    uploaded_by=doc.uploaded_by,
+                    uploaded_at=doc.uploaded_at,
+                )
             else:
                 logger.warning(f"Kein Inhalt für '{doc.filename}', wird übersprungen")
             progress(i, len(documents))
@@ -185,6 +192,7 @@ def reindex_knowledge(k: dict, client, sparse, progress=lambda done, total: None
             collection_name=new_collection,
             data_dir=str(paths.data_dir),
             name_prefix=paths.name_prefix,
+            knowledge_id=k["id"],
         )
         old = kb_store.swap_collection(k["id"], new_collection, spec, dimension)
     except Exception:

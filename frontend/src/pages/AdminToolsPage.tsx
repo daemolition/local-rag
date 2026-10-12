@@ -136,7 +136,7 @@ export function AdminToolsPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+      <div className="mx-auto max-w-5xl space-y-6 p-6">
         <div>
           <h1 className="text-xl font-semibold">Tools</h1>
           <p className="text-sm text-muted-foreground">

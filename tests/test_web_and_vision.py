@@ -114,6 +114,10 @@ def test_tools_test_uses_form_values_and_stored_key_only_for_the_stored_url(app,
     assert seen[1] == ("http://anderer:5001/v1", "")  # gespeicherter Key geht nie an eine fremde Adresse
 
 
+def put_tasks(admin, **tasks):
+    return admin.put("/api/admin/embedding", json={"tasks": tasks})
+
+
 def test_vision_model_comes_from_connections(app, db, monkeypatch):
     admin = client_for(app, ADMIN)
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
@@ -125,13 +129,81 @@ def test_vision_model_comes_from_connections(app, db, monkeypatch):
     llm.llm  # loest auf
     assert llm.vision_model == "m1"  # ohne Auswahl: Standardmodell
 
-    assert admin.put("/api/admin/embedding", json={"vision_model": vision_ref}).json["vision_model"] == vision_ref
+    assert put_tasks(admin, vision={"model_ref": vision_ref}).json["tasks"]["vision"]["model_ref"] == vision_ref
     llm.llm
     assert llm.vision_model == "m2"
 
-    bad = admin.put("/api/admin/embedding", json={"vision_model": "base:99:x"})
-    assert bad.status_code == 400
-    assert admin.put("/api/admin/embedding", json={"vision_model": ""}).json["vision_model"] == ""
+    assert put_tasks(admin, vision={"model_ref": "base:99:x"}).status_code == 400
+    assert put_tasks(admin, vision={"model_ref": ""}).json["tasks"]["vision"]["model_ref"] == ""
+
+
+def test_vision_and_context_use_separate_models_and_parameters(app, db, monkeypatch):
+    from app.llm import local_llm
+
+    admin = client_for(app, ADMIN)
+    conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
+    store.set_default_model(store.make_base_ref(conn["id"], "m1"))
+    r = put_tasks(
+        admin,
+        vision={"model_ref": store.make_base_ref(conn["id"], "m2"), "temperature": 0.7, "max_tokens": 900},
+        context={"model_ref": store.make_base_ref(conn["id"], "m1"), "temperature": "", "max_tokens": ""},
+    )
+    assert r.status_code == 200
+    built = []
+    real = local_llm.build_chat_llm
+    monkeypatch.setattr(local_llm, "build_chat_llm", lambda *a, **k: built.append((a[2], a[3])) or real(*a, **k))
+    vision, context = local_llm.TaskLLM("vision"), local_llm.TaskLLM("context")
+    vision.llm
+    context.llm
+    assert built[0][0] == "m2" and built[0][1]["temperature"] == 0.7 and built[0][1]["max_tokens"] == 900
+    assert built[1][0] == "m1" and "max_tokens" not in built[1][1]
+    assert vision.vision_model == "m2" and context.vision_model == "m1"
+
+
+def test_prompts_live_in_the_database_with_seed_fallback_and_reset(app, db):
+    from app.ingest import prompts, tasks
+    from app.llm.local_llm import TaskLLM
+
+    admin = client_for(app, ADMIN)
+    overview = admin.get("/api/admin/embedding").json["tasks"]
+    assert overview["vision"]["prompt"] == prompts.VISION_PROMPT == overview["vision"]["default_prompt"]
+    assert overview["context"]["excerpt_chars"] == 2000
+
+    r = put_tasks(admin, vision={"prompt": "Beschreibe knapp."}, context={"prompt": "Ort: {abschnitt}", "excerpt_chars": 500})
+    assert r.status_code == 200
+    assert "Beschreibe knapp." in TaskLLM("vision").generate_image_message("AAAA").content[0]["text"]
+    assert tasks.load_task("context")["excerpt_chars"] == 500
+    assert tasks.render_context_prompt("Ort: {abschnitt} {x}", "D", "Teil {y}") == "Ort: Teil {y} {x}"
+    # Zuruecksetzen: der Standard steht in der Datenbank (default_value) und kommt mit der Antwort
+    back = put_tasks(admin, vision={"prompt": r.json["tasks"]["vision"]["default_prompt"]}).json["tasks"]["vision"]
+    assert back["prompt"] == prompts.VISION_PROMPT
+
+
+def test_prompt_and_parameter_validation(app, db):
+    admin = client_for(app, ADMIN)
+    assert put_tasks(admin, context={"prompt": "ohne Platzhalter"}).status_code == 400
+    assert put_tasks(admin, vision={"prompt": "  "}).status_code == 400
+    assert put_tasks(admin, vision={"prompt": "x" * 9000}).status_code == 400
+    assert put_tasks(admin, vision={"temperature": 3}).status_code == 400
+    assert put_tasks(admin, vision={"max_tokens": 0}).status_code == 400
+    assert put_tasks(admin, context={"excerpt_chars": 10}).status_code == 400
+    assert put_tasks(admin, unbekannt={}).status_code == 400
+    assert client_for(app, add_user_editor(db)).put("/api/admin/embedding", json={"tasks": {}}).status_code == 403
+
+
+def add_user_editor(db):
+    from tests.test_access import add_user
+
+    return add_user(db, "ed", "editor")
+
+
+def test_empty_prompt_in_the_database_falls_back_to_the_seed(app, db):
+    from app.ingest import prompts, tasks
+
+    s = db.get_session()
+    SettingsService(s).set("VISION_PROMPT", "")
+    s.close()
+    assert tasks.load_task("vision")["prompt"] == prompts.VISION_PROMPT
 
 
 def test_vision_can_be_switched_off(app, db):
@@ -139,8 +211,8 @@ def test_vision_can_be_switched_off(app, db):
 
     admin = client_for(app, ADMIN)
     assert _vision_enabled() is True
-    r = admin.put("/api/admin/embedding", json={"ingest": {"vision_enabled": False}})
-    assert r.status_code == 200 and r.json["ingest"]["vision_enabled"] is False
+    r = put_tasks(admin, vision={"enabled": False})
+    assert r.status_code == 200 and r.json["tasks"]["vision"]["enabled"] is False
     assert _vision_enabled() is False
 
 
@@ -151,4 +223,4 @@ def test_hidden_models_stay_selectable_for_vision(app, db):
     admin.put("/api/models/config", json={"ref": ref, "visible": False})
     assert ref not in [m["ref"] for m in admin.get("/api/models?visible=1").json["models"]]
     assert ref in [m["ref"] for m in admin.get("/api/models").json["models"]]
-    assert admin.put("/api/admin/embedding", json={"vision_model": ref}).status_code == 200
+    assert put_tasks(admin, vision={"model_ref": ref}).status_code == 200

@@ -184,3 +184,22 @@ Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates C
 - UI: `MyUploadsPage` (`/uploads`, all roles). The dashboard and its `/api/stats` are gone.
 
 - Tools admin page (`AdminToolsPage`, `/api/admin/tools`, `/api/admin/tools/test`) replaces the generic settings dialog: STT, PII filter and SearXNG only. The generic `/api/settings*` routes (except `change-password`) were removed; do not reintroduce raw-key settings UIs. Tests use the form values (`_FormSettings`) and only reuse the stored key for the stored URL.
+
+## Chunk metadata (Qdrant payload)
+
+- Per document chunk (`app/ingest/indexer.py:build_points` + `document_metadata`): `page_content` (embedded), `original_content`, `filename`, `source`, `title`, `headers` (list), `type`, `file_group_id`, `chunk_index`, `chunk_total`, `file_type`, `knowledge_id`, `uploaded_by`, `uploaded_at`, `parser_version`, `splitter_version`, plus `page_start`/`page_end` only when known. Attachments add `session_id`/`attachment_id`. Data-reference chunks (`type=data_reference`) carry `file_type`, `knowledge_id`, and for tables extracted from documents `source_document` + `table_number`.
+- Page numbers (PDF only): `PreprocessBase.build_markdown_from_docling` exports with a page-break placeholder and replaces it with `<!--p:N-->` markers (`apply_page_marks`; dropped if the break count does not match the page count). `split_markdown` strips the markers first and finds each chunk's words in the document to set `page_start/page_end` (`_assign_pages`; repeated table headers inherit the previous page). Markdown without markers means no pages. No `SPLITTER_VERSION` bump: new fields are optional, old data simply lacks them.
+- No payload indexes for the new fields (no filtering yet); add them in `ensure_collection` before building filters.
+
+## Ingest task prompts (DB-driven)
+
+- Prompts, models and parameters of the two LLM ingest tasks live in `settings` (category `ingest`): `VISION_PROMPT`, `VISION_MODEL_REF`, `VISION_TEMPERATURE`, `VISION_MAX_TOKENS`, `INGEST_VISION_ENABLED`, and `CONTEXT_PROMPT` (placeholders `{dokument}`, `{abschnitt}`), `CONTEXT_EXCERPT_CHARS`, `CONTEXT_MODEL_REF`, `CONTEXT_TEMPERATURE`, `CONTEXT_MAX_TOKENS`, `INGEST_CONTEXT_ENRICHMENT`. `Setting.default_value` holds the standard prompt ("reset" reads it from there). Migration 0018 seeds them; `app/ingest/prompts.py` holds the seed texts only (fresh SQLite/test DBs and last-resort fallback) — never use them as runtime source.
+- `app/ingest/tasks.py` (`load_task`, `render_context_prompt`, `validate_prompt`) reads the DB on every call; `TaskLLM(task)` (`app/llm/local_llm.py`, alias `VisionLLM`) resolves model and parameters per call. `DocumentIngestion.model` = vision, `.context_model` = context. Admin API: `tasks` in `/api/admin/embedding`.
+- New LLM prompts or tunables belong in `settings` plus an Alembic migration, not in code.
+
+## External sources (foreign vector stores, read-only)
+
+- A foreign Qdrant is a Knowledge with `kind='external'` (migration 0019) and `source_config` JSON (`url`, `api_key`, `collection`, `dense_vector`, `sparse_vector`, `fields` mapping). Its collection_name is `ext_<id>` and is never created or deleted locally; the real collection is `source_config.collection`. `embedding_spec`/`embedding_dimension` hold the model **the admin declared** — nothing is auto-detected.
+- `app/vector/sources.py`: `parse_config`, `connect` (read client, `_reject_link_local`, timeout), `probe_source` (facts only), `validate_source` (hard checks: vector exists, dimension, text field, and a sample-point cosine check against the declared model, `MIN_SIMILARITY=0.8`), `normalize_payload`, `layout_for`. Retrieval: `RetrievalScope.externals` -> `MultiCollectionRetriever._run_external` -> `pipeline.run(layout=...)` (dense/sparse vector names, payload normalization, neighbors only with default `chunk_index`/`group` fields; without a sparse vector the search is dense-only). A down source never fails the chat: `scope.warnings` -> SSE `warning` event.
+- Read-only everywhere: `_current_knowledge()` answers 409 for write requests and `/api/vectordb*` on external knowledge; reindex/stale/`ensure_collection`/index.md skip them; deleting only removes the row. Only admins create/change them; `source_config` is scrubbed to `{..., has_key}` in all API responses. Tests use a fake foreign server that refuses writes (`tests/test_external_sources.py`).
+- Other store types (pgvector, OpenSearch, Chroma …) later: new `kind` values behind the same layout idea.

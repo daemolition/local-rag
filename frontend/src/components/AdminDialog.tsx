@@ -57,7 +57,7 @@ export function AdminDialog({ open, onOpenChange, tab, onTabChange }: AdminDialo
                   "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                   tab === t.id
                     ? "bg-surface-muted font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-surface-muted/60 hover:text-foreground",
+                    : "text-muted-foreground hover:bg-hover hover:text-foreground",
                 )}
               >
                 {t.icon}

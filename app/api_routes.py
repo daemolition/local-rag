@@ -23,6 +23,7 @@ JSON-Antworten (kein ``render_template``, keine Redirects) — die SPA rendert
 clientseitig.
 """
 
+import json
 import os
 from datetime import UTC, datetime
 from functools import wraps
@@ -56,14 +57,18 @@ from app.users import role_at_least
 from app.database_service import get_db_service
 from app.ingest.index_doc import refresh_index
 from app.knowledge import (
+    create_external_knowledge,
     create_knowledge,
     delete_knowledge,
     get_knowledge,
+    is_external,
     knowledge_paths,
     list_knowledge,
+    update_external_source,
     update_knowledge,
 )
 from app.rag import model_settings
+from app.vector import sources
 from app.settings_service import SettingsService
 from app.users import LoginThrottledError, authenticate, set_password, verify_password
 from app.utils.file_manager import check_data_file_exists, delete_associated_file
@@ -137,6 +142,12 @@ def _current_knowledge() -> dict:
         abort(
             make_response(
                 jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
+            )
+        )
+    if is_external(knowledge) and (level == "write" or request.path.startswith("/api/vectordb")):
+        abort(
+            make_response(
+                jsonify({"success": False, "error": "Externe Quelle ist schreibgeschützt"}), 409
             )
         )
     if level == "write":
@@ -270,6 +281,10 @@ def _knowledge_with_counts(knowledge: dict) -> dict:
         # Index passt nicht zur aktuellen Modell-/Zerlege-Konfiguration (Neu indexieren)
         "stale": model_settings.is_stale(knowledge),
     }
+    if is_external(knowledge):
+        entry["source_config"] = _public_source(knowledge)
+        return entry
+    entry.pop("source_config", None)
     client = current_app.extensions.get("client")
     if client:
         try:
@@ -277,6 +292,11 @@ def _knowledge_with_counts(knowledge: dict) -> dict:
         except Exception:
             pass
     return entry
+
+
+def _public_source(knowledge: dict) -> dict:
+    """Konfiguration der externen Quelle ohne Key (nur ``has_key``)."""
+    return sources.parse_config(knowledge.get("source_config")).public()
 
 
 @api_bp.route("/knowledge", methods=["GET"])
@@ -299,6 +319,9 @@ def knowledge_create():
         return jsonify({"success": False, "error": "Name erforderlich"}), 400
 
     from app.rag import model_settings, models_runtime
+
+    if data.get("kind") == "external":
+        return _create_external(name, data)
 
     try:  # Modell laden und Dimension per Probe ermitteln (beim ersten Mal ggf. Download)
         dimension = models_runtime.get_embedder(model_settings.embedding_spec()).dimension
@@ -328,6 +351,72 @@ def knowledge_detail(knowledge_id):
     return jsonify(_knowledge_with_counts(knowledge))
 
 
+def _parse_external_body(data: dict, stored: dict | None = None):
+    """Liest Quelle und Embedding-Modell aus dem Request und prueft sie hart.
+
+    Ein leeres Key-Feld behaelt den gespeicherten Key, aber nur fuer dieselbe Adresse.
+    Returns: (SourceConfig, ModelSpec, Dimension, Fakten)
+    Raises: ValueError mit lesbarer Meldung.
+    """
+    from app.rag import models_runtime
+
+    raw = dict(data.get("source") or {})
+    cfg = sources.parse_config(raw)
+    if stored is not None and not cfg.api_key:
+        old = sources.parse_config(stored.get("source_config"))
+        if old.url == cfg.url:
+            cfg = sources.parse_config({**cfg.to_dict(), "api_key": old.api_key})
+    try:
+        spec = models_runtime.ModelSpec.from_dict(data.get("embedding"))
+    except (ValueError, TypeError):
+        raise ValueError("Das Embedding-Modell der Quelle muss angegeben werden") from None
+    try:
+        dimension = models_runtime.get_embedder(spec).dimension
+    except models_runtime.ModelLoadError as e:
+        raise ValueError(f"Embedding-Modell nicht verfügbar: {e}") from None
+    try:
+        embedder = models_runtime.get_embedder(spec)
+        facts = sources.validate_source(cfg, dimension, embed=lambda text: embedder.embed_documents([text])[0])
+    except sources.SourceError as e:
+        raise ValueError(str(e)) from None
+    return cfg, spec, dimension, facts
+
+
+def _create_external(name: str, data: dict):
+    if not role_at_least(current_user()["role"], "admin"):
+        return jsonify({"success": False, "error": "Externe Quellen legen nur Admins an"}), 403
+    try:
+        cfg, spec, dimension, _facts = _parse_external_body(data)
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    knowledge = create_external_knowledge(
+        name, data.get("description", ""), spec, dimension, cfg.to_dict()
+    )
+    add_grant("knowledge", knowledge["id"], "user", current_user()["id"], "write")
+    return jsonify(_knowledge_with_counts(knowledge)), 201
+
+
+@api_bp.route("/knowledge/external/test", methods=["POST"])
+@require_role("admin")
+def knowledge_external_test():
+    """Fakten zu einer fremden Quelle zum Abgleich (nichts wird geraten oder gespeichert)."""
+    data = request.get_json() or {}
+    stored = None
+    if data.get("knowledge_id"):
+        found = get_knowledge(int(data["knowledge_id"]))
+        stored = found if is_external(found) else None
+    cfg = sources.parse_config(data.get("source"))
+    if stored is not None and not cfg.api_key:
+        old = sources.parse_config(stored.get("source_config"))
+        if old.url == cfg.url:  # gespeicherter Key nie an eine andere Adresse
+            cfg = sources.parse_config({**cfg.to_dict(), "api_key": old.api_key})
+    try:
+        facts = sources.probe_source(cfg)
+    except sources.SourceError as e:
+        return jsonify({"success": False, "error": str(e)}), 502
+    return jsonify({"success": True, **facts})
+
+
 @api_bp.route("/knowledge/<int:knowledge_id>", methods=["PATCH"])
 @require_role("editor")
 def knowledge_update(knowledge_id):
@@ -335,12 +424,26 @@ def knowledge_update(knowledge_id):
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
     _abort_if_reindexing(knowledge_id)
     data = request.get_json() or {}
+    current = get_knowledge(knowledge_id)
+    if is_external(current) and ("source" in data or "embedding" in data):
+        if not role_at_least(current_user()["role"], "admin"):
+            return jsonify({"success": False, "error": "Nur Admins ändern die Quelle"}), 403
+        try:
+            body = {
+                "source": data.get("source") or sources.parse_config(current["source_config"]).to_dict(),
+                "embedding": data.get("embedding") or json.loads(current["embedding_spec"]),
+            }
+            cfg, spec, dimension, _f = _parse_external_body(body, stored=current)
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+        update_external_source(knowledge_id, spec, dimension, cfg.to_dict())
     knowledge = update_knowledge(
         knowledge_id, data.get("name"), data.get("description")
     )
     if not knowledge:
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
-    refresh_index(knowledge_id)  # Name steht im Verzeichnis
+    if not is_external(knowledge):
+        refresh_index(knowledge_id)  # Name steht im Verzeichnis
     return jsonify(_knowledge_with_counts(knowledge))
 
 
@@ -369,7 +472,7 @@ def knowledge_delete(knowledge_id):
         ), 404
 
     client = current_app.extensions.get("client")
-    if client:
+    if client and not is_external(knowledge):  # eine fremde Quelle wird nie angefasst
         try:
             client.delete_collection(knowledge["collection_name"])
         except Exception as e:
@@ -387,6 +490,8 @@ def knowledge_delete(knowledge_id):
 def knowledge_reindex(knowledge_id):
     if not can_access_knowledge(current_user(), knowledge_id, "write"):
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
+    if is_external(get_knowledge(knowledge_id)):
+        return jsonify({"success": False, "error": "Externe Quelle ist schreibgeschützt"}), 409
     return _start_reindex([knowledge_id])
 
 

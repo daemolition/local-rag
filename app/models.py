@@ -114,6 +114,10 @@ class Knowledge(Base):
     # Modell, mit dem die Vektoren entstanden (JSON, siehe app/rag/models_runtime.py), und
     # Signatur aus Modell + Chunk-Einstellungen + Parser/Splitter-Version.
     embedding_spec = Column(Text)
+    # 'local' (eigene Collection) oder 'external' (fremder Vektorspeicher, nur lesen)
+    kind = Column(String(20), nullable=False, default="local", server_default="local")
+    # externe Quelle: JSON mit URL, Key, Collection, Vektornamen, Feldzuordnung
+    source_config = Column(Text)
     index_signature = Column(String(32))
     last_reindex_error = Column(Text)
     # Fuer jeden angemeldeten Nutzer lesbar (ohne Freigabe).

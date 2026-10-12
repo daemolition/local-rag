@@ -122,6 +122,8 @@ class DatabaseService:
     def _init_settings(self, db: SQLAlchemySession):
         """Settings mit .env-Werten initialisieren"""
 
+        from app.ingest import prompts as ingest_prompts
+
         all_settings = {
             "CHAT_MODEL": ("llm", "qwen3:8b", "Modell für Chat-Interaktionen"),
             "CHAT_BASEURL": (
@@ -193,6 +195,22 @@ class DatabaseService:
                 "Inhaltsverzeichnis (index.md) pro Knowledge erzeugen und dem Modell geben",
             ),
             "UI_THEME": ("ui", "system", "Oberflaeche: light, dark oder system"),
+            "VISION_PROMPT": ("ingest", ingest_prompts.VISION_PROMPT, "Anweisung fuer die Beschreibung von Bildern in Dokumenten"),
+            "CONTEXT_PROMPT": (
+                "ingest",
+                ingest_prompts.CONTEXT_PROMPT,
+                "Anweisung fuer die Kontext-Anreicherung (Platzhalter {dokument} und {abschnitt})",
+            ),
+            "CONTEXT_EXCERPT_CHARS": (
+                "ingest",
+                str(ingest_prompts.CONTEXT_EXCERPT_CHARS),
+                "Zeichen des Dokuments, die der Kontext-Anreicherung als Auszug dienen",
+            ),
+            "VISION_TEMPERATURE": ("ingest", "", "Temperatur der Bildbeschreibung (leer = Wert des Modells)"),
+            "VISION_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge der Bildbeschreibung (leer = Wert des Modells)"),
+            "CONTEXT_MODEL_REF": ("ingest", "", "Modell der Kontext-Anreicherung (leer = Standardmodell)"),
+            "CONTEXT_TEMPERATURE": ("ingest", "", "Temperatur der Kontext-Anreicherung (leer = Wert des Modells)"),
+            "CONTEXT_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge der Kontext-Anreicherung (leer = Wert des Modells)"),
             "SEARCH_SEARXNG_URL": (
                 "search",
                 "",

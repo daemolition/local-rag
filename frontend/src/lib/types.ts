@@ -100,6 +100,28 @@ export interface Knowledge {
   // Index passt nicht zum aktuellen Modell bzw. den Zerlege-Einstellungen
   stale?: boolean;
   last_reindex_error?: string | null;
+  // 'external' = fremder Vektorspeicher, nur lesen
+  kind?: "local" | "external";
+  source_config?: ExternalSource;
+}
+
+export interface ExternalSource {
+  kind: string;
+  url: string;
+  has_key: boolean;
+  collection: string;
+  dense_vector: string;
+  sparse_vector: string;
+  fields: {
+    text: string;
+    filename: string;
+    title: string;
+    headers: string;
+    page_start: string;
+    page_end: string;
+    chunk_index: string;
+    group: string;
+  };
 }
 
 export type AttachmentStatus = "uploading" | "processing" | "ready" | "error";
@@ -294,13 +316,21 @@ export interface ModelStatus {
   error?: string;
 }
 
+export interface TaskSettings {
+  enabled: boolean;
+  model_ref: string;
+  temperature: number | null | "";
+  max_tokens: number | null | "";
+  prompt: string;
+  default_prompt: string;
+  excerpt_chars?: number;
+}
+
 export interface IngestSettings {
   chunk_size: number;
   chunk_overlap: number;
-  context_enrichment: boolean;
   keep_original: boolean;
   index_enabled: boolean;
-  vision_enabled: boolean;
 }
 
 export interface EmbeddingOverview {
@@ -308,7 +338,7 @@ export interface EmbeddingOverview {
   reranker: ModelSpec & { status: ModelStatus };
   ingest: IngestSettings;
   device?: string;
-  vision_model?: string;
+  tasks: Record<"vision" | "context", TaskSettings>;
   stale: { id: number; name: string; error: string | null }[];
   suggestions: { embedding: string[]; reranker: string[] };
 }

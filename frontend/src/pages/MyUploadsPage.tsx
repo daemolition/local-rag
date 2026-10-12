@@ -77,7 +77,7 @@ export function MyUploadsPage() {
               {items.map((item) => (
                 <div
                   key={`${item.kind}-${item.id}`}
-                  className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 last:border-0"
+                  className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 transition-colors last:border-0 hover:bg-hover/40"
                 >
                   <FileText className="size-5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">

@@ -37,6 +37,10 @@ HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3"), ("####", "h4")]
 _HEADER_KEYS = [key for _, key in HEADERS]
 _TABLE_SEPARATOR = re.compile(r"^\|[\s:|-]+\|\s*$")
 _HEADING_LINE = re.compile(r"^\s{0,3}#{1,6}\s+")
+# Seitenmarker aus dem PDF-Parser (``<!--p:3-->`` in einer eigenen Zeile); sie bleiben beim
+# Zerlegen im Text und werden danach in ``Chunk.page_start/page_end`` ueberfuehrt.
+PAGE_MARK = "<!--p:{}-->"
+_PAGE_MARK = re.compile(r"^[ \t]*<!--p:(\d+)-->[ \t]*$", re.M)
 
 
 @dataclass
@@ -46,6 +50,9 @@ class Chunk:
     title: str = ""
     # Folgestueck eines zerlegten Abschnitts (beginnt nicht mit der Ueberschrift)
     continuation: bool = False
+    # Seiten der Fundstelle (nur wenn der Parser Seitenmarker lieferte, z. B. PDF)
+    page_start: int | None = None
+    page_end: int | None = None
 
 
 def _split_table(lines: list[str], chunk_size: int) -> list[str]:
@@ -145,6 +152,64 @@ def _has_body(text: str) -> bool:
     return any(line.strip() and not _HEADING_LINE.match(line) for line in text.split("\n"))
 
 
+_KEY_TOKENS = 6
+
+
+def _strip_page_marks(markdown: str) -> tuple[str, list[str], list[int | None]]:
+    """Entfernt die Seitenmarker und liefert Woerter samt Seite je Wort (fuer ``_assign_pages``)."""
+    page: int | None = None
+    lines: list[str] = []
+    tokens: list[str] = []
+    pages: list[int | None] = []
+    for line in markdown.split("\n"):
+        m = _PAGE_MARK.match(line)
+        if m:
+            page = int(m.group(1))
+            continue
+        lines.append(line)
+        for word in line.split():
+            tokens.append(word)
+            pages.append(page)
+    return "\n".join(lines), tokens, pages
+
+
+def _find(tokens: list[str], needle: list[str], start: int) -> int:
+    """Erste Position ab ``start``, an der ``needle`` als Wortfolge steht, sonst -1."""
+    if not needle:
+        return -1
+    first = needle[0]
+    for i in range(start, len(tokens) - len(needle) + 1):
+        if tokens[i] == first and tokens[i : i + len(needle)] == needle:
+            return i
+    return -1
+
+
+def _assign_pages(chunks: list[Chunk], tokens: list[str], pages: list[int | None]) -> list[Chunk]:
+    """Setzt ``page_start/page_end`` je Chunk, indem seine Woerter im Dokument gesucht werden.
+
+    Wiederholte Tabellenkoepfe oder nicht auffindbare Stellen erben den Stand des Vorgaengers.
+    """
+    if not any(p is not None for p in pages):
+        return chunks
+    cursor = 0
+    last_end: int | None = None
+    for chunk in chunks:
+        words = chunk.text.split()
+        head = words[:_KEY_TOKENS]
+        pos = _find(tokens, head, cursor)
+        if pos < 0:
+            chunk.page_start = chunk.page_end = last_end
+            continue
+        tail = words[-_KEY_TOKENS:]
+        end = _find(tokens, tail, pos)
+        end_idx = (end + len(tail) - 1) if end >= 0 else min(pos + len(words) - 1, len(tokens) - 1)
+        chunk.page_start = pages[pos]
+        chunk.page_end = pages[end_idx] if pages[end_idx] is not None else pages[pos]
+        last_end = chunk.page_end
+        cursor = pos + 1  # Ueberlappung: der naechste Chunk beginnt nach diesem Anfang
+    return chunks
+
+
 def split_markdown(
     markdown: str,
     *,
@@ -163,6 +228,7 @@ def split_markdown(
     """
     if not markdown or not markdown.strip():
         return []
+    markdown, tokens, token_pages = _strip_page_marks(markdown)
     chunk_overlap = min(chunk_overlap, max(chunk_size // 2, 0))
     min_size = chunk_size // 3 if min_size is None else min_size
 
@@ -200,7 +266,7 @@ def split_markdown(
             prev.title = prev.headers[-1] if prev.headers else filename
         else:
             merged.append(Chunk(chunk.text, list(chunk.headers), chunk.title, chunk.continuation))
-    return merged
+    return _assign_pages(merged, tokens, token_pages)
 
 
 def embedding_text(chunk: Chunk) -> str:

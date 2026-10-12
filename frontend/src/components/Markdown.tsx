@@ -8,6 +8,7 @@ export interface CitationSource {
   filename: string;
   score: number | null;
   section: string | number | null;
+  page?: string | null;
 }
 
 // "[2]" im Antworttext wird zum Link #src-2 (ausser in Codebloecken und echten Links).
@@ -53,7 +54,10 @@ export function Markdown({
             const match = href?.match(/^#src-(\d+)$/);
             if (match) {
               const src = byNumber.get(Number(match[1]));
-              const where = src?.section != null ? `, Abschnitt ${src.section}` : "";
+              const where = [src?.page, src?.section != null ? `Abschnitt ${src.section}` : null]
+                .filter(Boolean)
+                .map((x) => `, ${x}`)
+                .join("");
               const score = src?.score != null ? ` · Score ${src.score.toFixed(3)}` : "";
               return (
                 <sup>

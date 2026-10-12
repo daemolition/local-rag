@@ -21,6 +21,14 @@ from langchain_core.documents import Document
 NO_RESULTS = "Keine passenden Textstellen gefunden."
 
 
+def _pages(meta: dict) -> str:
+    """\"Seite 3\" bzw. \"Seiten 3–4\" oder leer."""
+    start, end = meta.get("page_start"), meta.get("page_end")
+    if start is None:
+        return ""
+    return f"Seite {start}" if end in (None, start) else f"Seiten {start}–{end}"
+
+
 def format_hits(docs: list[Document], numbers: list[int] | None = None) -> str:
     """Jeder Treffer mit Nummer und Dateiname, damit das LLM Quellen nennen kann.
 
@@ -41,6 +49,9 @@ def format_hits(docs: list[Document], numbers: list[int] | None = None) -> str:
             where = f" (Abschnitt {meta['chunk_index'] + 1})"
         else:
             where = ""
+        pages = _pages(meta)
+        if pages:
+            where = f" ({pages}{', ' + where.strip(' ()') if where else ''})"
         blocks.append(f"[{i}] Quelle: {source}{where}\n{doc.page_content.strip()}")
     return "\n\n---\n\n".join(blocks)
 
@@ -59,6 +70,7 @@ def source_entry(doc: Document) -> dict:
             else (idx + 1 if isinstance(idx, int) else None)
         ),
         "headers": meta.get("headers"),
+        "page": _pages(meta) or None,
         "snippet": doc.page_content.strip()[:240],
     }
 

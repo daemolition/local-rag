@@ -247,10 +247,8 @@ def models_set_default():
 INGEST_FIELDS = {
     "chunk_size": ("INGEST_CHUNK_SIZE", int, (200, 4000)),
     "chunk_overlap": ("INGEST_CHUNK_OVERLAP", int, (0, 1000)),
-    "context_enrichment": ("INGEST_CONTEXT_ENRICHMENT", bool, None),
     "keep_original": ("INGEST_KEEP_ORIGINAL", bool, None),
     "index_enabled": ("INGEST_INDEX_ENABLED", bool, None),
-    "vision_enabled": ("INGEST_VISION_ENABLED", bool, None),
 }
 
 MODEL_SUGGESTIONS = {
@@ -269,10 +267,8 @@ def _ingest_values() -> dict:
         return {
             "chunk_size": s.get_int("INGEST_CHUNK_SIZE", 1000),
             "chunk_overlap": s.get_int("INGEST_CHUNK_OVERLAP", 150),
-            "context_enrichment": s.get_bool("INGEST_CONTEXT_ENRICHMENT", True),
             "keep_original": s.get_bool("INGEST_KEEP_ORIGINAL", True),
             "index_enabled": s.get_bool("INGEST_INDEX_ENABLED", True),
-            "vision_enabled": s.get_bool("INGEST_VISION_ENABLED", True),
         }
     finally:
         db.close()
@@ -300,6 +296,87 @@ def _setting_value(key: str) -> str:
         db.close()
 
 
+def _tasks_overview() -> dict:
+    from app.ingest.tasks import TASKS, load_task
+
+    out = {}
+    for name in TASKS:
+        cfg = load_task(name)
+        out[name] = {
+            "enabled": cfg["enabled"],
+            "model_ref": cfg["model_ref"],
+            "temperature": cfg["temperature"],
+            "max_tokens": cfg["max_tokens"],
+            "prompt": cfg["prompt"],
+            "default_prompt": cfg["default_prompt"],
+            **({"excerpt_chars": cfg["excerpt_chars"]} if name == "context" else {}),
+        }
+    return out
+
+
+def _validate_tasks(data: dict) -> tuple[dict[str, str], str | None]:
+    """Prueft die Einstellungen der Einlese-Aufgaben; liefert (Werte, Fehlermeldung)."""
+    from app.ingest.tasks import TASKS, validate_prompt
+
+    values: dict[str, str] = {}
+    known = {m["ref"] for m in registry.list_models()["models"]}
+    for name, cfg in (data or {}).items():
+        if name not in TASKS:
+            return {}, f"Unbekannte Aufgabe: {name}"
+        prefix = name.upper()
+        if "enabled" in cfg:
+            key = "INGEST_VISION_ENABLED" if name == "vision" else "INGEST_CONTEXT_ENRICHMENT"
+            values[key] = "true" if cfg["enabled"] else "false"
+        if "model_ref" in cfg:
+            ref = (cfg["model_ref"] or "").strip()
+            if ref:
+                try:
+                    store.parse_ref(ref)
+                except ValueError:
+                    return {}, f"{name}: ungültiges Modell"
+                if ref not in known:
+                    return {}, f"{name}: das Modell existiert nicht (mehr)"
+            values[f"{prefix}_MODEL_REF"] = ref
+        if "temperature" in cfg:
+            raw = cfg["temperature"]
+            if raw in (None, ""):
+                values[f"{prefix}_TEMPERATURE"] = ""
+            else:
+                try:
+                    t = float(raw)
+                except (TypeError, ValueError):
+                    return {}, f"{name}: Temperatur muss eine Zahl sein"
+                if not 0 <= t <= 2:
+                    return {}, f"{name}: Temperatur muss zwischen 0 und 2 liegen"
+                values[f"{prefix}_TEMPERATURE"] = str(t)
+        if "max_tokens" in cfg:
+            raw = cfg["max_tokens"]
+            if raw in (None, ""):
+                values[f"{prefix}_MAX_TOKENS"] = ""
+            else:
+                try:
+                    n = int(raw)
+                except (TypeError, ValueError):
+                    return {}, f"{name}: Max-Tokens muss eine ganze Zahl sein"
+                if n < 1:
+                    return {}, f"{name}: Max-Tokens muss mindestens 1 sein"
+                values[f"{prefix}_MAX_TOKENS"] = str(n)
+        if "prompt" in cfg:
+            error = validate_prompt(name, cfg["prompt"])
+            if error:
+                return {}, error
+            values[f"{prefix}_PROMPT"] = cfg["prompt"].strip()
+        if name == "context" and "excerpt_chars" in cfg:
+            try:
+                chars = int(cfg["excerpt_chars"])
+            except (TypeError, ValueError):
+                return {}, "Auszugslänge muss eine ganze Zahl sein"
+            if not 200 <= chars <= 20000:
+                return {}, "Auszugslänge: erlaubt sind 200 bis 20000 Zeichen"
+            values["CONTEXT_EXCERPT_CHARS"] = str(chars)
+    return values, None
+
+
 def _embedding_overview() -> dict:
     from app.knowledge import list_knowledge
     from app.rag import model_settings, models_runtime
@@ -311,7 +388,7 @@ def _embedding_overview() -> dict:
         "reranker": {**rr.to_dict(), "status": models_runtime.status("reranker", rr)},
         "ingest": _ingest_values(),
         "device": torch_device(),
-        "vision_model": _setting_value("VISION_MODEL_REF"),
+        "tasks": _tasks_overview(),
         "stale": [{"id": k["id"], "name": k["name"], "error": k.get("last_reindex_error")} for k in stale],
         "suggestions": MODEL_SUGGESTIONS,
     }
@@ -343,16 +420,10 @@ def embedding_save():
         return _error(str(e), 400)
 
     values: dict[str, str] = {}
-    if "vision_model" in data:
-        ref = (data["vision_model"] or "").strip()
-        if ref:  # leer = Standardmodell
-            try:
-                store.parse_ref(ref)
-            except ValueError:
-                return _error("Ungültiges Vision-Modell", 400)
-            if not any(m["ref"] == ref for m in registry.list_models()["models"]):
-                return _error("Das Vision-Modell existiert nicht (mehr)", 400)
-        values["VISION_MODEL_REF"] = ref
+    task_values, error = _validate_tasks(data.get("tasks") or {})
+    if error:
+        return _error(error, 400)
+    values.update(task_values)
     ingest = data.get("ingest") or {}
     for field, raw in ingest.items():
         if field not in INGEST_FIELDS:

@@ -208,7 +208,7 @@ export function AdminModelsPage() {
                   {models.map((m) => (
                     <div
                       key={m.ref}
-                      className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 last:border-0"
+                      className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 transition-colors last:border-0 hover:bg-hover/40"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{m.name}</p>

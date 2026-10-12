@@ -271,7 +271,7 @@ function GroupDialog({
               {users.map((u) => (
                 <label
                   key={u.id}
-                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-muted"
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-hover"
                 >
                   <input
                     type="checkbox"
@@ -405,7 +405,7 @@ export function AdminUsersPage() {
                   {users.map((u) => (
                     <div
                       key={u.id}
-                      className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 last:border-0"
+                      className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 transition-colors last:border-0 hover:bg-hover/40"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
@@ -469,7 +469,7 @@ export function AdminUsersPage() {
                     {groups.map((g) => (
                       <div
                         key={g.id}
-                        className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 last:border-0"
+                        className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 transition-colors last:border-0 hover:bg-hover/40"
                       >
                         <UsersIcon className="size-4 shrink-0 text-muted-foreground" />
                         <div className="min-w-0 flex-1">

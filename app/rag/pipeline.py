@@ -87,6 +87,8 @@ class Hit:
                 "chunks": self.payload.get("_chunks"),
                 "file_group_id": self.payload.get("file_group_id"),
                 "headers": self.payload.get("headers"),
+                "page_start": self.payload.get("page_start"),
+                "page_end": self.payload.get("page_end"),
             },
         )
 
@@ -129,30 +131,41 @@ def brief(hits: list[Hit], limit: int = 12) -> list[dict]:
 # --------------------------------------------------------------------------
 
 
-def _vector_of(point) -> list[float] | None:
+def _vector_of(point, dense_name: str = DENSE_VECTOR) -> list[float] | None:
     vec = point.vector
     if isinstance(vec, dict):
-        vec = vec.get(DENSE_VECTOR)
+        vec = vec.get(dense_name)
     return list(vec) if isinstance(vec, (list, tuple)) else None
 
 
-def _query_collection(client, collection, dvec, svec, search: dict, flt, with_vectors, trace_entry):
+def _query_collection(
+    client,
+    collection,
+    dvec,
+    svec,
+    search: dict,
+    flt,
+    with_vectors,
+    trace_entry,
+    dense_name: str = DENSE_VECTOR,
+    sparse_name: str = SPARSE_VECTOR,
+):
     limit = search["candidates"]
     mode = search["mode"]
-    vectors = [DENSE_VECTOR] if with_vectors else False
+    vectors = [dense_name] if with_vectors else False
     common = {"limit": limit, "with_payload": True, "with_vectors": vectors, "query_filter": flt}
 
     def dense_query():
         return {
             "query": dvec,
-            "using": DENSE_VECTOR,
+            "using": dense_name,
             "score_threshold": search["dense_min_score"],
         }
 
     def sparse_query():
         return {
             "query": qm.SparseVector(indices=list(svec.indices), values=list(svec.values)),
-            "using": SPARSE_VECTOR,
+            "using": sparse_name,
         }
 
     if mode == "dense":
@@ -249,6 +262,9 @@ def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict) -> list[Hit]
     passages: list[Hit] = []
     for (collection, fg), group in groups.items():
         texts = {h.chunk_index: h.text for h in group}
+        page_spans = {
+            h.chunk_index: (h.payload.get("page_start"), h.payload.get("page_end")) for h in group
+        }
         wanted: set[int] = set()
         for h in group:
             total = h.payload.get("chunk_total")
@@ -273,6 +289,10 @@ def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict) -> list[Hit]
                 texts[payload.get("chunk_index")] = (
                     payload.get("original_content") or payload.get("page_content") or ""
                 )
+                page_spans[payload.get("chunk_index")] = (
+                    payload.get("page_start"),
+                    payload.get("page_end"),
+                )
 
         best_by_index = {h.chunk_index: h for h in group}
         run: list[int] = []
@@ -284,6 +304,10 @@ def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict) -> list[Hit]
                     payload = dict(top_hit.payload)
                     payload["page_content"] = "\n\n".join(texts[i] for i in run)
                     payload["_chunks"] = [run[0], run[-1]]
+                    spans = [page_spans[i] for i in run if page_spans.get(i, (None,))[0] is not None]
+                    if spans:  # Seitenspanne der ganzen Passage
+                        payload["page_start"] = min(sp[0] for sp in spans)
+                        payload["page_end"] = max(sp[1] for sp in spans)
                     passages.append(
                         Hit(collection, top_hit.id, payload, top_hit.score, top_hit.vector)
                     )
@@ -314,9 +338,19 @@ def run(
     rerank_fn: Callable[[str, str, list[str]], list[float]] | None = None,
     query_filter=None,
     trace: Trace | None = None,
+    layout: dict | None = None,
 ) -> list[Hit]:
-    """Fuehrt die Pipeline fuer ``collections`` mit der Profil-Konfiguration ``cfg`` aus."""
+    """Fuehrt die Pipeline fuer ``collections`` mit der Profil-Konfiguration ``cfg`` aus.
+
+    ``layout`` beschreibt eine fremde Quelle: ``dense_name``, ``sparse_name`` (leer = keine
+    Stichwortsuche), ``normalize`` (Payload -> unsere Feldnamen), ``neighbors`` (False =
+    keine Nachbar-Chunks). Ohne ``layout`` gilt der Aufbau dieser App.
+    """
     trace = trace or Trace()
+    layout = layout or {}
+    dense_name = layout.get("dense_name", DENSE_VECTOR)
+    sparse_name = layout.get("sparse_name", SPARSE_VECTOR)
+    normalize = layout.get("normalize") or (lambda payload: payload)
     if rerank_fn is None:
         from app.rag import model_settings
 
@@ -326,6 +360,13 @@ def run(
 
     search, rr, mmr, qe = cfg["search"], cfg["rerank"], cfg["mmr"], cfg["query_enhancement"]
     final_k = cfg["final_k"]
+    notes: list[str] = []
+    if not sparse_name and search["mode"] != "dense":
+        search = {**search, "mode": "dense"}  # die Quelle hat keinen Sparse-Vektor
+        notes.append("Quelle ohne Sparse-Vektor: reine Bedeutungssuche")
+    neighbors = cfg["neighbors"] if layout.get("neighbors", True) else 0
+    if neighbors != cfg["neighbors"]:
+        notes.append("Nachbar-Chunks übersprungen (Feldzuordnung weicht ab)")
 
     # 1. Query-Enhancement
     qs = [question]
@@ -348,6 +389,8 @@ def run(
     rank_lists: list[list[Hit]] = []
     with trace.stage("search", mode=search["mode"], fusion=search["fusion"], queries=len(qs)) as st:
         st["per_collection"] = {}
+        if notes:
+            st["notes"] = notes
         embedded = []
         for q in qs:
             dvec = dense.embed_query(q) if search["mode"] != "sparse" else None
@@ -358,14 +401,29 @@ def run(
             for dvec, svec in embedded:
                 try:
                     points = _query_collection(
-                        client, collection, dvec, svec, search, query_filter, need_vectors, st
+                        client,
+                        collection,
+                        dvec,
+                        svec,
+                        search,
+                        query_filter,
+                        need_vectors,
+                        st,
+                        dense_name,
+                        sparse_name,
                     )
                 except Exception as e:
                     logger.warning(f"Suche in '{collection}' fehlgeschlagen: {e}")
                     st.setdefault("errors", []).append(f"{collection}: {type(e).__name__}: {e}"[:200])
                     continue
                 hits = [
-                    Hit(collection, str(p.id), p.payload or {}, float(p.score), _vector_of(p))
+                    Hit(
+                        collection,
+                        str(p.id),
+                        normalize(p.payload or {}),
+                        float(p.score),
+                        _vector_of(p, dense_name),
+                    )
                     for p in points
                 ]
                 count += len(hits)
@@ -411,10 +469,10 @@ def run(
         final = pool[:final_k]
 
     # 6. Nachbar-Chunks
-    if cfg["neighbors"] > 0 and final:
-        with trace.stage("neighbors", n=cfg["neighbors"]) as st:
+    if neighbors > 0 and final:
+        with trace.stage("neighbors", n=neighbors) as st:
             try:
-                final = _expand_neighbors(client, final, cfg["neighbors"], st)
+                final = _expand_neighbors(client, final, neighbors, st)
             except Exception as e:
                 logger.warning(f"Kontext-Erweiterung fehlgeschlagen: {e}")
                 st["error"] = f"{type(e).__name__}: {e}"[:300]

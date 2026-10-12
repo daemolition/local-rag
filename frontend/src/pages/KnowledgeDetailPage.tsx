@@ -28,8 +28,10 @@ import { AccessDialog } from "@/components/AccessDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { KnowledgeDialog } from "@/components/KnowledgeDialog";
 import { DataFileDialog } from "@/components/DataFileDialog";
+import { ExternalSourceDialog } from "@/components/ExternalSourceDialog";
 import { MarkdownDialog } from "@/components/MarkdownDialog";
 import { ReindexProgress } from "@/components/ReindexProgress";
+import { useAuth } from "@/context/AuthContext";
 import { useIngestion } from "@/context/IngestionContext";
 import { api, errorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -50,6 +52,7 @@ export function KnowledgeDetailPage() {
   const kb = `knowledge_id=${encodeURIComponent(id)}`;
   const navigate = useNavigate();
   const { isIngesting } = useIngestion();
+  const { hasRole } = useAuth();
 
   const [knowledge, setKnowledge] = useState<Knowledge | null>(null);
   const [documents, setDocuments] = useState<UserDocument[]>([]);
@@ -62,6 +65,7 @@ export function KnowledgeDetailPage() {
   const [accessOpen, setAccessOpen] = useState(false);
   const [markdownDoc, setMarkdownDoc] = useState<UserDocument | null>(null);
   const [viewData, setViewData] = useState<string | null>(null);
+  const [sourceOpen, setSourceOpen] = useState(false);
   const [profiles, setProfiles] = useState<RetrievalProfile[]>([]);
   const [deleteKb, setDeleteKb] = useState(false);
   const [deleteDoc, setDeleteDoc] = useState<UserDocument | null>(null);
@@ -231,7 +235,10 @@ export function KnowledgeDetailPage() {
   }
 
   const busy = ingesting || isIngesting;
-  const canWrite = knowledge.can_write;
+  const external = knowledge.kind === "external";
+  const isAdmin = hasRole("admin");
+  // Externe Quellen sind schreibgeschützt: kein Upload, Einlesen, Löschen oder Neu-Indexieren
+  const canWrite = knowledge.can_write && !external;
   const activeProfile = profiles.find(
     (p) => p.id === (knowledge.retrieval_profile_id ?? profiles.find((x) => x.is_default)?.id),
   );
@@ -279,19 +286,27 @@ export function KnowledgeDetailPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" asChild>
-                <Link to={`/vectordb?kb=${knowledge.id}`}>
-                  <Database className="size-4" />
-                  Vektoren ansehen
-                </Link>
-              </Button>
-              {canWrite ? (
+              {external ? null : (
+                <Button variant="secondary" size="sm" asChild>
+                  <Link to={`/vectordb?kb=${knowledge.id}`}>
+                    <Database className="size-4" />
+                    Vektoren ansehen
+                  </Link>
+                </Button>
+              )}
+              {external && isAdmin ? (
+                <Button variant="secondary" size="sm" onClick={() => setSourceOpen(true)}>
+                  <Pencil className="size-4" />
+                  Quelle bearbeiten
+                </Button>
+              ) : null}
+              {knowledge.can_write ? (
                 <Button variant="secondary" size="sm" onClick={() => setAccessOpen(true)}>
                   <Share2 className="size-4" />
                   Freigaben
                 </Button>
               ) : null}
-              {canWrite && !knowledge.is_default ? (
+              {knowledge.can_write && !knowledge.is_default ? (
                 <>
                   <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
                     <Pencil className="size-4" />
@@ -413,10 +428,14 @@ export function KnowledgeDetailPage() {
           </>
         ) : (
           <p className="rounded-lg border border-border-base bg-surface-subtle px-4 py-3 text-sm text-muted-foreground">
-            Du hast nur Leserechte auf dieses Knowledge.
+            {external
+              ? `Externe Quelle (nur lesen): ${knowledge.source_config?.url ?? ""} · Collection „${knowledge.source_config?.collection ?? ""}“. Sie wird bei jeder Frage live abgefragt und nie verändert.`
+              : "Du hast nur Leserechte auf dieses Knowledge."}
           </p>
         )}
 
+        {external ? null : (
+          <>
         <section className="space-y-3">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <FileText className="size-5" />
@@ -435,7 +454,7 @@ export function KnowledgeDetailPage() {
                 {documents.map((doc) => (
                   <div
                     key={doc.id}
-                    className="flex items-center gap-3 border-b border-border-base px-4 py-3 last:border-0"
+                    className="flex items-center gap-3 border-b border-border-base px-4 py-3 transition-colors last:border-0 hover:bg-hover/40"
                   >
                     <FileText className="size-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
@@ -490,7 +509,7 @@ export function KnowledgeDetailPage() {
                 {dataFiles.map((f) => (
                   <div
                     key={f.filename}
-                    className="flex items-center gap-3 border-b border-border-base px-4 py-3 last:border-0"
+                    className="flex items-center gap-3 border-b border-border-base px-4 py-3 transition-colors last:border-0 hover:bg-hover/40"
                   >
                     <FileSpreadsheet className="size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate text-sm">{f.filename}</span>
@@ -525,8 +544,16 @@ export function KnowledgeDetailPage() {
             </Card>
           )}
         </section>
+          </>
+        )}
       </div>
 
+      <ExternalSourceDialog
+        open={sourceOpen}
+        onOpenChange={setSourceOpen}
+        existing={external ? knowledge : null}
+        onSaved={() => void load()}
+      />
       <DataFileDialog
         filename={viewData}
         knowledgeQuery={kb}

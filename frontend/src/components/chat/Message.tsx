@@ -67,6 +67,7 @@ export interface SourceInfo {
   filename: string;
   score: number | null;
   section: string | number | null;
+  page?: string | null;
   headers?: Record<string, string> | null;
   snippet?: string;
 }
@@ -98,6 +99,9 @@ function SourcesBlock({ sources }: { sources: SourceInfo[] }) {
                 <span className="text-muted-foreground">[{src.n ?? i + 1}]</span>
                 <div className="min-w-0 flex-1">
                   <span className="font-medium">{src.filename}</span>
+                  {src.page ? (
+                    <span className="text-muted-foreground"> · {src.page}</span>
+                  ) : null}
                   {src.section != null ? (
                     <span className="text-muted-foreground"> · Abschnitt {src.section}</span>
                   ) : null}

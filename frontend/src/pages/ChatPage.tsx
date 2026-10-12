@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
+import { addToStoredDraft, loadDraft, saveDraft } from "@/lib/chatDraft";
+import { uid } from "@/lib/utils";
 import { Composer, ATTACH_ACCEPT } from "@/components/chat/Composer";
 import { Message, type SourceInfo, type ToolCall, type ToolResult } from "@/components/chat/Message";
 import { useSessions } from "@/context/SessionsContext";
@@ -107,9 +109,13 @@ export function ChatPage() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   // Aktueller Stand fuer wartende Sendevorgaenge (State in Closures waere veraltet)
   const attachmentsRef = useRef<ChatAttachment[]>([]);
+  const inputRef = useRef("");
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
   const [knowledge, setKnowledge] = useState<Knowledge[]>([]);
   const [selectedKnowledge, setSelectedKnowledge] = useState<number[] | null>(
     loadSelectedKnowledge,
@@ -139,6 +145,10 @@ export function ChatPage() {
   // Session, die wir gerade selbst angelegt haben: beim Wechsel der URL darauf
   // darf der lokale Zustand (Nachrichten, Anhänge) nicht neu geladen werden.
   const skipLoadRef = useRef<string | null>(null);
+  // Chat, der gerade selbst angelegt wurde: sein Entwurf bleibt im Speicher stehen
+  const adoptedRef = useRef<string | null>(null);
+  // Schluessel des Entwurfs, der gerade angezeigt wird ("new" oder die Session-ID)
+  const draftKeyRef = useRef<string>(sessionId ?? "new");
   const aliveRef = useRef(true);
 
   useEffect(() => {
@@ -195,7 +205,6 @@ export function ChatPage() {
       skipLoadRef.current = null;
       return;
     }
-    setAttachments([]);
     if (!sessionId) {
       setMessages([]);
       return;
@@ -226,6 +235,7 @@ export function ChatPage() {
   const adoptSession = useCallback(
     (id: string) => {
       skipLoadRef.current = id;
+      adoptedRef.current = id;
       navigate(`/c/${id}`, { replace: true });
       void reloadSessions();
     },
@@ -268,6 +278,31 @@ export function ChatPage() {
     [patchAttachment],
   );
 
+  // Entwurf (Anhaenge und Text) beim Wechsel des Chats wiederherstellen: wer ein Menue
+  // besucht und zurueckkehrt, soll seine hochgeladenen Dateien noch sehen.
+  useEffect(() => {
+    const key = sessionId ?? "new";
+    if (adoptedRef.current && adoptedRef.current === sessionId) {
+      adoptedRef.current = null;
+      draftKeyRef.current = key; // der aktuelle Zustand gehoert jetzt zu diesem Chat
+      saveDraft(key, { attachments: attachmentsRef.current, input: inputRef.current });
+      saveDraft("new", { attachments: [], input: "" }); // der Entwurf zog in den neuen Chat um
+      return;
+    }
+    draftKeyRef.current = key;
+    const draft = loadDraft(key);
+    setAttachments(draft.attachments);
+    setInput(draft.input);
+    // Dateien, die beim Verlassen noch gelesen wurden, weiter beobachten
+    for (const a of draft.attachments) {
+      if (a.status === "processing" || a.status === "uploading") void pollAttachment(a.id);
+    }
+  }, [sessionId, pollAttachment]);
+
+  useEffect(() => {
+    saveDraft(draftKeyRef.current, { attachments, input });
+  }, [attachments, input]);
+
   const handleAttach = useCallback(
     async (files: File[]) => {
       const allowed = ATTACH_ACCEPT.split(",");
@@ -283,7 +318,7 @@ export function ChatPage() {
           continue;
         }
 
-        const localId = `local-${crypto.randomUUID()}`;
+        const localId = `local-${uid()}`;
         setAttachments((prev) => [
           ...prev,
           { id: localId, filename: file.name, status: "uploading" },
@@ -301,9 +336,16 @@ export function ChatPage() {
           }>("/api/chat/attachments", form);
           if (!sid) {
             sid = res.session_id;
-            adoptSession(sid);
+            // Nur wenn der Nutzer noch im Chat ist; sonst wuerde der Upload ihn zurueckholen
+            if (aliveRef.current) adoptSession(sid);
+            else void reloadSessions();
           }
           patchAttachment(localId, { id: res.id, status: "processing" });
+          if (!aliveRef.current) {
+            // Die Seite wurde waehrend des Uploads verlassen: Datei im Entwurf vermerken,
+            // damit sie beim Zurueckkehren wieder erscheint.
+            addToStoredDraft(res.session_id, { id: res.id, filename: file.name, status: "processing" });
+          }
           void pollAttachment(res.id);
         } catch (e) {
           patchAttachment(localId, { status: "error", error: errorMessage(e) });
@@ -311,7 +353,7 @@ export function ChatPage() {
         }
       }
     },
-    [sessionId, adoptSession, patchAttachment, pollAttachment],
+    [sessionId, adoptSession, reloadSessions, patchAttachment, pollAttachment],
   );
 
   // ---- Chat --------------------------------------------------------------
@@ -325,6 +367,7 @@ export function ChatPage() {
 
   const handleEvent = useCallback(
     (event: ChatStreamEvent) => {
+      if (event.warning) toast.warning(event.warning);
       if (event.error) {
         toast.error(`Fehler: ${event.error}`);
         setMessages((prev) => {
@@ -531,7 +574,8 @@ export function ChatPage() {
       onSubmit={submit}
       onStop={stop}
       streaming={streaming}
-      attachments={attachments}
+      // Nach dem Senden zeigt die Antwort den Wartezustand; hier nicht noch einmal
+      attachments={streaming ? [] : attachments}
       onAttach={(files) => void handleAttach(files)}
       onRemoveAttachment={(id) =>
         setAttachments((prev) => prev.filter((a) => a.id !== id))

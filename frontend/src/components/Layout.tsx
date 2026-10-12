@@ -41,7 +41,7 @@ const itemClass = (active: boolean) =>
     "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
     active
       ? "bg-surface-muted font-medium text-foreground"
-      : "text-foreground hover:bg-surface-muted",
+      : "text-foreground hover:bg-hover",
   );
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {

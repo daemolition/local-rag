@@ -14,6 +14,7 @@
   --rag-surface: #ffffff; /* #ffffff: cards / composer */
   --rag-surface-subtle: #f9f9f9; /* #f9f9f9: app background / sidebar */
   --rag-surface-muted: #ececec; /* #ececec: hover / user bubble */
+  --rag-hover: #dadada; /* Maus-Hover: im hellen Modus dunkler als die Flaeche */
   --rag-primary: #0d0d0d; /* #0d0d0d: buttons / accent (black) */
   --rag-primary-soft: #383838; /* #383838: hover light */
   --rag-primary-text: #ffffff; /* text on primary */
@@ -28,6 +29,7 @@
   --rag-surface: #303030; /* #303030: cards / composer */
   --rag-surface-subtle: #212121; /* #212121: app background */
   --rag-surface-muted: #2f2f2f; /* #2f2f2f: hover / user bubble */
+  --rag-hover: #4a4a4a; /* Maus-Hover: im dunklen Modus heller als die Flaeche */
   --rag-primary: #ececec; /* #ececec: buttons / accent (light) */
   --rag-primary-soft: #ffffff; /* #ffffff: hover dark */
   --rag-primary-text: #0d0d0d; /* text on primary */
@@ -43,6 +45,7 @@
   --color-surface: var(--rag-surface);
   --color-surface-subtle: var(--rag-surface-subtle);
   --color-surface-muted: var(--rag-surface-muted);
+  --color-hover: var(--rag-hover);
   --color-primary: var(--rag-primary);
   --color-primary-soft: var(--rag-primary-soft);
   --color-primary-text: var(--rag-primary-text);
@@ -61,7 +64,7 @@
   --color-secondary-foreground: var(--rag-primary);
   --color-muted: var(--rag-surface-muted);
   --color-muted-foreground: var(--rag-secondary);
-  --color-accent: var(--rag-surface-muted);
+  --color-accent: var(--rag-hover);
   --color-accent-foreground: var(--rag-primary);
   --color-destructive: var(--rag-destructive);
   --color-destructive-foreground: var(--rag-destructive-text);
@@ -73,7 +76,7 @@
   --radius-xl: 1rem;
   --radius-2xl: 1.25rem;
 
-  --font-sans: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Roboto,
+  --font-sans: "Inter Variable", ui-sans-serif, -apple-system, system-ui, "Segoe UI", Roboto,
     Ubuntu, Cantarell, "Noto Sans", "Helvetica Neue", Arial, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji";
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
@@ -99,6 +102,8 @@
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv11", "ss01"; /* einstoeckiges a, klarere Ziffern */
+    letter-spacing: -0.006em;
   }
   ::-webkit-scrollbar {
     width: 10px;

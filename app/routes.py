@@ -460,6 +460,12 @@ def chat():
             for paths in (knowledge_paths(k) for k in all_knowledge)
         ),
         indexes=tuple((k["name"], str(index_path(knowledge_paths(k)))) for k in all_knowledge),
+        # fremde Vektorspeicher: Konfiguration (inkl. Key, bleibt im Prozess) je Knowledge
+        externals=tuple(
+            (k["collection_name"], k["source_config"])
+            for k in all_knowledge
+            if k.get("kind") == "external" and k.get("source_config")
+        ),
         # jedes Knowledge wird mit dem Modell abgefragt, mit dem es indexiert wurde
         specs=tuple(
             (k["collection_name"], json.dumps(model_settings.knowledge_spec(k).to_dict()))
@@ -540,6 +546,8 @@ def chat():
                         if fresh:
                             sources_sent += len(fresh)
                             result_queue.put(("sources", list(fresh)))
+                        while scope.warnings:
+                            result_queue.put(("warning", scope.warnings.pop(0)))
                         result_queue.put(
                             ("tool_result", (tool_name, str(tool_output)[:2000]))
                         )
@@ -650,6 +658,9 @@ def chat():
 
                 elif msg_type == "tool_end":
                     yield f"data: {json.dumps({'tool_end': msg_data})}\n\n"
+
+                elif msg_type == "warning":
+                    yield f"data: {json.dumps({'warning': msg_data})}\n\n"
 
                 elif msg_type == "sources":
                     yield f"data: {json.dumps({'source_list': msg_data})}\n\n"

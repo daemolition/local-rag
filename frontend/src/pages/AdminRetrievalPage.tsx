@@ -101,7 +101,7 @@ export function AdminRetrievalPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-5xl space-y-8 p-6">
+      <div className="mx-auto max-w-5xl space-y-6 p-6">
         <div className="flex flex-col items-start justify-between gap-4 border-b border-border-base pb-4 sm:flex-row sm:items-center">
           <div>
             <h1 className="text-2xl font-semibold">Retrieval-Profile</h1>

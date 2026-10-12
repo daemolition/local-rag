@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FileText, Layers, NotebookText, Plus } from "lucide-react";
+import { FileText, Layers, NotebookText, Plug, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ExternalSourceDialog } from "@/components/ExternalSourceDialog";
 import { KnowledgeDialog } from "@/components/KnowledgeDialog";
+import { useAuth } from "@/context/AuthContext";
 import { api, errorMessage } from "@/lib/api";
 import type { Knowledge } from "@/lib/types";
 
@@ -13,14 +15,20 @@ export function KnowledgePage() {
   const [items, setItems] = useState<Knowledge[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [externalOpen, setExternalOpen] = useState(false);
+  const { hasRole } = useAuth();
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api
       .get<Knowledge[]>("/api/knowledge")
       .then(setItems)
       .catch((e) => toast.error(errorMessage(e)))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const create = async (values: { name: string; description: string }) => {
     try {
@@ -43,10 +51,18 @@ export function KnowledgePage() {
               welche durchsucht werden.
             </p>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="size-4" />
-            Neues Knowledge
-          </Button>
+          <div className="flex gap-2">
+            {hasRole("admin") ? (
+              <Button variant="secondary" onClick={() => setExternalOpen(true)}>
+                <Plug className="size-4" />
+                Externe Quelle
+              </Button>
+            ) : null}
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" />
+              Neues Knowledge
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -65,6 +81,7 @@ export function KnowledgePage() {
                         <h2 className="truncate font-semibold">{k.name}</h2>
                         <span className="text-xs text-muted-foreground">
                           {k.is_default ? "Standard · " : ""}
+                          {k.kind === "external" ? "extern · " : ""}
                           {k.is_public ? "öffentlich" : "privat"}
                           {k.can_write ? "" : " · nur lesen"}
                         </span>
@@ -76,7 +93,7 @@ export function KnowledgePage() {
                     <div className="flex gap-4 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <FileText className="size-3.5" />
-                        {k.document_count} Dokumente
+                        {k.kind === "external" ? "Fremder Vektorspeicher" : `${k.document_count} Dokumente`}
                       </span>
                       <span className="flex items-center gap-1">
                         <Layers className="size-3.5" />
@@ -91,6 +108,11 @@ export function KnowledgePage() {
         )}
       </div>
 
+      <ExternalSourceDialog
+        open={externalOpen}
+        onOpenChange={setExternalOpen}
+        onSaved={load}
+      />
       <KnowledgeDialog
         open={createOpen}
         onOpenChange={setCreateOpen}

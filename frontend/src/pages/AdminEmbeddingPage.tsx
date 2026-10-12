@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { ReindexProgress } from "@/components/ReindexProgress";
 import { api, errorMessage } from "@/lib/api";
 import { useReindex } from "@/lib/useReindex";
@@ -22,6 +23,7 @@ import type {
   ModelEntry,
   ModelsResponse,
   IngestSettings,
+  TaskSettings,
   ModelSpec,
   ModelStatus,
 } from "@/lib/types";
@@ -208,6 +210,121 @@ function ModelEditor({
   );
 }
 
+function TaskCard({
+  title,
+  switchLabel,
+  switchHint,
+  promptLabel,
+  promptHint,
+  task,
+  models,
+  onChange,
+  excerpt,
+}: {
+  title: string;
+  switchLabel: string;
+  switchHint: string;
+  promptLabel: string;
+  promptHint: string;
+  task: TaskSettings;
+  models: ModelEntry[];
+  onChange: (t: TaskSettings) => void;
+  excerpt?: boolean;
+}) {
+  const num = (v: string): number | "" => (v === "" ? "" : Number(v));
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <h2 className="font-semibold">{title}</h2>
+        <div className="flex items-start justify-between rounded-lg border border-border-base px-3 py-2">
+          <div>
+            <Label className="text-sm">{switchLabel}</Label>
+            <p className="text-xs text-muted-foreground">{switchHint}</p>
+          </div>
+          <Switch checked={task.enabled} onCheckedChange={(v) => onChange({ ...task, enabled: v })} />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1 sm:col-span-3">
+            <Label className="text-xs">Modell</Label>
+            <Select
+              value={task.model_ref || "__default__"}
+              onValueChange={(v) => onChange({ ...task, model_ref: v === "__default__" ? "" : v })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__">Standardmodell</SelectItem>
+                {models.map((m) => (
+                  <SelectItem key={m.ref} value={m.ref}>
+                    {m.name} · {m.connection_name}
+                    {m.visible ? "" : " (im Chat ausgeblendet)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Temperatur</Label>
+            <Input
+              type="number"
+              step="0.1"
+              min={0}
+              max={2}
+              value={task.temperature ?? ""}
+              placeholder="Modell"
+              onChange={(e) => onChange({ ...task, temperature: num(e.target.value) })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Max. Tokens</Label>
+            <Input
+              type="number"
+              min={1}
+              value={task.max_tokens ?? ""}
+              placeholder="Modell"
+              onChange={(e) => onChange({ ...task, max_tokens: num(e.target.value) })}
+            />
+          </div>
+          {excerpt ? (
+            <div className="space-y-1">
+              <Label className="text-xs">Auszug (Zeichen)</Label>
+              <Input
+                type="number"
+                min={200}
+                max={20000}
+                value={task.excerpt_chars ?? 2000}
+                onChange={(e) => onChange({ ...task, excerpt_chars: Number(e.target.value) })}
+              />
+            </div>
+          ) : null}
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">{promptLabel}</Label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={task.prompt === task.default_prompt}
+              onClick={() => onChange({ ...task, prompt: task.default_prompt })}
+            >
+              Auf Standard zurücksetzen
+            </Button>
+          </div>
+          <Textarea
+            value={task.prompt}
+            rows={10}
+            className="font-mono text-xs"
+            onChange={(e) => onChange({ ...task, prompt: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">{promptHint}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AdminEmbeddingPage() {
   const [data, setData] = useState<EmbeddingOverview | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -216,7 +333,7 @@ export function AdminEmbeddingPage() {
   const [ingest, setIngest] = useState<IngestSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [chatModels, setChatModels] = useState<ModelEntry[]>([]);
-  const [visionModel, setVisionModel] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<EmbeddingOverview["tasks"] | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -227,7 +344,7 @@ export function AdminEmbeddingPage() {
       setEmbedding((prev) => prev ?? e);
       setReranker((prev) => prev ?? r);
       setIngest((prev) => prev ?? d.ingest);
-      setVisionModel((prev) => prev ?? d.vision_model ?? "");
+      setTasks((prev) => prev ?? d.tasks);
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -261,10 +378,10 @@ export function AdminEmbeddingPage() {
   }, [data]);
 
   const save = async () => {
-    if (!embedding || !reranker || !ingest) return;
+    if (!embedding || !reranker || !ingest || !tasks) return;
     setSaving(true);
     try {
-      setData(await api.put<EmbeddingOverview>("/api/admin/embedding", { embedding, reranker, ingest, vision_model: visionModel ?? "" }));
+      setData(await api.put<EmbeddingOverview>("/api/admin/embedding", { embedding, reranker, ingest, tasks }));
       toast.success("Gespeichert. Neue Modelle werden im Hintergrund geladen.");
     } catch (e) {
       toast.error(errorMessage(e));
@@ -282,7 +399,7 @@ export function AdminEmbeddingPage() {
     }
   };
 
-  if (!data || !embedding || !reranker || !ingest) {
+  if (!data || !embedding || !reranker || !ingest || !tasks) {
     return <div className="p-6 text-sm text-muted-foreground">Lädt …</div>;
   }
 
@@ -291,7 +408,7 @@ export function AdminEmbeddingPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+    <div className="mx-auto max-w-5xl space-y-6 p-6">
       <div>
         <h1 className="text-xl font-semibold">Einlesen & Modelle</h1>
         <p className="text-sm text-muted-foreground">
@@ -344,45 +461,27 @@ export function AdminEmbeddingPage() {
         onChange={setReranker}
       />
 
-      <Card>
-        <CardContent className="space-y-3 p-4">
-          <h2 className="font-semibold">Bildbeschreibung und Kontext</h2>
-          <p className="text-sm text-muted-foreground">
-            Dieses Modell beschreibt Bilder in Dokumenten und ergänzt, wenn aktiv, den Kontext
-            je Abschnitt. Es kommt aus den Verbindungen, auch Modelle, die im Chat ausgeblendet
-            sind. Ohne Auswahl gilt das Standardmodell.
-          </p>
-          <div className="flex items-start justify-between rounded-lg border border-border-base px-3 py-2">
-            <div>
-              <Label className="text-sm">Bilder beschreiben</Label>
-              <p className="text-xs text-muted-foreground">
-                Aus: Bilder in Dokumenten werden übersprungen (schneller, aber ohne Bildinhalt).
-              </p>
-            </div>
-            <Switch
-              checked={ingest.vision_enabled}
-              onCheckedChange={(v) => setIngest({ ...ingest, vision_enabled: v })}
-            />
-          </div>
-          <Select
-            value={visionModel || "__default__"}
-            onValueChange={(v) => setVisionModel(v === "__default__" ? "" : v)}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__default__">Standardmodell</SelectItem>
-              {chatModels.map((m) => (
-                <SelectItem key={m.ref} value={m.ref}>
-                  {m.name} · {m.connection_name}
-                  {m.visible ? "" : " (im Chat ausgeblendet)"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
+      <TaskCard
+        title="Bildbeschreibung"
+        switchLabel="Bilder beschreiben"
+        switchHint="Aus: Bilder in Dokumenten werden übersprungen (schneller, aber ohne Bildinhalt)."
+        promptLabel="Anweisung (Systemprompt) für das Bildmodell"
+        promptHint="Das Modell braucht Bildverständnis. Die Antwort steht als [BILD-BESCHREIBUNG: …] im Text."
+        task={tasks.vision}
+        models={chatModels}
+        onChange={(t) => setTasks({ ...tasks, vision: t })}
+      />
+      <TaskCard
+        title="Kontext-Anreicherung"
+        switchLabel="Kontext je Chunk per LLM ergänzen"
+        switchHint="Bessere Treffer, aber deutlich langsameres Einlesen (ein Modellaufruf je Abschnitt)."
+        promptLabel="Prompt"
+        promptHint="Platzhalter: {dokument} = Auszug aus dem Dokument, {abschnitt} = der Abschnitt (Pflicht)."
+        task={tasks.context}
+        models={chatModels}
+        onChange={(t) => setTasks({ ...tasks, context: t })}
+        excerpt
+      />
 
       <Card>
         <CardContent className="space-y-3 p-4">
@@ -407,7 +506,6 @@ export function AdminEmbeddingPage() {
           </div>
           {(
             [
-              ["context_enrichment", "Kontext je Chunk per LLM ergänzen", "bessere Treffer, deutlich langsameres Einlesen"],
               ["keep_original", "Originaldatei behalten", "aus: nur das Markdown bleibt, Neu-Indexieren nutzt dieses"],
               ["index_enabled", "Inhaltsverzeichnis (index.md) pro Knowledge", "das Modell liest es zuerst; spart Suchschritte"],
             ] as const

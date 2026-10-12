@@ -29,6 +29,7 @@ erhoehen ``SPLITTER_VERSION`` bzw. ``PARSER_VERSION``.
 
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from logging import getLogger
 from pathlib import Path
 
@@ -44,6 +45,29 @@ PARSER_VERSION = 1
 DENSE_VECTOR = ""
 SPARSE_VECTOR = "langchain-sparse"
 UPSERT_BATCH = 100
+
+
+def document_metadata(
+    *,
+    filename: str,
+    knowledge_id: int | None = None,
+    uploaded_by: int | None = None,
+    uploaded_at: datetime | None = None,
+) -> dict:
+    """Metadaten, die jeder Chunk eines Dokuments zusaetzlich traegt (Nachvollziehbarkeit, Filter)."""
+    from app.ingest.splitter import SPLITTER_VERSION
+
+    meta = {
+        "file_type": Path(filename).suffix.lower().lstrip("."),
+        "parser_version": PARSER_VERSION,
+        "splitter_version": SPLITTER_VERSION,
+        "uploaded_at": (uploaded_at or datetime.now(UTC)).isoformat(),
+    }
+    if knowledge_id is not None:
+        meta["knowledge_id"] = knowledge_id
+    if uploaded_by is not None:
+        meta["uploaded_by"] = uploaded_by
+    return meta
 
 
 def markdown_file(markdown_dir: Path | str, file_group_id: str) -> Path:
@@ -123,6 +147,12 @@ def build_points(
                     # Reihenfolge in der Datei: Grundlage der Nachbar-Chunks im Retrieval.
                     "chunk_index": i,
                     "chunk_total": len(chunks),
+                    # Seiten der Fundstelle, nur wenn der Parser sie lieferte (PDF)
+                    **(
+                        {"page_start": chunk.page_start, "page_end": chunk.page_end}
+                        if chunk.page_start is not None
+                        else {}
+                    ),
                     **(extra_metadata or {}),
                 },
             )

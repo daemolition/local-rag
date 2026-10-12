@@ -132,6 +132,8 @@ def is_stale(knowledge: dict) -> bool:
 
     Ohne gespeicherte Signatur (Altbestand) zaehlt nur ein anderes Modell.
     """
+    if knowledge.get("kind") == "external":
+        return False  # fremde Quelle: ihr Modell ist unabhaengig vom globalen
     current = embedding_spec()
     if knowledge_spec(knowledge).key != current.key:
         return True
@@ -185,7 +187,7 @@ def prepare(client) -> None:
     from app.vector.collections import ensure_collection
 
     for kb in list_knowledge():
-        if kb["embedding_dimension"]:
+        if kb["embedding_dimension"] or kb.get("kind") == "external":
             continue
         try:
             dim = mr.get_embedder(knowledge_spec(kb)).dimension

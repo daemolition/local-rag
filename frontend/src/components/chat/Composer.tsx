@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, type FormEvent } from "react";
 import { ArrowUp, FileText, Loader2, Mic, Paperclip, Square, TriangleAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -69,7 +69,7 @@ function AttachmentChip({
       <button
         type="button"
         onClick={onRemove}
-        className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+        className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-hover hover:text-foreground"
         aria-label="Anhang entfernen"
       >
         <X className="size-3.5" />
@@ -100,7 +100,6 @@ export function Composer({
   placeholder = "Frag etwas zu deinem Wissen…",
 }: ComposerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
 
   // Wächst mit dem Inhalt, aber höchstens 8 Zeilen; danach scrollt das Feld.
   const autoGrow = useCallback(() => {
@@ -134,26 +133,10 @@ export function Composer({
     if (canSend) onSubmit();
   };
 
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) onAttach(files);
-  };
-
   return (
     <form
       onSubmit={submit}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={onDrop}
-      className={cn(
-        "w-full rounded-3xl border border-border-base bg-surface p-2 shadow-material-1 transition-colors focus-within:border-border-strong",
-        dragging && "border-border-strong bg-surface-subtle",
-      )}
+      className="w-full rounded-3xl border border-border-base bg-surface p-2 shadow-material-1 transition-colors focus-within:border-border-strong"
     >
       {attachments.length > 0 ? (
         <div className="flex flex-wrap gap-2 px-2 pb-1 pt-1">
@@ -168,9 +151,8 @@ export function Composer({
       ) : null}
 
       {pending ? (
-        <p className="flex items-center gap-1.5 px-3 pb-1 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" />
-          Anhang wird gelesen. Du kannst schon fragen, die Antwort startet danach.
+        <p className="px-3 pb-1 text-xs text-muted-foreground">
+          Du kannst schon fragen, die Antwort startet, sobald der Anhang gelesen ist.
         </p>
       ) : null}
 

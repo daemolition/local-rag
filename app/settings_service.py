@@ -124,6 +124,14 @@ class SettingsService:
         "INGEST_INDEX_ENABLED",
         "INGEST_VISION_ENABLED",
         "VISION_MODEL_REF",
+        "VISION_PROMPT",
+        "CONTEXT_PROMPT",
+        "CONTEXT_EXCERPT_CHARS",
+        "VISION_TEMPERATURE",
+        "VISION_MAX_TOKENS",
+        "CONTEXT_MODEL_REF",
+        "CONTEXT_TEMPERATURE",
+        "CONTEXT_MAX_TOKENS",
         # Chat- und Vision-Modelle laufen ueber Verbindungen und Modelle (Administration);
         # Sampling-Werte stellt man pro Modell ein.
         "CHAT_MODEL",

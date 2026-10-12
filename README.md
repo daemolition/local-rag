@@ -15,6 +15,7 @@ Ein Open-Source-RAG für eigene Dokumente, gebaut auf **Qualität** und volle Ko
 - **Neu indexieren ohne Ausfall**: Nach einem Modellwechsel baut ein Hintergrundjob den Index aus dem Markdown neu auf und schaltet erst um, wenn er fertig ist.
 - **Mehrbenutzer**: Rollen (`admin`, `editor`, `user`), Gruppen und Freigaben für Knowledge und Modelle. Chats sind pro Nutzer privat.
 - **Beliebige LLMs**: OpenAI-kompatible Verbindungen (LiteLLM, vLLM, Ollama, OpenAI) mit Modellliste, eigenem Prompt, Parametern und angehängtem Knowledge pro Modell.
+- **Externe Quellen**: Ein fremder Qdrant lässt sich als Knowledge anbinden (nur lesen, live abgefragt, mit dem Embedding-Modell der Quelle) und wie jedes Knowledge freigeben und an Modelle hängen.
 - Optional: Websuche über SearXNG, die du pro Modell zuschaltest (Standard aus, nur mit eingerichtetem PII-Filter/entityguard).
 
 Details zu Änderungen: [`CHANGELOG.md`](./CHANGELOG.md). Architektur und Konventionen für Entwickler: [`AGENTS.md`](./AGENTS.md).
@@ -31,7 +32,7 @@ docker-compose up --build
 
 ### Datenbank (Postgres)
 
-Die App speichert Benutzer, Chats, Einstellungen und Modelle in **Postgres**. `docker compose up` startet den Container `postgres` samt Volume `pgdata` und migriert beim Start automatisch. Zugangsdaten stehen in `.env` (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, siehe `env.example`); für den Betrieb ein eigenes Passwort setzen. Der Postgres-Port ist auf `127.0.0.1` gebunden (`POSTGRES_PORT`, Standard 5432), damit Import, pgAdmin und Backups funktionieren. Ohne `DATABASE_URL` nutzt die App eine lokale SQLite-Datei, das ist nur für Entwicklung und Tests gedacht.
+Die App speichert Benutzer, Chats, Einstellungen und Modelle in **Postgres**. `docker compose up` startet den Container `postgres` samt Volume `pgdata` und migriert beim Start automatisch. Zugangsdaten stehen in `.env` (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, siehe `env.example`); für den Betrieb ein eigenes Passwort setzen. Der Postgres-Port ist in `docker-compose.yml` auskommentiert (nur im Docker-Netz erreichbar); für Import, pgAdmin und Backups die Zeilen unter `ports:` einkommentieren (gebunden an `127.0.0.1`, `POSTGRES_PORT`, Standard 5432). Ohne `DATABASE_URL` nutzt die App eine lokale SQLite-Datei, das ist nur für Entwicklung und Tests gedacht.
 
 **Daten einer älteren Version übernehmen** (frühere Versionen nutzten eine SQLite-Datei):
 

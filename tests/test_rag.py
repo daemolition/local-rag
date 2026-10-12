@@ -440,3 +440,15 @@ def test_source_numbers_are_stable_across_searches_and_appear_in_the_tool_output
     assert sorted(by_file.values()) == list(range(1, len(by_file) + 1))
     assert nums2[0] == by_file[second[0].metadata["filename"]]
     assert record_sources(first) == nums1  # gleiche Stelle, gleiche Nummer
+
+
+def test_pages_reach_the_model_output_and_the_source_list(db, retriever, client):
+    from app.rag.format import format_hits, record_sources
+
+    add_point(client, "kb", 1, "Die Kaution betraegt drei Monatsmieten", filename="vertrag.pdf", page_start=3, page_end=4)
+    scope = RetrievalScope(("kb",), None, profiles=(("kb", cfg()),))
+    with_scope(scope)
+    docs = retriever.invoke("Kaution")
+    text = format_hits(docs, record_sources(docs))
+    assert "Seiten 3–4" in text
+    assert scope.sources[0]["page"] == "Seiten 3–4"

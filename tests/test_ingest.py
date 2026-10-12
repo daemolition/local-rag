@@ -659,3 +659,45 @@ def test_data_file_can_be_previewed_and_downloaded_but_not_outside_the_folder(db
     assert c.get("/api/data-files/geheim.txt").status_code == 404  # keine strukturierte Datei
     assert c.get("/api/data-files/..%2Fapp.db").status_code == 404
     assert client_for(flask_app, add_user(db, "bob", "user")).get("/api/data-files/umsatz.csv").status_code == 403
+
+
+def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):
+    from app import access
+    from tests.test_access import add_user, client_for
+
+    ed = add_user(db, "ed", "editor")
+    kb = knowledge.get_knowledge(None)
+    access.add_grant("knowledge", kb["id"], "user", ed["id"], "write")
+    flask_app = Flask(__name__)
+    flask_app.secret_key = "t"
+    flask_app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
+    flask_app.register_blueprint(api_bp)
+    import io
+
+    r = client_for(flask_app, ed).post(
+        "/api/documents/upload",
+        data={"files": (io.BytesIO(DOC.encode()), "vertrag.md")},
+        content_type="multipart/form-data",
+    )
+    assert r.status_code == 200
+    with make_ingestion(qd) as ing:
+        ing.ingest_documents()
+    payload = scroll_all(qd)[0].payload
+    assert payload["file_type"] == "md" and payload["knowledge_id"] == kb["id"]
+    assert payload["uploaded_by"] == ed["id"] and payload["uploaded_at"].endswith("+00:00")
+    assert payload["parser_version"] == indexer.PARSER_VERSION and "splitter_version" in payload
+    assert "page_start" not in payload  # Markdown hat keine Seiten
+    assert not list(Path("data/files").glob("*.uploader"))
+
+
+def test_page_marks_replace_docling_page_breaks_only_when_consistent():
+    from app.components.preprocess_base import PAGE_BREAK, apply_page_marks
+
+    md = f"Seite eins\n\n{PAGE_BREAK}\n\nSeite zwei\n\n{PAGE_BREAK}\n\nSeite drei"
+    out = apply_page_marks(md, [1, 2, 3])
+    assert out.startswith("<!--p:1-->") and "<!--p:2-->" in out and "<!--p:3-->" in out
+    assert PAGE_BREAK not in out
+    # Anzahl passt nicht: lieber keine Seiten als falsche
+    wrong = apply_page_marks(md, [1, 2])
+    assert "<!--p:" not in wrong and PAGE_BREAK not in wrong
+    assert "<!--p:" not in apply_page_marks("Nur eine Seite", [1])

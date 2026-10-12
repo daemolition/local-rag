@@ -12,6 +12,7 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Markdown } from "@/components/Markdown";
 import { api, errorMessage } from "@/lib/api";
+import { copyText } from "@/lib/utils";
 import type { VectorDocumentDetail } from "@/lib/types";
 
 export function VectorDbDetailPage() {
@@ -33,7 +34,7 @@ export function VectorDbDetailPage() {
 
   const copy = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       toast.success("Inhalt kopiert");
     } catch {
       toast.error("Kopieren fehlgeschlagen");

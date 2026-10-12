@@ -38,10 +38,16 @@ from qdrant_client import models as qdrant_models
 
 # Custom imports
 from app.components import CustomPDFLoader, CustomDOCXLoader
-from app.ingest.indexer import PARSER_VERSION, build_points, save_markdown, upsert_points
+from app.ingest.indexer import (
+    PARSER_VERSION,
+    build_points,
+    document_metadata,
+    save_markdown,
+    upsert_points,
+)
 from app.ingest.index_doc import refresh_index
 from app.ingest.tables import delete_tables, make_sink
-from app.llm.local_llm import VisionLLM
+from app.llm.local_llm import TaskLLM
 from app.rag import model_settings, models_runtime
 from app.utils.phase_logger import phase_logger, Phase
 from app.utils.file_manager import read_uploader
@@ -151,8 +157,19 @@ def describe_data_file(file_path: str, display_name: str | None = None) -> str:
     )
 
 
+def _table_source(filename: str) -> dict:
+    """Bei aus einem Dokument extrahierten Tabellen: Name des Quelldokuments (aus dem Dateinamen)."""
+    m = _TABLE_NAME.match(os.path.basename(filename))
+    return {"source_document": m["stem"], "table_number": int(m["n"])} if m else {}
+
+
 def index_data_references(
-    embeddings, sparse_model, collection_name, data_dir, name_prefix: str = ""
+    embeddings,
+    sparse_model,
+    collection_name,
+    data_dir,
+    name_prefix: str = "",
+    knowledge_id: int | None = None,
 ) -> int:
     """Indexiert je einen schlanken Verweis-Chunk pro strukturierter Datei in
     ``data_dir`` (idempotent: alte Verweis-Punkte werden vorher entfernt).
@@ -191,6 +208,9 @@ def index_data_references(
                 "title": rel_name,
                 "type": DATA_REFERENCE_TYPE,
                 "file_group_id": rel_name,
+                "file_type": file_path.suffix.lower().lstrip("."),
+                **({"knowledge_id": knowledge_id} if knowledge_id is not None else {}),
+                **_table_source(file_path.name),
             }
         )
 
@@ -387,7 +407,8 @@ class DocumentIngestion:
         self._client = None
 
         # Setup model
-        self.model = VisionLLM()
+        self.model = TaskLLM("vision")  # Bildbeschreibung
+        self.context_model = TaskLLM("context")  # Kontext-Anreicherung
 
         # DATA_DIR: strukturierte Daten (CSV/Excel) liegen hier als
         # Pandas-Referenz. Pro Datei wird nur ein schlanker Verweis-Chunk in
@@ -471,16 +492,15 @@ class DocumentIngestion:
             f"Context-Anreicherung gestartet | Chunk-Text: {len(chunk_text)} Zeichen",
         )
 
-        prompt = (
-            "Du bist ein Dokumenten-Indexierer. "
-            "Gib NUR 1-2 kurze Sätze zurück, die den Abschnitt im Gesamtdokument verorten.\n\n"
-            f"### Gesamtdokument (Auszug):\n{full_document_text[:2000]}\n\n"
-            f"### Abschnitt:\n{chunk_text}\n\n"
-            "### Kontext-Einordnung:"
+        from app.ingest.tasks import load_task, render_context_prompt
+
+        cfg = load_task("context")
+        prompt = render_context_prompt(
+            cfg["prompt"], full_document_text[: cfg["excerpt_chars"]], chunk_text
         )
 
         message = HumanMessage(content=prompt)
-        context = self.model.generate(message)
+        context = self.context_model.generate(message)
 
         duration = time.time() - start_time
         phase_logger.log_phase(
@@ -505,7 +525,13 @@ class DocumentIngestion:
         return "\n\n".join(d.page_content for d in docs)
 
     def index_markdown(
-        self, markdown: str, filename: str, file_group_id: str, sparse_model=None
+        self,
+        markdown: str,
+        filename: str,
+        file_group_id: str,
+        sparse_model=None,
+        uploaded_by: int | None = None,
+        uploaded_at=None,
     ) -> int:
         """Zerlegt gespeichertes Markdown neu und schreibt es in die Collection (Neu-Indexieren).
 
@@ -522,7 +548,15 @@ class DocumentIngestion:
             sparse=sparse,
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
-            extra_metadata=self.extra_metadata,
+            extra_metadata={
+                **document_metadata(
+                    filename=filename,
+                    knowledge_id=self.knowledge.get("id"),
+                    uploaded_by=uploaded_by,
+                    uploaded_at=uploaded_at,
+                ),
+                **self.extra_metadata,
+            },
             enrich=self._enrich_safe if self.enrich_context else None,
         )
         if points:
@@ -609,6 +643,8 @@ class DocumentIngestion:
                 save_markdown(self.attachment_markdown_dir, Path(filename).stem, markdown)
             )
 
+        uploader = read_uploader(file_path) if self.track_documents else self.extra_metadata.get("uploaded_by")
+
         # 3. Splitten, ggf. anreichern, Vektoren berechnen
         phase_logger.log_phase(
             Phase.RETRIEVAL, f"Embeddings berechnen | Datei: {filename}"
@@ -622,7 +658,14 @@ class DocumentIngestion:
             sparse=sparse_model,
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
-            extra_metadata=self.extra_metadata,
+            extra_metadata={
+                **document_metadata(
+                    filename=filename,
+                    knowledge_id=self.knowledge.get("id"),
+                    uploaded_by=uploader,
+                ),
+                **self.extra_metadata,
+            },
             enrich=self._enrich_safe if self.enrich_context else None,
         )
         if not points:
@@ -639,7 +682,6 @@ class DocumentIngestion:
 
         if self.track_documents:
             # 5. Datei verschieben (Dokumente -> Archiv)
-            file_path_original = file_path  # die Begleitdatei bleibt im Eingang liegen
             self._move_processed_file(file_path)
 
             # 6. Dokument-Zuordnung anlegen, damit die Datei-Liste das ingestierte
@@ -653,12 +695,13 @@ class DocumentIngestion:
                     knowledge_id=self.knowledge.get("id"),
                     markdown_path=markdown_path,
                     parser_version=PARSER_VERSION,
-                    uploaded_by=read_uploader(file_path_original, consume=True),
+                    uploaded_by=uploader,
                 )
             except Exception as e:
                 logger.error(
                     f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}"
                 )
+            read_uploader(file_path, consume=True)  # Begleitdatei im Eingang aufraeumen
 
         duration = time.time() - start_time
         phase_logger.log_phase(
@@ -725,6 +768,7 @@ class DocumentIngestion:
                     collection_name=self.collection_name,
                     data_dir=str(self.paths.data_dir),
                     name_prefix=self.paths.name_prefix,
+                    knowledge_id=self.knowledge.get("id"),
                 )
         except Exception as e:
             logger.error(

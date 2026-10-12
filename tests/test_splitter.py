@@ -154,3 +154,55 @@ def test_continuation_pieces_are_not_merged_into_the_next_section():
     chunks = split_markdown(doc, filename="x.md", chunk_size=300, chunk_overlap=0, min_size=250)
     b = [c for c in chunks if "## B" in c.text]
     assert len(b) == 1 and b[0].text.startswith("## B") and b[0].headers == ["B"]
+
+
+def test_page_markers_become_page_ranges_and_vanish_from_the_text():
+    from app.ingest.splitter import split_markdown
+
+    md = (
+        "<!--p:1-->\n\n# Vertrag\n\n## 1 Miete\n\nDie Miete betraegt 950 Euro monatlich.\n\n"
+        "<!--p:2-->\n\n## 2 Kaution\n\nDie Kaution betraegt drei Monatsmieten.\n\n"
+        "<!--p:3-->\n\nUnd sie wird nach sechs Monaten zurueckgezahlt.\n"
+    )
+    chunks = split_markdown(md, filename="v.pdf", chunk_size=120, chunk_overlap=0, min_size=0)
+    assert all("<!--p:" not in c.text for c in chunks)
+    by_text = {c.text.split("\n")[0]: c for c in chunks}
+    miete = next(c for c in chunks if "Miete betraegt" in c.text)
+    kaution = next(c for c in chunks if "Kaution betraegt" in c.text)
+    assert (miete.page_start, miete.page_end) == (1, 1)
+    assert kaution.page_start == 2 and kaution.page_end >= 2
+    assert by_text  # nichts verloren
+
+
+def test_a_chunk_spanning_a_page_break_gets_both_pages():
+    from app.ingest.splitter import split_markdown
+
+    md = "<!--p:4-->\n\n# T\n\nErster Absatz auf Seite vier.\n\n<!--p:5-->\n\nZweiter Absatz auf Seite fuenf.\n"
+    chunk = split_markdown(md, filename="v.pdf", chunk_size=1000)[0]
+    assert (chunk.page_start, chunk.page_end) == (4, 5)
+    assert "Zweiter Absatz" in chunk.text and "<!--" not in chunk.text
+
+
+def test_markdown_without_markers_has_no_pages():
+    from app.ingest.splitter import split_markdown
+
+    chunk = split_markdown("# T\n\nText ohne Seiten.\n", filename="v.md")[0]
+    assert chunk.page_start is None and chunk.page_end is None
+
+
+def test_markers_between_a_heading_and_its_text_do_not_create_empty_chunks():
+    from app.ingest.splitter import split_markdown
+
+    chunks = split_markdown("<!--p:1-->\n\n# Nur Titel\n\n<!--p:2-->\n\n## Echt\n\nInhalt.\n", filename="v.pdf")
+    assert len(chunks) == 1 and "Inhalt." in chunks[0].text and "<!--" not in chunks[0].text
+    assert (chunks[0].page_start, chunks[0].page_end) == (1, 2)
+
+
+def test_repeated_table_headers_inherit_the_previous_page():
+    from app.ingest.splitter import split_markdown
+
+    rows = "\n".join(f"| Zeile {i} | {i * 10} |" for i in range(40))
+    md = f"<!--p:7-->\n\n# Tabelle\n\n| Name | Wert |\n| --- | --- |\n{rows}\n"
+    chunks = split_markdown(md, filename="v.pdf", chunk_size=300, chunk_overlap=0)
+    assert len(chunks) > 1
+    assert all(c.page_start == 7 and c.page_end == 7 for c in chunks)

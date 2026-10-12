@@ -120,6 +120,10 @@ export function ProfileDialog({
     return null;
   }
 
+  const dw = Number(cfg.search.dense_weight) || 0;
+  const sw = Number(cfg.search.sparse_weight) || 0;
+  const densePct = dw + sw > 0 ? Math.round((dw / (dw + sw)) * 20) * 5 : 50;
+
   const patch = <K extends keyof ProfileConfig>(key: K, value: Partial<ProfileConfig[K]>) =>
     setCfg((c) =>
       c ? { ...c, [key]: { ...(c[key] as object), ...(value as object) } } : c,
@@ -212,10 +216,15 @@ export function ProfileDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="rrf">RRF (mit Gewichten)</SelectItem>
+                    <SelectItem value="rrf">RRF (Rangfolge)</SelectItem>
                     <SelectItem value="dbsf">DBSF (Score-basiert)</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  {cfg.search.fusion === "dbsf"
+                    ? "DBSF normalisiert die Scores beider Suchen und addiert sie. Ein sehr starker Treffer zählt dadurch mehr, kann aber bei wenigen Ergebnissen von Ausreißern verzerrt werden."
+                    : "RRF mischt nur nach Platz in den beiden Trefferlisten, die Score-Werte spielen keine Rolle. Robust und der empfohlene Standard."}
+                </p>
               </div>
               <Num
                 id="p-cand"
@@ -223,20 +232,38 @@ export function ProfileDialog({
                 value={cfg.search.candidates}
                 onChange={(v) => patch("search", { candidates: v })}
               />
-              <Num
-                id="p-dw"
-                label="Gewicht semantisch"
-                step="0.1"
-                value={cfg.search.dense_weight}
-                onChange={(v) => patch("search", { dense_weight: v })}
-              />
-              <Num
-                id="p-sw"
-                label="Gewicht Stichwörter"
-                step="0.1"
-                value={cfg.search.sparse_weight}
-                onChange={(v) => patch("search", { sparse_weight: v })}
-              />
+              <div className="space-y-1.5 sm:col-span-full">
+                <Label htmlFor="p-balance" className="text-xs">
+                  Gewichtung (nur Hybrid)
+                </Label>
+                <div className="flex items-center gap-3">
+                  <span className="w-28 shrink-0 text-right text-sm tabular-nums">
+                    Semantisch {densePct}&nbsp;%
+                  </span>
+                  <input
+                    id="p-balance"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={densePct}
+                    disabled={cfg.search.mode !== "hybrid"}
+                    onChange={(e) => {
+                      // Links hoch = rechts runter: beide Anteile ergeben immer 100 %.
+                      const p = Number(e.target.value);
+                      patch("search", { dense_weight: p / 50, sparse_weight: (100 - p) / 50 });
+                    }}
+                    className="h-2 min-w-0 flex-1 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <span className="w-28 shrink-0 text-sm tabular-nums">
+                    {100 - densePct}&nbsp;% Stichwörter
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Mitte (50 / 50) gewichtet beide gleich. Mehr Stichwörter hilft bei Namen, Nummern und
+                  Fachbegriffen, mehr Bedeutung bei umschriebenen Fragen.
+                </p>
+              </div>
               <Num
                 id="p-dmin"
                 label="Mindest-Ähnlichkeit (semantisch)"

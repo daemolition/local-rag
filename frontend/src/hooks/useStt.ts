@@ -47,6 +47,12 @@ export function useStt({ onText, onFinal, onError }: UseSttOptions) {
   }, [cleanup]);
 
   const start = useCallback(async () => {
+    if (!window.isSecureContext) {
+      throw new Error(
+        "Die Spracheingabe braucht eine sichere Verbindung (HTTPS oder localhost). " +
+          "Mit http://<Adresse> sperrt der Browser das Mikrofon.",
+      );
+    }
     if (!navigator.mediaDevices || !window.AudioContext || !window.AudioWorkletNode) {
       throw new Error("Live-Spracheingabe wird von diesem Browser nicht unterstützt.");
     }

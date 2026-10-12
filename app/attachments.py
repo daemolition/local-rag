@@ -65,7 +65,7 @@ def start_attachment_ingestion(file_storage, session_id: str, sparse, user_id: i
 
     threading.Thread(
         target=_ingest,
-        args=(attachment.id, session_id, str(path), folder, sparse),
+        args=(attachment.id, session_id, str(path), folder, sparse, user_id),
         name=f"attachment-{attachment.id[:8]}",
         daemon=True,
     ).start()
@@ -73,7 +73,7 @@ def start_attachment_ingestion(file_storage, session_id: str, sparse, user_id: i
     return {"id": attachment.id, "filename": filename, "status": "processing"}
 
 
-def _ingest(attachment_id, session_id, path, folder, sparse) -> None:
+def _ingest(attachment_id, session_id, path, folder, sparse, user_id=None) -> None:
     from app import wait_for_resources
     from app.rag import model_settings, models_runtime
     from app.vector.ingestion import DocumentIngestion
@@ -91,6 +91,7 @@ def _ingest(attachment_id, session_id, path, folder, sparse) -> None:
                 extra_metadata={
                     "session_id": session_id,
                     "attachment_id": attachment_id,
+                    **({"uploaded_by": user_id} if user_id is not None else {}),
                 },
                 enrich_context=False,
                 track_documents=False,

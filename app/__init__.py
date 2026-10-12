@@ -126,7 +126,7 @@ def init_resources(app, preload=False):
 
     try:
         for kb in list_knowledge():
-            if kb["embedding_dimension"]:
+            if kb["embedding_dimension"] and kb.get("kind") != "external":
                 ensure_collection(_qdrant_client, kb["collection_name"], kb["embedding_dimension"])
     except Exception as e:
         logger.warning(f"Knowledge-Collections konnten nicht angelegt werden: {e}")

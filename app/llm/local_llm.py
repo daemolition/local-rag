@@ -19,6 +19,7 @@ Local LLM with vision - supports separate chat and vision models
 """
 
 # Standard library
+import json
 import time
 
 from langchain_core.messages import HumanMessage
@@ -27,30 +28,29 @@ from app.llm.factory import build_chat_llm
 from app.utils.phase_logger import Phase, phase_logger
 
 
-class VisionLLM:
-    """Modell fuer Bildbeschreibungen und die Kontextanreicherung beim Einlesen.
+class TaskLLM:
+    """LLM fuer eine Einlese-Aufgabe: ``vision`` (Bildbeschreibung) oder ``context`` (Kontext-Anreicherung).
 
-    Das Modell kommt aus Verbindungen und Modellen (Administration): ``VISION_MODEL_REF``
-    waehlt es auf der Seite "Einlesen & Modelle", ohne Auswahl gilt das Standardmodell.
-    Aufgeloest wird bei jedem Aufruf, Aenderungen wirken also sofort.
+    Modell (``<AUFGABE>_MODEL_REF``, sonst Standardmodell), Temperatur, Max-Tokens und Prompt
+    kommen aus der Datenbank (Administration > Einlesen & Modelle) und werden bei jedem Aufruf
+    frisch aufgeloest, Aenderungen wirken also sofort.
     """
 
-    def __init__(self):
+    def __init__(self, task: str = "vision"):
+        self.task = task
         self._llm = None
         self._signature = None
 
-    def _resolve(self):
-        from app.database_service import get_db_service
-        from app.llm import registry
-        from app.settings_service import SettingsService
+    def _config(self) -> dict:
+        from app.ingest.tasks import load_task
 
-        session = get_db_service().get_session()
+        return load_task(self.task)
+
+    def _resolve(self, ref: str | None):
+        from app.llm import registry
+
         try:
-            ref = SettingsService(session).get("VISION_MODEL_REF", "") or None
-        finally:
-            session.close()
-        try:
-            return registry.resolve_model(ref)
+            return registry.resolve_model(ref or None)
         except registry.ModelUnavailableError:
             if ref:  # gewaehltes Modell weg: auf das Standardmodell zurueckfallen
                 return registry.resolve_model(None)
@@ -58,21 +58,29 @@ class VisionLLM:
 
     @property
     def llm(self):
-        """Nicht-streamendes LLM des Vision-Modells (nach Aenderungen neu gebaut)."""
-        resolved = self._resolve()
-        if self._llm is None or self._signature != resolved.signature():
+        """Nicht-streamendes LLM der Aufgabe (nach Aenderungen neu gebaut)."""
+        cfg = self._config()
+        resolved = self._resolve(cfg["model_ref"])
+        params = {**resolved.params, "thinking": "none"}
+        if cfg["temperature"] is not None:
+            params["temperature"] = cfg["temperature"]
+        if cfg["max_tokens"] is not None:
+            params["max_tokens"] = cfg["max_tokens"]
+        signature = (resolved.signature(), json.dumps(params, sort_keys=True))
+        if self._llm is None or self._signature != signature:
             self._llm = build_chat_llm(
                 resolved.base_url,
                 resolved.api_key,
                 resolved.model_id,
-                {**resolved.params, "thinking": "none"},
+                params,
                 streaming=False,
             )
-            self._signature = resolved.signature()
+            self._signature = signature
             self.vision_model = resolved.model_id
         return self._llm
 
     vision_model = ""
+
 
     def generate_image_message(
         self, image: str, instruction: str = None
@@ -86,30 +94,9 @@ class VisionLLM:
         )
 
         if not instruction:
-            instruction = """
-            ## Rolle: 
-            Du bist ein spezialisierter Analyst für unstructurierte Dokumente. Deine Aufgabe ist es, Tabellen und Prozessdiagramme in präzise, suchoptimierte Markdown-Beschreibungen zu übersetzen.
+            from app.ingest.tasks import load_task
 
-            ### Anweisungen:
-
-            **Strukturelle Einordnung:** Beginne mit dem Typ (z. B. "Ablaufdiagramm Genehmigungsprozess" oder "Tabelle Überstundenvergütung").
-            **Logik-Extraktion (Wenn-Dann):** Analysiere das Bild gezielt nach Bedingungen und Konsequenzen. Formuliere diese als klare Sätze (z. B. "Wenn [Bedingung], dann [Folge/Aktion]").
-            **Daten-Highlights:** Extrahiere bei Tabellen nur die wichtigsten Schwellenwerte, Fristen oder Beträge.
-            Erstelle eine kompakte Markdown-Tabelle der Kernwerte (max. 8 Zeilen).
-
-            ## Zuständigkeiten: 
-            Nenne explizit alle im Bild vorkommenden Rollen, Abteilungen oder Gremien (z. B. "Personalrat", "IT-Abteilung", "Vorgesetzter").
-
-            ## Zusammenfassung: 
-            Schreibe einen abschließenden Satz über den Hauptzweck des Bildes für die Indexierung.
-
-            ## Formatierungsvorgaben:
-
-            * Gib ausschließlich das Markdown-Ergebnis aus.
-            * Keine Einleitung ("Hier ist..."), keine Metadaten über das Bild-Preprocessing.
-            * Nutze klare Hierarchien mit ### Überschriften.
-            * Antworte ausschließlich aus Deutsch
-            """
+            instruction = load_task("vision")["prompt"]
 
         message = HumanMessage(
             content=[
@@ -141,3 +128,7 @@ class VisionLLM:
         )
 
         return result.content
+
+
+# Rueckwaertskompatibler Name (Bildbeschreibung)
+VisionLLM = TaskLLM

@@ -40,6 +40,7 @@ from langchain_core.retrievers import BaseRetriever
 from qdrant_client import models as qdrant_models
 
 from app.rag import model_settings, models_runtime, pipeline, profiles
+from app.vector import sources
 from app.vector.collections import USER_UPLOADS_COLLECTION
 
 logger = getLogger(__name__)
@@ -73,6 +74,10 @@ class RetrievalScope:
     # Treffer, die die Dokumentsuche in diesem Request geliefert hat (fuer die Quellenanzeige
     # mit Score im Chat). Wird von der Suche befuellt, vom Chat-Stream ausgelesen.
     sources: list = field(default_factory=list, compare=False)
+    # Externe Quellen: (Knowledge-Collection "ext_<id>", JSON der Quellen-Konfiguration inkl. Key)
+    externals: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+    # Hinweise zu nicht erreichbaren Quellen (fuer die Anzeige), vom Retriever befuellt
+    warnings: list = field(default_factory=list, compare=False)
     # Nutzer des Requests: bestimmt den Ordner der Analysen (Werkzeuge des Modells)
     user_id: int | None = field(default=None, compare=False)
 
@@ -133,6 +138,27 @@ class MultiCollectionRetriever(BaseRetriever):
             **kwargs,
         )
 
+    def _run_external(self, question: str, collection: str, raw: str, cfg: dict, scope, spec):
+        """Fragt eine externe Quelle (nur lesend) mit deren Collection, Vektornamen und Feldern ab."""
+        src = sources.parse_config(raw)
+        client = sources.connect(src)
+        try:
+            layout = sources.layout_for(src)
+            kwargs = {"rerank_fn": self.rerank_fn} if self.rerank_fn else {}
+            return pipeline.run(
+                question,
+                [src.collection],
+                cfg,
+                client=client,
+                dense=self._embedder(spec),
+                sparse=self.sparse_embeddings,
+                helper=scope.helper,
+                layout=layout,
+                **kwargs,
+            )
+        finally:
+            client.close()
+
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun
     ) -> list[Document]:
@@ -145,7 +171,10 @@ class MultiCollectionRetriever(BaseRetriever):
         global_spec = None if self.dense_embeddings else model_settings.embedding_spec()
         spec_of = dict(scope.specs)
         groups: dict[tuple[str, str], tuple[dict, models_runtime.ModelSpec, list[str]]] = {}
+        external = dict(scope.externals)
         for collection in scope.collections:
+            if collection in external:
+                continue  # fremde Quellen laufen einzeln (eigener Client und Aufbau)
             cfg = by_collection.get(collection, default_cfg)
             raw = spec_of.get(collection)
             spec = models_runtime.ModelSpec.from_dict(raw) if raw else global_spec
@@ -183,6 +212,18 @@ class MultiCollectionRetriever(BaseRetriever):
                 hits = self._run(query, collections, cfg, scope, spec)
             except Exception as e:
                 logger.warning(f"Suche in {collections} fehlgeschlagen: {e}")
+                continue
+            if hits:
+                result_lists.append(hits)
+
+        for collection, raw in external.items():
+            cfg = by_collection.get(collection, default_cfg)
+            spec = models_runtime.ModelSpec.from_dict(spec_of[collection]) if spec_of.get(collection) else global_spec
+            try:
+                hits = self._run_external(query, collection, raw, cfg, scope, spec)
+            except Exception as e:
+                logger.warning(f"Externe Quelle {collection} nicht erreichbar: {type(e).__name__}: {e}")
+                scope.warnings.append(f"Eine externe Quelle war nicht erreichbar ({type(e).__name__}).")
                 continue
             if hits:
                 result_lists.append(hits)

@@ -249,7 +249,7 @@ export function ModelConfigDialog({
                 {knowledge.map((k) => (
                   <label
                     key={k.id}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-muted"
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-hover"
                   >
                     <input
                       type="checkbox"

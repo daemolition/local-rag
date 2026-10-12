@@ -65,6 +65,8 @@ def _to_dict(k: Knowledge) -> dict:
         "embedding_model": k.embedding_model,
         "embedding_dimension": k.embedding_dimension,
         "embedding_spec": k.embedding_spec,
+        "kind": k.kind or "local",
+        "source_config": k.source_config,
         "index_signature": k.index_signature,
         "last_reindex_error": k.last_reindex_error,
         "is_public": bool(k.is_public),
@@ -153,6 +155,62 @@ def get_knowledge(knowledge_id: int | None) -> dict | None:
         return _to_dict(k) if k else None
     finally:
         db.close()
+
+
+def create_external_knowledge(
+    name: str, description: str, spec, dimension: int, source_config: dict
+) -> dict:
+    """Legt ein Knowledge fuer einen fremden Vektorspeicher an (kein eigener Speicherplatz)."""
+    from app.rag import model_settings
+
+    db = get_db_service().get_session()
+    try:
+        k = Knowledge(
+            name=name.strip(),
+            description=(description or "").strip(),
+            collection_name=f"ext_tmp_{os.urandom(6).hex()}",
+            is_default=False,
+            is_public=False,
+            kind="external",
+            source_config=json.dumps(source_config),
+            embedding_model=spec.model,
+            embedding_spec=json.dumps(spec.to_dict()),
+            embedding_dimension=dimension,
+            index_signature=model_settings.current_signature(spec),
+        )
+        db.add(k)
+        db.flush()
+        k.collection_name = f"ext_{k.id}"
+        db.commit()
+        return _to_dict(k)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def update_external_source(knowledge_id: int, spec, dimension: int, source_config: dict) -> dict | None:
+    db = get_db_service().get_session()
+    try:
+        k = db.query(Knowledge).filter_by(id=knowledge_id, kind="external").first()
+        if not k:
+            return None
+        k.source_config = json.dumps(source_config)
+        k.embedding_model = spec.model
+        k.embedding_spec = json.dumps(spec.to_dict())
+        k.embedding_dimension = dimension
+        db.commit()
+        return _to_dict(k)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def is_external(knowledge: dict | None) -> bool:
+    return bool(knowledge) and knowledge.get("kind") == "external"
 
 
 def create_knowledge(name: str, description: str = "", dimension: int | None = None) -> dict:

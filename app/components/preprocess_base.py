@@ -44,6 +44,34 @@ from app.llm.local_llm import VisionLLM
 logger = logging.getLogger(__name__)
 
 
+def _item_pages(doc) -> list[int]:
+    """Seiten des Dokuments in Lesereihenfolge (ohne Duplikate), aus der Herkunft der Elemente."""
+    pages: list[int] = []
+    for item, _ in doc.iterate_items():
+        prov = getattr(item, "prov", None) or []
+        page = getattr(prov[0], "page_no", None) if prov else None
+        if page is not None and (not pages or pages[-1] != page) and page not in pages:
+            pages.append(page)
+    return pages
+
+
+def apply_page_marks(markdown: str, pages: list[int]) -> str:
+    """Ersetzt die Seitenwechsel-Platzhalter durch ``<!--p:N-->``-Marker (siehe Splitter).
+
+    Passt die Zahl der Platzhalter nicht zu den Seiten, entfallen die Marker (lieber keine
+    Seitenzahl als eine falsche).
+    """
+    pattern = re.compile(rf"\s*{re.escape(PAGE_BREAK)}\s*")
+    breaks = len(pattern.findall(markdown))
+    if len(pages) < 2 or breaks != len(pages) - 1:
+        if breaks:
+            logger.warning(f"Seitenzuordnung verworfen: {breaks} Seitenwechsel, {len(pages)} Seiten")
+        return pattern.sub("\n\n", markdown)
+    numbers = iter(pages[1:])
+    out = pattern.sub(lambda _m: f"\n\n<!--p:{next(numbers)}-->\n\n", markdown)
+    return f"<!--p:{pages[0]}-->\n\n{out}"
+
+
 def _pil_to_b64(pil_image) -> str:
     """Encodiert ein PIL-Bild in Base64 (PNG)."""
     buf = BytesIO()
@@ -68,6 +96,7 @@ def _get_picture_image(picture):
 
 # Eindeutige Platzhalter im Docling-Markdown-Export.
 IMAGE_MARKER = "@@DOCLING-BILD@@"
+PAGE_BREAK = "@@DOCLING-SEITE@@"
 TABLE_MARKER = "@@DOCLING-TABELLE-{}@@"
 
 
@@ -221,7 +250,11 @@ class PreprocessBase:
                 logger.error(f"Bild übersprungen: {result.get('error')}")
                 descriptions.append("")
 
-        markdown = doc.export_to_markdown(image_placeholder=IMAGE_MARKER)
+        pages = _item_pages(doc)
+        markdown = doc.export_to_markdown(
+            image_placeholder=IMAGE_MARKER,
+            page_break_placeholder=PAGE_BREAK if len(pages) > 1 else None,
+        )
         if table_sink is not None:
             markdown = self._extract_tables(doc, markdown, table_sink, file_path)
         parts = markdown.split(IMAGE_MARKER)
@@ -239,6 +272,7 @@ class PreprocessBase:
             )
             markdown = "".join(parts) + "".join(f"\n\n{d}" for d in descriptions if d)
 
+        markdown = apply_page_marks(markdown, pages)
         return re.sub(r"\n{3,}", "\n\n", markdown).strip() + "\n"
 
     def _extract_tables(self, doc, markdown: str, table_sink, file_path: str) -> str:
