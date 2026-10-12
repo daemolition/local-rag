@@ -1214,7 +1214,7 @@ def delete_summary(filename):
     try:
         if file_path.exists():
             file_path.unlink()
-        get_db_service().delete_summary_by_filename(filename)
+        get_db_service().delete_summary_by_filename(filename, user_id=current_user()["id"])
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

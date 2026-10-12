@@ -309,6 +309,8 @@ class UserSummaryFile(Base):
 
     id = Column(Integer, primary_key=True)
     filename = Column(String(255), nullable=False)
+    # Eigentuemer der Analyse (jeder Nutzer hat einen eigenen Ordner, siehe app/summaries.py)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def __repr__(self):

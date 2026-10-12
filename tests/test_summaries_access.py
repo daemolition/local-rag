@@ -65,3 +65,16 @@ def test_model_tools_use_the_folder_of_the_requesting_user(db):
     assert "meins.md" not in str(tools.list_summaries())
     assert "FEHLER" in tools.read_summary("meins.md") or "nicht" in tools.read_summary("meins.md").lower()
     set_scope(None)
+
+
+def test_deleting_a_summary_never_touches_another_users_tracking_row(app, db):
+    alice, bob = add_user(db, "alice", "user"), add_user(db, "bob", "user")
+    db.create_summary_file("gleich.md", alice["id"])
+    db.create_summary_file("gleich.md", bob["id"])
+    client_for(app, alice).put("/api/summaries/gleich.md", json={"content": "A"})
+    client_for(app, bob).put("/api/summaries/gleich.md", json={"content": "B"})
+
+    assert client_for(app, bob).delete("/api/summaries/gleich.md").status_code == 200
+    remaining = [(s.filename, s.user_id) for s in db.get_all_summaries()]
+    assert remaining == [("gleich.md", alice["id"])]  # Alices Eintrag bleibt
+    assert client_for(app, alice).get("/api/summaries/gleich.md").json["content"] == "A"

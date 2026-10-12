@@ -848,7 +848,7 @@ def delete_my_summary(filename):
             file_path.unlink()
             logger.info(f"Summary-Datei gelöscht: {filename}")
 
-        db.delete_summary_by_filename(filename)
+        db.delete_summary_by_filename(filename, user_id=current_user()["id"])
 
         return jsonify({"success": True})
     except Exception as e:

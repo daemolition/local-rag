@@ -747,10 +747,16 @@ class CustomTools:
         try:
             from app.database_service import get_db_service
 
+            from app.retrieval import get_scope_or_none
+
+            scope = get_scope_or_none()
+            owner = scope.user_id if scope else None
             db = get_db_service()
-            existing = {s.filename for s in db.get_all_summaries()}
+            existing = {
+                s.filename for s in db.get_all_summaries() if getattr(s, "user_id", None) == owner
+            }
             if filename not in existing:
-                db.create_summary_file(filename=filename)
+                db.create_summary_file(filename=filename, user_id=owner)
         except Exception as e:
             logger.error(f"Konnte Summary-Zuordnung fuer {filename} nicht anlegen: {e}")
 

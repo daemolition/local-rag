@@ -537,11 +537,13 @@ class DatabaseService:
 
     # === UserSummaryFile Methods ===
 
-    def create_summary_file(self, filename: str) -> UserSummaryFile:
+    def create_summary_file(
+        self, filename: str, user_id: Optional[int] = None
+    ) -> UserSummaryFile:
         """Neue Summary-Datei-Eintrag erstellen"""
         db = self.get_session()
         try:
-            summary = UserSummaryFile(filename=filename)
+            summary = UserSummaryFile(filename=filename, user_id=user_id)
             db.add(summary)
             db.commit()
             db.refresh(summary)
@@ -590,13 +592,16 @@ class DatabaseService:
         finally:
             db.close()
 
-    def delete_summary_by_filename(self, filename: str) -> bool:
-        """Summary-Datei-Eintrag nach Filename löschen"""
+    def delete_summary_by_filename(self, filename: str, user_id: Optional[int] = None) -> bool:
+        """Summary-Datei-Eintrag nach Filename löschen; nur der des angegebenen Nutzers,
+        nie der gleichnamige Eintrag eines anderen."""
         db = self.get_session()
         try:
             from app.models import UserSummaryFile
 
-            summary = db.query(UserSummaryFile).filter_by(filename=filename).first()
+            summary = (
+                db.query(UserSummaryFile).filter_by(filename=filename, user_id=user_id).first()
+            )
             if summary:
                 db.delete(summary)
                 db.commit()

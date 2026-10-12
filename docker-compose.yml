@@ -98,8 +98,9 @@ services:
 
   # Datenbank der App (Benutzer, Chats, Einstellungen, Modelle). Zugangsdaten in .env
   # (POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB); der Standardwert "rag" ist nur fuer
-  # lokale Tests gedacht und sollte fuer den Betrieb geaendert werden. Kein Host-Port: nur
-  # aus dem local-rag-network erreichbar.
+  # lokale Tests gedacht und sollte fuer den Betrieb geaendert werden. Der Host-Port ist nur
+  # auf localhost gebunden (Import, pgAdmin, Backups); aendern oder entfernen mit POSTGRES_PORT
+  # bzw. durch Streichen der "ports"-Zeilen.
   postgres:
     image: postgres:17
     container_name: local-document-rag-postgres
@@ -108,6 +109,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-rag}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-rag}
       - POSTGRES_DB=${POSTGRES_DB:-rag}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:

@@ -31,17 +31,17 @@ docker-compose up --build
 
 ### Datenbank (Postgres)
 
-Die App speichert Benutzer, Chats, Einstellungen und Modelle in **Postgres**. `docker compose up` startet den Container `postgres` samt Volume `pgdata` und migriert beim Start automatisch. Zugangsdaten stehen in `.env` (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, siehe `env.example`); für den Betrieb ein eigenes Passwort setzen. Ohne `DATABASE_URL` nutzt die App eine lokale SQLite-Datei, das ist nur für Entwicklung und Tests gedacht.
+Die App speichert Benutzer, Chats, Einstellungen und Modelle in **Postgres**. `docker compose up` startet den Container `postgres` samt Volume `pgdata` und migriert beim Start automatisch. Zugangsdaten stehen in `.env` (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, siehe `env.example`); für den Betrieb ein eigenes Passwort setzen. Der Postgres-Port ist auf `127.0.0.1` gebunden (`POSTGRES_PORT`, Standard 5432), damit Import, pgAdmin und Backups funktionieren. Ohne `DATABASE_URL` nutzt die App eine lokale SQLite-Datei, das ist nur für Entwicklung und Tests gedacht.
 
-**Bestehende SQLite-Daten übernehmen** (`data/app.db` einer älteren Version):
+**Daten einer älteren Version übernehmen** (frühere Versionen nutzten eine SQLite-Datei):
 
 ```bash
 docker compose up -d postgres
-DATABASE_URL=postgresql+psycopg://rag:rag@localhost:5432/rag alembic upgrade head   # Postgres-Port dafür kurz freigeben
+DATABASE_URL=postgresql+psycopg://rag:rag@localhost:5432/rag alembic upgrade head
 python scripts/migrate_sqlite_to_postgres.py --sqlite data/app.db --database-url postgresql+psycopg://rag:rag@localhost:5432/rag
 ```
 
-Das Skript arbeitet an einer Kopie der SQLite-Datei (die Originaldatei bleibt unverändert), bringt sie auf den aktuellen Stand, leert die Zieltabellen, kopiert alles, setzt die ID-Zähler und vergleicht die Zeilenzahlen. Mit `--dry-run` zählt es nur. In Docker ist der Postgres-Port nicht nach außen offen; für den Import ergänzt du vorübergehend `ports: ["127.0.0.1:5432:5432"]` beim Dienst `postgres`. Backup: `docker compose exec postgres pg_dump -U rag rag > backup.sql`.
+Das Skript arbeitet an einer Kopie der SQLite-Datei (die Originaldatei bleibt unverändert), bringt sie auf den aktuellen Stand, leert die Zieltabellen, kopiert alles, setzt die ID-Zähler und vergleicht die Zeilenzahlen. Mit `--dry-run` zählt es nur. Backup: `docker compose exec postgres pg_dump -U rag rag > backup.sql`.
 
 ### Ohne Docker
 

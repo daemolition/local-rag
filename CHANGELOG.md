@@ -40,7 +40,7 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 
 ### Sicherheit
 
-- **Analysen gehören dem Ersteller**: Jeder Nutzer hat einen eigenen Analysen-Ordner (`u<id>`); Oberfläche und Werkzeuge des Modells lesen, ändern und löschen nur eigene Dateien. Zuvor konnte jeder angemeldete Nutzer alle Analysen sehen, überschreiben und löschen. Bestehende Analysen aus der Zeit davor werden beim ersten Aufruf dem ersten Admin zugeordnet.
+- **Analysen gehören dem Ersteller**: Jeder Nutzer hat einen eigenen Analysen-Ordner (`u<id>`); Oberfläche und Werkzeuge des Modells lesen, ändern und löschen nur eigene Dateien. Zuvor konnte jeder angemeldete Nutzer alle Analysen sehen, überschreiben und löschen. Bestehende Analysen aus der Zeit davor werden beim ersten Aufruf dem ersten Admin zugeordnet. Auch die zugehörigen Datenbankeinträge gehören dem Ersteller (Migration `0017`); das Löschen einer Analyse betrifft nie den gleichnamigen Eintrag eines anderen Nutzers.
 - Aufrufe an Verbindungen und Embedding-/Rerank-Endpoints folgen keinen Weiterleitungen mehr; die Link-Local-Sperre gilt auch beim Anlegen und Ändern einer Verbindung und vor jedem Chat-Aufruf.
 - Die Pandas-Werkzeuge sehen nur noch die Datendateien der im Chat gewählten und lesbaren Knowledge-Bereiche (zuvor konnten sie den gesamten Datenordner lesen, auch über `../`).
 
