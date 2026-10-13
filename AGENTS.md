@@ -1,10 +1,10 @@
 # AGENTS.md
 
-High-signal guidance for OpenCode sessions in this repo.
+High-signal guidance for coding agents (Claude Code, OpenCode, ...) in this repo. `CLAUDE.md` has the commands and rules you need first.
 
 ## Project in one line
 
-German Flask RAG app with SSE chat, user accounts with fixed roles (admin/editor/user), SQLAlchemy settings/chat/document tracking, Qdrant hybrid search (dense + sparse/BM25), Pandas analytics tools, and Ollama/OpenAI-compatible LLMs.
+Open Knowledge UI: German Flask RAG app + React SPA with SSE chat, user accounts with fixed roles (admin/editor/user), SQLAlchemy settings/chat/document tracking, Qdrant hybrid search (dense + sparse/BM25), knowledge of three kinds (local documents, foreign Qdrant, live read-only SQL databases), code execution (Pandas) and SQL access isolated in separate worker containers (`tool_worker/`), and OpenAI-compatible LLMs plus TEI/Infinity for embeddings/reranking.
 
 ## Entry points and run commands
 
@@ -21,11 +21,14 @@ python run_windows.py --no-qdrant  # if you run Qdrant separately
 # Linux / Docker
 alembic upgrade head
 python run_linux.py
-docker-compose up --build
+# needs TOOL_WORKER_TOKEN in .env (docker compose refuses to start without it)
+docker compose up -d --build
+# no NVIDIA GPU / ARM: docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
+# macOS: python run_mac.py (app native, helper services + workers in Docker)
 ```
 
 - Windows default URL: `http://127.0.0.1:5000` (localhost only; no firewall prompt).
-- Linux/Docker host port: `docker-compose up` maps `8083:5000` (host:container) — the app is on `http://localhost:8083`, not 5000. The README's "http://localhost:5000" Docker note is stale.
+- Linux/Docker host port: `docker compose up` maps `8083:5000` (host:container) — the app is on `http://localhost:8083`, not 5000. 
 - Linux manual (`python run_linux.py`, no Docker) binds `0.0.0.0:5000`.
 - Default login: user `admin`, password `admin` (seeded once by `app/users.py:ensure_admin_user` when the `users` table is empty; the password is the existing `APP_PASSWORD_HASH`, default `admin` / `ADMIN_PASSWORD` on a fresh DB, so installs keep their set password). Session cookie holds only `user_id` (`app/auth.py:current_user` loads role/active state per request; deactivating a user ends their session). Roles are ordered `user` < `editor` < `admin`: `@require_role("editor")` guards knowledge/document/vector-DB/stats endpoints, `@require_role("admin")` guards settings, connections/models and the legacy `/user/*` blueprint (a `before_request` gate); chat, own sessions, attachments, `GET /api/knowledge`, summaries and `GET /api/models` need only login. Chats are private per user (`sessions.user_id`; foreign IDs return 404, including `/chat/stop` and attachments). Login is throttled per username (5 failures / 5 min, in-memory). Non-admins get `/api/models` without prompt/params (`knowledge_locked` flag only). Not built yet: OIDC.
 - Both `run_windows.py` and `run_linux.py` run `alembic upgrade head` automatically before starting the server.
@@ -47,14 +50,14 @@ uv run ruff format .
 
 - Ruff is a project dependency but has **no `[tool.ruff]` config** in `pyproject.toml`; it runs with built-in defaults.
 - Postgres: `DATABASE_URL` (also read by `alembic/env.py`); `scripts/migrate_sqlite_to_postgres.py` imports an old `app.db`. The engine only calls `create_all` for SQLite; on Postgres Alembic alone owns the schema.
-- Tests: `uv run --with pytest pytest tests` (pytest is not a project dependency; `tests/conftest.py` isolates the SQLite singleton per test, so the real `data/app.db` is never touched). No type checker configured.
+- Tests: `uv run --extra worker --with pytest pytest tests` (the `worker` extra provides sqlglot/pymysql/pymssql for the tool-worker tests; CI installs it too) (pytest is not a project dependency; `tests/conftest.py` isolates the SQLite singleton per test, so the real `data/app.db` is never touched). No type checker configured.
 
 ## Releases and versioning
 
 - Version source of truth: `pyproject.toml`. `scripts/release.py` (stdlib only, tested in `tests/test_release.py`) keeps `frontend/package.json`, `frontend/package-lock.json` and the project block in `uv.lock` in sync: `current`, `check [--tag vX.Y.Z]`, `bump patch|minor|major|X.Y.Z [--dry-run]`, `notes [--version X.Y.Z]`, `publish [--yes]`. `bump` requires a clean tree (untracked files count) on `master` (`--branch` overrides), moves `## [Unreleased]` in `CHANGELOG.md` to the new version (or generates it from Conventional Commits since the last `v*` tag), commits `chore(release): vX.Y.Z` and creates an annotated tag. With no `v*` tag yet, `bump 0.1.0` (same version) is the first release. `publish` only prints commands without `--yes`.
 - `.github/workflows/ci.yml` (tests + frontend build on push to master / PRs) and `release.yml` (on tag `vX.Y.Z`: `release.py check --tag`, tests, build, then `gh release create` with the changelog section). The script never creates the GitHub release itself. All actions are pinned to full commit SHAs (a test enforces it; Dependabot keeps them current), checkouts use `persist-credentials: false`, and only the last `release` job has `contents: write` while `verify` (tests, build) runs read-only. Keep a non-empty changelog section per released version: the release workflow fails without one.
 - `app/version.py` reads the version from `pyproject.toml` (fallback env `APP_VERSION`); exposed as `GET /api/version`, in `/health`, and in the sidebar/account dialog.
-- Never tag, commit or push on your own initiative; the user decides when v0.x is released.
+- Never tag, commit or push on your own initiative; the user decides when to release (current line is 0.2.x). Never add a `Co-Authored-By` trailer. Force-pushes are blocked by the sandbox: prepare a script and let the user run it.
 
 ## Frontend (React SPA)
 
@@ -272,5 +275,5 @@ Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates C
 ## Platforms and images
 
 - `Dockerfile` defaults to `TORCH_BACKEND=cuda`; CPU/ARM needs `--build-arg TORCH_BACKEND=cpu` (the lock has aarch64 wheels, `uv pip compile --python-platform aarch64-unknown-linux-gnu --no-build` resolves). `docker-compose.cpu.yml` is the override (`!reset` of the GPU `deploy` blocks, `TORCH_BACKEND=cpu`, parakeet `DEVICE=cpu`).
-- `.github/workflows/images.yml` (tag `vX.Y.Z` or manual run = tag `dev`): native runners per arch (no QEMU), push by digest, then `imagetools create` per image: app CUDA (amd64) `:X.Y.Z`/`:latest`, app CPU (amd64+arm64) `-cpu`, tool worker (amd64+arm64). Never tag `latest` from a manual run. Not run end to end locally (needs GitHub runners); linted with actionlint.
+- `.github/workflows/images.yml` (tag `vX.Y.Z`, or a manual run with inputs `version` (empty = `pyproject.toml` version, `dev` = trial) and `latest` (master only); a `meta` job decides version and whether `latest` is set): native runners per arch (no QEMU), push by digest, then `imagetools create` per image: app CUDA (amd64) `:X.Y.Z`/`:latest`, app CPU (amd64+arm64) `-cpu`, tool worker (amd64+arm64). `latest` is only set for release tags or an explicit master run, never for `dev`. Not run end to end locally (needs GitHub runners); linted with actionlint.
 - macOS: `docker-compose.mac.yml` also runs `tool-worker` (port 8090) and `tool-worker-sql` (8091) on localhost because the app is native (no internal-only network possible with published ports). `run_mac.py` creates `TOOL_WORKER_TOKEN` in `.env` and rewrites the worker URLs in the settings, but only while they still hold the Docker default.
