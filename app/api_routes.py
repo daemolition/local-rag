@@ -949,7 +949,13 @@ def delete_document(doc_id):
     doc_knowledge = get_knowledge(user_doc.knowledge_id) or _current_knowledge()
     if reindex.is_locked(doc_knowledge["id"]):
         return jsonify({"success": False, "error": "Das Knowledge wird gerade neu indexiert"}), 409
-    if not can_access_knowledge(current_user(), doc_knowledge["id"], "write"):
+    user = current_user()
+    # Schreibrecht, oder: wer das Dokument hochgeladen hat, darf es auch loeschen (und sieht das Knowledge)
+    uploader = user_doc.uploaded_by is not None and user_doc.uploaded_by == user["id"]
+    if not (
+        can_access_knowledge(user, doc_knowledge["id"], "write")
+        or (uploader and can_access_knowledge(user, doc_knowledge["id"], "read"))
+    ):
         return jsonify({"success": False, "error": "Dokument nicht gefunden"}), 404
     try:
         my_uploads.delete_knowledge_document(

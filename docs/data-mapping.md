@@ -59,7 +59,7 @@ flowchart TB
 |---|---|---|---|
 | Chats und Nachrichten | unbegrenzt | Nutzer (`delete_session_route`) oder Admin beim Löschen des Benutzers (`app/user_admin.py:delete_user`) | nein |
 | Chat-Anhänge | mit dem Chat | `app/attachments.py:cleanup_session_attachments` | beim Löschen des Chats |
-| Eigene Dokumente | unbegrenzt | Nutzer (`app/user_routes.py:delete_my_document`) | nein |
+| Eigene Dokumente | unbegrenzt | Nutzer (`app/api_routes.py:delete_document`: Uploader oder mit Schreibrecht), Chat-Anhänge unter *Meine Uploads* | nein |
 | Zusammenfassung des Verlaufs | mit dem Chat | gelöscht mit der Session | beim Löschen |
 | Konten | unbegrenzt | Admin | nein |
 | Backups | betreiberabhängig | Betreiber | - |

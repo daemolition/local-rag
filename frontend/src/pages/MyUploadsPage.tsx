@@ -54,8 +54,8 @@ export function MyUploadsPage() {
             Meine Uploads
           </h1>
           <p className="text-sm text-muted-foreground">
-            Alle Dateien, die du hochgeladen hast, als Markdown. Beim Löschen verschwindet
-            auch ihr Inhalt aus der Suche.
+            Deine Chat-Anhänge als Markdown. Beim Löschen verschwindet auch ihr Inhalt aus der
+            Suche. Dokumente in einem Knowledge findest du dort in der Dokumentliste.
           </p>
         </div>
 
@@ -67,8 +67,7 @@ export function MyUploadsPage() {
         ) : items.length === 0 ? (
           <Card>
             <CardContent className="p-6 text-sm text-muted-foreground">
-              Noch keine Uploads. Dateien, die du im Chat anhängst oder in ein Knowledge
-              hochlädst, erscheinen hier.
+              Noch keine Uploads. Dateien, die du im Chat anhängst, erscheinen hier.
             </CardContent>
           </Card>
         ) : (

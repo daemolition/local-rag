@@ -13,7 +13,7 @@ import {
   Table,
   Wrench,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -89,9 +89,22 @@ function splitSources(content: string): { body: string; sources: SourceInfo[] } 
   }
 }
 
-function SourcesBlock({ sources }: { sources: SourceInfo[] }) {
+function SourcesBlock({
+  sources,
+  idPrefix,
+  open,
+  onOpenChange,
+  active,
+}: {
+  sources: SourceInfo[];
+  // macht die Anker eindeutig: jede Antwort hat eigene Quellen, die Nummern beginnen überall bei 1
+  idPrefix: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  active: number | null;
+}) {
   return (
-    <Collapsible className="mt-3 rounded-lg border border-border-base bg-surface-muted/60">
+    <Collapsible open={open} onOpenChange={onOpenChange} className="mt-3 rounded-lg border border-border-base bg-surface-muted/60">
       <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground">
         <ChevronRight className="size-3.5 transition-transform data-[state=open]:rotate-90" />
         Quellen ({sources.length})
@@ -101,7 +114,14 @@ function SourcesBlock({ sources }: { sources: SourceInfo[] }) {
           {sources.map((src, i) => {
             const path = src.headers ? Object.values(src.headers).join(" › ") : "";
             return (
-              <li key={i} id={`source-${src.n ?? i + 1}`} className="flex items-start gap-2">
+              <li
+                key={i}
+                id={`${idPrefix}-source-${src.n ?? i + 1}`}
+                className={cn(
+                  "flex items-start gap-2 rounded px-1 py-0.5 transition-colors",
+                  active === (src.n ?? i + 1) && "bg-primary/10 ring-1 ring-primary/40",
+                )}
+              >
                 <span className="text-muted-foreground">[{src.n ?? i + 1}]</span>
                 <div className="min-w-0 flex-1">
                   <span className="font-medium">{src.filename}</span>
@@ -221,6 +241,27 @@ export function Message({
   waiting,
 }: MessageProps) {
   const [resultsOpen, setResultsOpen] = useState(false);
+  const uid = useId();
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [activeSource, setActiveSource] = useState<number | null>(null);
+  // Klick auf eine Quellennummer im Text: Quellenliste öffnen, zur Quelle springen, kurz hervorheben
+  const citeSource = useCallback(
+    (n: number) => {
+      setSourcesOpen(true);
+      setActiveSource(n);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          document.getElementById(`${uid}-source-${n}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+        ),
+      );
+    },
+    [uid],
+  );
+  useEffect(() => {
+    if (activeSource === null) return;
+    const t = window.setTimeout(() => setActiveSource(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [activeSource]);
   const split = role === "assistant" ? splitSources(content) : { body: content, sources: [] };
   const parsed = role === "assistant" ? splitThink(split.body) : { reasoning: "", body: content };
   const shownSources = sources && sources.length > 0 ? sources : split.sources;
@@ -278,7 +319,7 @@ export function Message({
 
       {role === "assistant" ? (
         parsed.body ? (
-          <Markdown content={parsed.body} sources={shownSources} streaming={streaming} />
+          <Markdown content={parsed.body} sources={shownSources} streaming={streaming} onCite={citeSource} />
         ) : waiting ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
@@ -296,7 +337,7 @@ export function Message({
       )}
 
       {role === "assistant" && shownSources.length > 0 ? (
-        <SourcesBlock sources={shownSources} />
+        <SourcesBlock sources={shownSources} idPrefix={uid} open={sourcesOpen} onOpenChange={setSourcesOpen} active={activeSource} />
       ) : null}
 
       {role === "assistant" && parsed.body && !streaming ? (

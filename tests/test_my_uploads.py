@@ -59,42 +59,32 @@ def upload_and_ingest(app, qd, user, name, text):
     return c
 
 
-def test_knowledge_upload_is_listed_for_its_owner_only_and_deleting_removes_everything(app, db, qd, no_enrichment):
+def test_knowledge_uploads_are_not_listed_in_my_uploads_but_the_uploader_can_delete_them_in_the_knowledge(app, db, qd, no_enrichment):
     ed, other = add_user(db, "ed", "editor"), add_user(db, "other", "editor")
     c = upload_and_ingest(app, qd, ed, "vertrag.md", DOC)
     assert scroll_all(qd)
-
-    listed = c.get("/api/my-uploads").json
-    assert len(listed) == 1 and listed[0]["kind"] == "knowledge"
-    assert listed[0]["filename"] == "vertrag.md" and listed[0]["has_markdown"] is True
-    item = listed[0]
-
-    # fremde Nutzer sehen nichts und kommen weder an Markdown noch ans Loeschen
-    o = client_for(app, other)
-    assert o.get("/api/my-uploads").json == []
-    assert o.get(f"/api/my-uploads/knowledge/{item['id']}/markdown").status_code == 404
-    assert o.delete(f"/api/my-uploads/knowledge/{item['id']}").status_code == 404
-    assert scroll_all(qd)
-
-    md = c.get(f"/api/my-uploads/knowledge/{item['id']}/markdown").json["markdown"]
-    assert "Mietvertrag" in md
-    assert c.get(f"/api/my-uploads/knowledge/{item['id']}/markdown?download=1").headers["Content-Disposition"]
-
     doc = get_db_service().get_all_documents(knowledge.get_knowledge(None)["id"])[0]
     md_file = Path(doc.markdown_path)
     assert md_file.is_file()
 
-    assert c.delete(f"/api/my-uploads/knowledge/{item['id']}").status_code == 200
-    assert scroll_all(qd) == []  # Vektoren sind mit weg
-    assert not md_file.exists()
+    # "Meine Uploads" zeigt nur Chat-Anhaenge; Knowledge-Dokumente stehen im Knowledge
     assert c.get("/api/my-uploads").json == []
+    assert c.get(f"/api/my-uploads/knowledge/{doc.id}/markdown").status_code == 404
+    assert c.delete(f"/api/my-uploads/knowledge/{doc.id}").status_code == 404
+    assert scroll_all(qd)  # nichts wurde geloescht
+    assert "Mietvertrag" in c.get(f"/api/documents/{doc.id}/markdown").json["markdown"]  # Ansicht im Knowledge
+
+    assert c.delete(f"/api/documents/{doc.id}").status_code == 200
+    assert scroll_all(qd) == [] and not md_file.exists()
     assert get_db_service().get_all_documents(knowledge.get_knowledge(None)["id"]) == []
+    assert client_for(app, other).get("/api/my-uploads").json == []
 
 
-def test_owner_may_delete_own_upload_without_write_access_to_the_knowledge(app, db, qd, no_enrichment):
+def test_uploader_may_delete_own_document_without_write_access_to_the_knowledge_but_others_may_not(app, db, qd, no_enrichment):
     ed = add_user(db, "ed", "editor")
     c = upload_and_ingest(app, qd, ed, "vertrag.md", DOC)
-    item = c.get("/api/my-uploads").json[0]
+    doc = get_db_service().get_all_documents(knowledge.get_knowledge(None)["id"])[0]
+    stranger = add_user(db, "fremd", "user")
     # der Nutzer verliert die Editor-Rolle, bleibt aber Eigentuemer seiner Datei
     s = db.get_session()
     from app.models import User
@@ -102,7 +92,9 @@ def test_owner_may_delete_own_upload_without_write_access_to_the_knowledge(app, 
     s.query(User).filter_by(id=ed["id"]).update({"role": "user"})
     s.commit()
     s.close()
-    assert c.delete(f"/api/my-uploads/knowledge/{item['id']}").status_code == 200
+    assert client_for(app, stranger).delete(f"/api/documents/{doc.id}").status_code in (403, 404)  # nicht der Eigentuemer
+    assert scroll_all(qd)
+    assert c.delete(f"/api/documents/{doc.id}").status_code == 200
     assert scroll_all(qd) == []
 
 

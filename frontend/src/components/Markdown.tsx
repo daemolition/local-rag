@@ -57,10 +57,13 @@ export const Markdown = memo(function Markdown({
   content: rawContent,
   sources,
   streaming = false,
+  onCite,
 }: {
   content: string;
   sources?: CitationSource[];
   streaming?: boolean;
+  // Klick auf eine Quellennummer im Text (öffnet und markiert die Quelle in der Quellenliste)
+  onCite?: (n: number) => void;
 }) {
   const content = useFrameThrottled(rawContent, streaming);
   const byNumber = useMemo(() => {
@@ -103,9 +106,7 @@ export const Markdown = memo(function Markdown({
                     href={href}
                     onClick={(e) => {
                       e.preventDefault();
-                      document
-                        .getElementById(`source-${match[1]}`)
-                        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      onCite?.(Number(match[1]));
                     }}
                     title={src ? `${src.filename}${where}${score}` : undefined}
                     className="mx-0.5 rounded bg-surface-muted px-1 text-[0.7rem] font-medium text-primary no-underline hover:bg-border-base"

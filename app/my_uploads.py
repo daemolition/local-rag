@@ -15,9 +15,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-"Meine Uploads": die eigenen Dateien eines Nutzers (Chat-Anhaenge und Knowledge-Uploads),
-jeweils als Markdown, mit gemeinsamer Loeschlogik. Loeschen entfernt die Datei und alle
-zugehoerigen Eintraege in Qdrant (Vektoren, Verweis-Chunks, Tabellen-CSVs).
+"Meine Uploads": die eigenen Chat-Anhaenge eines Nutzers, jeweils als Markdown. Loeschen entfernt die
+Datei und alle zugehoerigen Eintraege in Qdrant. Dokumente in einem Knowledge gehoeren zum Knowledge und
+stehen dort (Dokumentliste); wer sie hochgeladen hat, darf sie dort auch ohne Schreibrecht loeschen.
 """
 
 from logging import getLogger
@@ -29,7 +29,7 @@ from app import attachments
 from app.database_service import get_db_service
 from app.ingest.index_doc import refresh_index
 from app.ingest.tables import delete_tables
-from app.knowledge import get_knowledge, knowledge_paths
+from app.knowledge import knowledge_paths
 from app.models import ChatAttachment, ChatSession, UserDocument
 from app.utils.file_manager import delete_associated_file
 
@@ -118,7 +118,7 @@ def delete_knowledge_document(user_doc, knowledge: dict, client) -> None:
 
 
 def list_uploads(user_id: int) -> list[dict]:
-    """Eigene Uploads, neueste zuerst. Nur Eintraege mit Eigentuemer = Nutzer."""
+    """Eigene Chat-Anhaenge, neueste zuerst. Nur Eintraege mit Eigentuemer = Nutzer."""
     db = get_db_service().get_session()
     try:
         items = []
@@ -132,20 +132,6 @@ def list_uploads(user_id: int) -> list[dict]:
                     "filename": _as_md(att.filename),
                     "source": (session.title or "Neuer Chat") if session else "Chat",
                     "created_at": att.created_at.isoformat() if att.created_at else None,
-                    "size": md.stat().st_size if md else None,
-                    "has_markdown": md is not None,
-                }
-            )
-        for doc in db.query(UserDocument).filter_by(uploaded_by=user_id).all():
-            kb = get_knowledge(doc.knowledge_id)
-            md = markdown_path(doc)
-            items.append(
-                {
-                    "kind": "knowledge",
-                    "id": str(doc.id),
-                    "filename": _as_md(doc.filename),
-                    "source": kb["name"] if kb else "Knowledge",
-                    "created_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None,
                     "size": md.stat().st_size if md else None,
                     "has_markdown": md is not None,
                 }
@@ -166,8 +152,6 @@ def get_owned(kind: str, item_id: str, user_id: int):
     try:
         if kind == "chat":
             row = db.query(ChatAttachment).filter_by(id=item_id, user_id=user_id).first()
-        elif kind == "knowledge" and str(item_id).isdigit():
-            row = db.query(UserDocument).filter_by(id=int(item_id), uploaded_by=user_id).first()
         else:
             row = None
         if row is None:
@@ -179,23 +163,11 @@ def get_owned(kind: str, item_id: str, user_id: int):
 
 
 def read_markdown(kind: str, row) -> str | None:
-    path = (
-        safe_markdown(row.markdown_path, ATTACHMENTS_ROOT)
-        if kind == "chat"
-        else markdown_path(row)
-    )
+    path = safe_markdown(row.markdown_path, ATTACHMENTS_ROOT) if kind == "chat" else None
     return path.read_text(encoding="utf-8") if path else None
 
 
 def delete_upload(kind: str, row, client) -> None:
-    if kind == "chat":
-        attachments.delete_attachment(row, client)
-        return
-    knowledge = get_knowledge(row.knowledge_id)
-    if knowledge is None:
-        raise UploadError("Knowledge nicht gefunden", 404)
-    from app import reindex
-
-    if reindex.is_locked(knowledge["id"]):
-        raise UploadError("Das Knowledge wird gerade neu indexiert", 409)
-    delete_knowledge_document(row, knowledge, client)
+    if kind != "chat":
+        raise UploadError("Datei nicht gefunden", 404)
+    attachments.delete_attachment(row, client)
