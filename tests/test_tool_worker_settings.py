@@ -62,7 +62,7 @@ def test_migrations_seed_the_same_keys():
     import importlib.util
     from pathlib import Path
 
-    for rev, expected in (("0024_tool_worker", config.PANDAS_SETTINGS), ("0025_sql_knowledge", config.SQL_SETTINGS)):
+    for rev, expected in (("0024_tool_worker", config.PANDAS_SETTINGS), ("0025_sql_knowledge", config.SQL_SETTINGS), ("0028_sql_values", config.VALUES_SETTINGS)):
         spec = importlib.util.spec_from_file_location(rev, Path(f"alembic/versions/{rev}.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)

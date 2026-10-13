@@ -71,4 +71,6 @@ Dasselbe Image läuft mit `TOOL_WORKER_ROLE=sql` als zweiter Dienst `tool-worker
 
 Körper: `{"connection": {dialect, host, port, instance, database, user, password, schema}, "allowed_tables": [..]|null, "blocked_columns": {tabelle: [spalte]}, "sql": "...", "limits": {"row_limit", "timeout_s", "max_cell_chars"}}`. Prüfungs- und Datenbankfehler kommen als `200 {"ok": false, "error": "..."}`, ohne Adresse und Zugangsdaten.
 
+Zusätzlich für das Wertverzeichnis: `POST /v1/sql/distinct` (`table`, `column`, `max_distinct`; liefert `{"values": [[wert, anzahl], ...], "too_many": bool}`, bei mehr als `max_distinct` verschiedenen Werten `too_many` ohne Werte) und `POST /v1/sql/profile` (Textspalten der freigegebenen Tabellen mit `rows`, `distinct`, `non_null`). Beide laufen durch dieselbe SQL-Prüfung; `max_distinct` wird auf `TOOL_WORKER_MAX_DISTINCT` (100000) gekappt.
+
 Umgebung (Rolle sql): `TOOL_WORKER_ROLE=sql`, `TOOL_WORKER_SQLITE_DIR` (Standard `/sqlite`, lesend), `TOOL_WORKER_MAX_ROWS` (1000), `TOOL_WORKER_MAX_SQL_TIMEOUT_S` (60). Einstellungen der App (DB): `SQL_WORKER_URL`, `SQL_ROW_LIMIT`, `SQL_TIMEOUT_S`, `SQL_MAX_CELL_CHARS`, `SQL_PROMPT`. Siehe `docs/sql-knowledge.md`.

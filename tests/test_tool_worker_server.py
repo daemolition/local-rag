@@ -185,3 +185,39 @@ def test_sql_errors_never_contain_the_password(sqlc):
     body = sql_body(connection={"dialect": "postgresql", "host": "127.0.0.1", "port": 1, "database": "d", "user": "u", "password": "geheim123"})
     text = sql_call(sqlc, "query", body).get_data(as_text=True)
     assert "geheim123" not in text and "127.0.0.1" not in text
+
+
+# --- Wertverzeichnis: distinct und profile --------------------------------------------------------
+@pytest.fixture
+def sqlc_goods(data, sqldir):
+    con = sqlite3.connect(sqldir / "goods.db")
+    con.executescript("create table items (id integer primary key, name text, salary integer);")
+    con.executemany("insert into items (name, salary) values (?, ?)", [("Stuhl", 1), ("Stuhl", 2), ("Tisch", 3)])
+    con.commit()
+    con.close()
+    return create_app(TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_distinct=2).test_client()
+
+
+def goods_body(**over):
+    body = {"connection": {"dialect": "sqlite", "database": "goods.db"}, "table": "items", "column": "name",
+            "allowed_tables": None, "blocked_columns": {}, "max_distinct": 100, "limits": {"timeout_s": 5, "max_cell_chars": 100}}
+    body.update(over)
+    return body
+
+
+def test_distinct_endpoint_returns_values_and_caps_max_distinct(sqlc_goods):
+    j = sql_call(sqlc_goods, "distinct", goods_body()).get_json()
+    assert j["ok"] and j["values"][0] == ["Stuhl", 2] and j["too_many"] is False
+    capped = sql_call(sqlc_goods, "distinct", goods_body(column="id", max_distinct=99999)).get_json()
+    assert capped["too_many"] is True  # Obergrenze des Workers (2) gilt, nicht die der Anfrage
+
+
+def test_distinct_endpoint_validates_and_enforces_filters(sqlc_goods):
+    assert sql_call(sqlc_goods, "distinct", {"connection": goods_body()["connection"]}).status_code == 400
+    j = sql_call(sqlc_goods, "distinct", goods_body(column="salary", blocked_columns={"items": ["salary"]})).get_json()
+    assert j["ok"] is False and "gesperrt" in j["error"]
+
+
+def test_profile_endpoint_lists_text_columns(sqlc_goods):
+    j = sql_call(sqlc_goods, "profile", {"connection": goods_body()["connection"], "allowed_tables": None, "blocked_columns": {}}).get_json()
+    assert j["ok"] and [(c["table"], c["column"]) for c in j["columns"]] == [("items", "name")]

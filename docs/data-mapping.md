@@ -28,6 +28,7 @@ flowchart TB
 | Dokumente | Hochgeladene Dateien, daraus erzeugtes Markdown, Chunks, Embeddings, Bildbeschreibungen | Dateisystem (`DATA_DIR`), Qdrant, `user_documents`, `chat_attachments` |
 | Ablagen ("Meine Ablagen") | Vom Nutzer abgelegte Markdown-Dateien pro Nutzer | `user_summary_files` |
 | Audio | Mikrofon-Stream für Diktat | nur durchgereicht an den STT-Dienst; im Code keine Speicherung gefunden (`app/stt_stream.py`) |
+| SQL-Wertverzeichnis | Verschiedene Werte ausgewählter Textspalten mit Häufigkeit (Klartext, keine Zeilen) | Tabelle `sql_values` (`app/sqlsource/valueindex.py`); gelöscht mit der SQL-Quelle |
 | SQL-Quellen | Zugangsdaten (Host, Benutzer, Passwort), Tabellen-/Spaltenfreigaben; Abfrageergebnisse nur im laufenden Request | `knowledge.source_config` (Passwort **nicht verschlüsselt**, nie in API-Antworten); Ergebnisse werden nicht gespeichert, nur als Teil der Chatantwort |
 | Inhalte können alles enthalten | Die Dokumente und Fragen der Nutzer können personenbezogene oder besondere Kategorien (Art. 9) enthalten; das System unterscheidet sie nicht | alle obigen |
 

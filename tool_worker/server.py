@@ -27,6 +27,7 @@ def create_app(
     sqlite_dir: str = "/sqlite",
     max_rows: int = 1000,
     max_sql_timeout_s: float = 60,
+    max_distinct: int = 100_000,
 ) -> Flask:
     if role not in ("pandas", "sql"):
         raise ValueError("TOOL_WORKER_ROLE muss pandas oder sql sein")
@@ -137,6 +138,8 @@ def create_app(
         data = sql_request()
         if data is None or (action == "query" and not isinstance(data.get("sql"), str)):
             return jsonify(error="Ungültige Anfrage"), 400
+        if action == "distinct" and not all(isinstance(data.get(k), str) and data[k] for k in ("table", "column")):
+            return jsonify(error="Ungültige Anfrage"), 400
         caps = sql_caps(data)
         allowed, blocked = sql_filters(data)
         conn = data["connection"]
@@ -148,6 +151,22 @@ def create_app(
             elif action == "schema":
                 result = {
                     "tables": sqlengine.read_schema(
+                        conn, sqlite_dir=sqlite_dir, allowed_tables=allowed, blocked_columns=blocked, timeout_s=caps["timeout_s"]
+                    )
+                }
+            elif action == "distinct":
+                try:
+                    wanted = int(data.get("max_distinct") or 5000)
+                except (TypeError, ValueError):
+                    wanted = 5000
+                result = sqlengine.distinct_values(
+                    conn, sqlite_dir=sqlite_dir, table=data["table"], column=data["column"], allowed_tables=allowed,
+                    blocked_columns=blocked, max_distinct=min(max(wanted, 1), max_distinct), timeout_s=caps["timeout_s"],
+                    max_cell_chars=caps["max_cell_chars"],
+                )
+            elif action == "profile":
+                result = {
+                    "columns": sqlengine.profile_columns(
                         conn, sqlite_dir=sqlite_dir, allowed_tables=allowed, blocked_columns=blocked, timeout_s=caps["timeout_s"]
                     )
                 }
@@ -167,6 +186,14 @@ def create_app(
     @app.post("/v1/sql/schema")
     def sql_schema_route():
         return sql_run("schema")
+
+    @app.post("/v1/sql/distinct")
+    def sql_distinct_route():
+        return sql_run("distinct")
+
+    @app.post("/v1/sql/profile")
+    def sql_profile_route():
+        return sql_run("profile")
 
     @app.post("/v1/sql/test")
     def sql_test_route():

@@ -31,6 +31,7 @@ classifiers = [
 ]
 dependencies = [
     "chardet>=5.2.0",
+    "snowballstemmer>=2.2.0",
     "docling>=2.0.0",
     "fastembed>=0.8.0",
     "flask>=3.0.0",

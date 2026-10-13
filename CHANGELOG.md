@@ -6,6 +6,9 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Neu
+
+- **Wertverzeichnis für SQL-Quellen**: „Stühle“ findet jetzt `Stuhl`, `Bürostuhl` und `Gartenstühle`. Die App merkt sich nur die *verschiedenen Werte* ausgewählter Textspalten mit Häufigkeit (keine Zeilen, die Daten werden nicht kopiert); das neue Werkzeug `sql_find_values` liefert dem Modell die exakten Schreibweisen (Ein-/Mehrzahl, Umlaute, ß/ss, zusammengesetzte Wörter, kleine Tippfehler), die es per `IN (...)` einsetzt. Einrichtung auf der Detailseite der SQL-Quelle: *Spalten vorschlagen* (Schlüssel-, Kontakt- und Personenspalten, Freitext und fast eindeutige Spalten werden mit Begründung weggelassen), prüfen, *Speichern und aufbauen*; schlägt ein Neuaufbau fehl, bleibt das alte Verzeichnis. Die Suchmethode wurde gemessen: Stemmer + Stamm-Teilstring + Trigramme erreichen Präzision 0,98 und Recall 1,00 (Einbettungen nur 0,12 bis 0,53 Präzision, darum nicht verwendet). Im Test mit dem LAN-LLM lieferte „Wie viele Stühle wurden verkauft?“ mit Verzeichnis die richtige Zahl, ohne nur die Hälfte. Migration `0028`, Einstellungen `SQL_VALUES_*`, Details in `docs/sql-knowledge.md`.
 ## [0.2.0] - 2026-10-13
 
 ### Neu

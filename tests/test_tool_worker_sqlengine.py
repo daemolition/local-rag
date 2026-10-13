@@ -193,3 +193,67 @@ def test_real_wrong_password_gives_a_generic_message_without_the_address():
     with pytest.raises(sqlengine.SqlError) as e:
         sqlengine.run_query(conn, "select 1", sqlite_dir="/x", allowed_tables=None, blocked_columns=None, row_limit=5, timeout_s=2, max_cell_chars=50)
     assert "localhost" not in str(e.value) and "falsch" not in str(e.value)
+
+
+# --- Wertverzeichnis: Werte und Profil ------------------------------------------------------------
+@pytest.fixture
+def goods(tmp_path):
+    path = tmp_path / "goods.db"
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        create table items (id integer primary key, name text, category text, email text, price real, salary integer);
+        """
+    )
+    rows = [("Stuhl", "Möbel", "a@x.de", 10.0, 1), ("Stuhl", "Möbel", "b@x.de", 11.0, 2), ("Bürostuhl", "Möbel", "c@x.de", 99.0, 3),
+            ("Lampe", "Licht", "d@x.de", 5.0, 4), (None, "Licht", "e@x.de", 6.0, 5)]
+    con.executemany("insert into items (name, category, email, price, salary) values (?,?,?,?,?)", rows)
+    con.commit()
+    con.close()
+    return tmp_path
+
+
+def dv(goods, **over):
+    args = dict(sqlite_dir=str(goods), table="items", column="name", allowed_tables=None, blocked_columns=None,
+                max_distinct=100, timeout_s=5, max_cell_chars=100)
+    args.update(over)
+    return sqlengine.distinct_values({"dialect": "sqlite", "database": "goods.db"}, **args)
+
+
+def test_distinct_values_come_with_counts_most_frequent_first_without_nulls(goods):
+    out = dv(goods)
+    assert out["values"][0] == ["Stuhl", 2]
+    assert {v for v, _ in out["values"]} == {"Stuhl", "Bürostuhl", "Lampe"} and out["too_many"] is False
+
+
+def test_too_many_distinct_values_are_reported_not_returned(goods):
+    out = dv(goods, column="email", max_distinct=3)
+    assert out["too_many"] is True and out["values"] == []
+
+
+def test_distinct_respects_allowed_tables_and_blocked_columns(goods):
+    with pytest.raises(SqlRejected):
+        dv(goods, allowed_tables={"andere"})
+    with pytest.raises(SqlRejected):
+        dv(goods, column="salary", blocked_columns={"items": {"salary"}})
+
+
+def test_odd_identifiers_are_quoted_not_injected(goods):
+    try:
+        out = dv(goods, column='name"; drop table items; --')
+    except (sqlengine.SqlError, SqlRejected):
+        out = None  # abgelehnt ist gut; SQLite macht aus unbekannten "Namen" ein Literal, auch das ist harmlos
+    if out is not None:
+        assert all("drop" in v for v, _ in out["values"])
+    assert dv(goods)["values"]  # die Tabelle ist noch da
+
+
+def test_profile_lists_text_columns_with_distinct_counts_and_skips_blocked_and_numeric(goods):
+    cols = sqlengine.profile_columns(
+        {"dialect": "sqlite", "database": "goods.db"}, sqlite_dir=str(goods), allowed_tables=None,
+        blocked_columns={"items": {"email"}}, timeout_s=5,
+    )
+    by = {(c["table"], c["column"]): c for c in cols}
+    assert set(by) == {("items", "name"), ("items", "category")}  # email gesperrt, price/salary/id nicht Text
+    assert by[("items", "name")]["distinct"] == 3 and by[("items", "name")]["non_null"] == 4
+    assert by[("items", "category")]["distinct"] == 2 and by[("items", "category")]["rows"] == 5

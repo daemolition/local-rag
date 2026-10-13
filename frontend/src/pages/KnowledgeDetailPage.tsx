@@ -30,6 +30,7 @@ import { KnowledgeDialog } from "@/components/KnowledgeDialog";
 import { DataFileDialog } from "@/components/DataFileDialog";
 import { ExternalSourceDialog } from "@/components/ExternalSourceDialog";
 import { SqlSourceDialog } from "@/components/SqlSourceDialog";
+import { SqlValuesCard } from "@/components/SqlValuesCard";
 import type { ExternalSource, SqlSource } from "@/lib/types";
 import { MarkdownDialog } from "@/components/MarkdownDialog";
 import { ReindexProgress } from "@/components/ReindexProgress";
@@ -442,6 +443,8 @@ export function KnowledgeDetailPage() {
                 : "Du hast nur Leserechte auf dieses Knowledge."}
           </p>
         )}
+
+        {sql && isAdmin ? <SqlValuesCard knowledgeId={knowledge.id} /> : null}
 
         {remote ? null : (
           <>

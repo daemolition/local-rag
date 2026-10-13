@@ -479,6 +479,10 @@ def chat():
 
         names = ", ".join(f"„{name}“" for _id, name, _cfg in scope.sql_sources)
         hints += "\n\n" + worker_config.sql_prompt().replace("{sources}", names)
+        from app.sqlsource import valueindex
+
+        if any(valueindex.has_values(kid) for kid, _name, _cfg in scope.sql_sources):
+            hints += "\n\n" + worker_config.values_hint()
 
     # Ohne Wissen und ohne Anhaenge gibt es nichts zu durchsuchen: dann bekommt der Agent keine
     # Wissens-Werkzeuge und beantwortet/fasst nur aus dem Gespraech zusammen.

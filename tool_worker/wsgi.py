@@ -22,4 +22,5 @@ app = create_app(
     sqlite_dir=os.getenv("TOOL_WORKER_SQLITE_DIR", "/sqlite"),
     max_rows=int(os.getenv("TOOL_WORKER_MAX_ROWS", "1000")),
     max_sql_timeout_s=float(os.getenv("TOOL_WORKER_MAX_SQL_TIMEOUT_S", "60")),
+    max_distinct=int(os.getenv("TOOL_WORKER_MAX_DISTINCT", "100000")),
 )

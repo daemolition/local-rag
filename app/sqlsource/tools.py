@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from app.pii_session import get_session
 from app.retrieval import get_scope_or_none
 from app.sqlsource import format as fmt
+from app.sqlsource import valueindex
 from app.sqlsource.config import parse_config
 from app.toolworker import config as worker_config
 from app.toolworker.client import ToolWorkerUnavailable, get_client
@@ -51,6 +52,21 @@ class SchemaInput(BaseModel):
 class QueryInput(BaseModel):
     query: str = Field(description="Eine einzelne SELECT-Abfrage")
     source: str = Field(default="", description="Name der Datenbank (nur bei mehreren nötig)")
+
+
+FIND_VALUES_DESCRIPTION = """
+Sucht zu einem Begriff aus der Frage die passenden Werte in den Textspalten der Datenbank (Wertverzeichnis):
+Ein- und Mehrzahl, Umlaute (Stühle/Stuhl, Straße/Strasse), zusammengesetzte Wörter (Bürostuhl) und kleine
+Tippfehler. Setze die gefundenen Werte danach mit `IN (...)` in `sql_query` ein, statt Schreibweisen zu raten.
+`table` und `column` schränken die Suche ein. `source` ist nur nötig, wenn mehrere Datenbanken verbunden sind.
+"""
+
+
+class FindValuesInput(BaseModel):
+    term: str = Field(description="Begriff aus der Frage, z. B. ein Produkt, eine Kategorie oder ein Ort")
+    source: str = Field(default="", description="Name der Datenbank (nur bei mehreren nötig)")
+    table: str = Field(default="", description="Optional: nur in dieser Tabelle suchen")
+    column: str = Field(default="", description="Optional: nur in dieser Spalte suchen")
 
 
 class _Fail(Exception):
@@ -127,7 +143,33 @@ class SqlTools:
                 return _mask(f"FEHLER: {out.get('error') or 'Abfrage fehlgeschlagen'}")
             return _mask(fmt.result_text(name, out["columns"], out["rows"], bool(out.get("truncated")), limits.row_limit))
 
+        def sql_find_values(term: str, source: str = "", table: str = "", column: str = "") -> str:
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: sql_find_values | {term[:40]}")
+            try:
+                kid, name, _raw = _resolve(_unmask(source))
+            except _Fail as e:
+                return f"FEHLER: {e}"
+            if not valueindex.has_values(kid):
+                return (
+                    f"Für „{name}“ gibt es kein Wertverzeichnis. Suche mit sql_query und LIKE '%…%' "
+                    "(Teil des Wortes, ohne Umlaute und Endung)."
+                )
+            hits = valueindex.search(kid, _unmask(term), table=_unmask(table) or None, column=_unmask(column) or None)
+            if not hits:
+                return _mask(
+                    f"Quelle „{name}“: Zu „{term}“ gibt es keinen passenden Wert im Wertverzeichnis. "
+                    "Der Begriff kommt in den erfassten Spalten nicht vor."
+                )
+            grouped: dict[tuple[str, str], list[str]] = {}
+            for e, _score in hits:
+                grouped.setdefault((e["table"], e["column"]), []).append(f"{e['value']} ({e['count']})")
+            lines = [f"Quelle „{name}“: Werte zu „{term}“ (in Klammern die Häufigkeit):"]
+            lines += [f"- {t}.{c}: {', '.join(vals)}" for (t, c), vals in grouped.items()]
+            lines.append("Setze die passenden Werte mit IN (...) in sql_query ein.")
+            return _mask("\n".join(lines))
+
         return [
+            StructuredTool.from_function(func=sql_find_values, name="sql_find_values", description=FIND_VALUES_DESCRIPTION, args_schema=FindValuesInput),
             StructuredTool.from_function(func=sql_schema, name="sql_schema", description=SCHEMA_DESCRIPTION, args_schema=SchemaInput),
             StructuredTool.from_function(func=sql_query, name="sql_query", description=QUERY_DESCRIPTION, args_schema=QueryInput),
         ]

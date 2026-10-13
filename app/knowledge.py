@@ -30,7 +30,7 @@ from logging import getLogger
 from pathlib import Path
 
 from app.database_service import get_db_service
-from app.models import Knowledge, UserDocument
+from app.models import Knowledge, SqlValue, SqlValueIndex, UserDocument
 from app.settings_service import SettingsService
 
 logger = getLogger(__name__)
@@ -279,6 +279,8 @@ def delete_knowledge(knowledge_id: int) -> dict | None:
             return None
         snapshot = _to_dict(k)
         db.query(UserDocument).filter_by(knowledge_id=k.id).delete()
+        db.query(SqlValue).filter_by(knowledge_id=k.id).delete()
+        db.query(SqlValueIndex).filter_by(knowledge_id=k.id).delete()
         db.delete(k)
         db.commit()
     except Exception:

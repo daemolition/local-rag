@@ -44,6 +44,8 @@ class SqlConfig:
     instance: str = ""  # nur MSSQL: benannte Instanz (host\\instanz)
     tables: tuple[str, ...] = ()
     blocked_columns: dict = field(default_factory=dict)
+    # Wertverzeichnis: Textspalten, deren verschiedene Werte durchsuchbar sind ({tabelle: (spalte, ...)})
+    value_columns: dict = field(default_factory=dict)
 
     def to_dict(self, with_password: bool = True) -> dict:
         d = {
@@ -56,6 +58,7 @@ class SqlConfig:
             "instance": self.instance,
             "tables": list(self.tables),
             "blocked_columns": {t: list(c) for t, c in self.blocked_columns.items()},
+            "value_columns": {t: list(c) for t, c in self.value_columns.items()},
         }
         if with_password:
             d["password"] = self.password
@@ -98,7 +101,13 @@ def parse_config(raw: dict | str | None) -> SqlConfig:
         for t, cols in (raw.get("blocked_columns") or {}).items()
         if isinstance(cols, (list, tuple)) and str(t).strip()
     }
+    value_columns = {
+        str(t).strip(): tuple(str(c).strip() for c in cols if str(c).strip())
+        for t, cols in (raw.get("value_columns") or {}).items()
+        if isinstance(cols, (list, tuple)) and str(t).strip()
+    }
     return SqlConfig(
+        value_columns={t: c for t, c in value_columns.items() if c},
         dialect=dialect,
         host=str(raw.get("host") or "").strip(),
         port=port,
@@ -138,7 +147,13 @@ def validate(cfg: SqlConfig) -> None:
         raise SqlConfigError("Das Schema enthält unerlaubte Zeichen.")
     if not SCHEMA_RE.match(cfg.instance):
         raise SqlConfigError("Die Instanz enthält unerlaubte Zeichen.")
-    for name in list(cfg.tables) + list(cfg.blocked_columns) + [c for cols in cfg.blocked_columns.values() for c in cols]:
+    for name in (
+        list(cfg.tables)
+        + list(cfg.blocked_columns)
+        + [c for cols in cfg.blocked_columns.values() for c in cols]
+        + list(cfg.value_columns)
+        + [c for cols in cfg.value_columns.values() for c in cols]
+    ):
         if not NAME_RE.match(name):
             raise SqlConfigError(f"Unerlaubter Tabellen- oder Spaltenname: {name[:40]}")
 

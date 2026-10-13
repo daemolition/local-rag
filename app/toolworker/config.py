@@ -50,7 +50,14 @@ SQL_SETTINGS = [
     ("SQL_MAX_CELL_CHARS", "500", "Maximale Laenge eines Zellwerts in SQL-Ergebnissen in Zeichen"),
     ("SQL_PROMPT", SQL_PROMPT_DEFAULT, "Hinweis an das Modell bei SQL-Quellen (Platzhalter {sources})"),
 ]
-SETTINGS = PANDAS_SETTINGS + SQL_SETTINGS
+SQL_VALUES_HINT_DEFAULT = 'Für Textwerte (Namen, Kategorien, Orte) rufe vor dem SELECT sql_find_values mit dem Begriff aus der Frage auf: es liefert die exakten Schreibweisen aus der Datenbank (Ein-/Mehrzahl, Umlaute, zusammengesetzte Wörter). Setze diese Werte mit IN (...) ein, statt zu raten.'
+
+VALUES_SETTINGS = [
+    ("SQL_VALUES_MAX_DISTINCT", "5000", "Hoechstens so viele verschiedene Werte je Spalte im Wertverzeichnis (darueber ist es kein Kategoriefeld)"),
+    ("SQL_VALUES_MAX_RESULTS", "20", "Hoechstens so viele Werte liefert die Wertsuche an das Modell"),
+    ("SQL_VALUES_HINT", SQL_VALUES_HINT_DEFAULT, "Hinweis an das Modell, wenn ein Wertverzeichnis vorhanden ist"),
+]
+SETTINGS = PANDAS_SETTINGS + SQL_SETTINGS + VALUES_SETTINGS
 RANGES = {
     "timeout_s": (1, 300),
     "memory_mb": (128, 8192),
@@ -124,6 +131,24 @@ def load_sql() -> SqlSettings:
             timeout_s=s.get_int("SQL_TIMEOUT_S", 15),
             max_cell_chars=s.get_int("SQL_MAX_CELL_CHARS", 500),
         )
+    finally:
+        session.close()
+
+
+def values_settings() -> tuple[int, int]:
+    """(hoechstens so viele verschiedene Werte je Spalte, hoechstens so viele Treffer der Wertsuche)."""
+    session = get_db_service().get_session()
+    try:
+        s = SettingsService(session)
+        return max(1, s.get_int("SQL_VALUES_MAX_DISTINCT", 5000)), max(1, s.get_int("SQL_VALUES_MAX_RESULTS", 20))
+    finally:
+        session.close()
+
+
+def values_hint() -> str:
+    session = get_db_service().get_session()
+    try:
+        return SettingsService(session).get("SQL_VALUES_HINT", SQL_VALUES_HINT_DEFAULT) or SQL_VALUES_HINT_DEFAULT
     finally:
         session.close()
 

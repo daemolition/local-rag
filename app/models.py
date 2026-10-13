@@ -321,6 +321,32 @@ class Setting(Base):
         return self.value
 
 
+class SqlValue(Base):
+    """Wertverzeichnis einer SQL-Quelle: ein verschiedener Wert einer Textspalte mit Haeufigkeit (keine Zeilen)."""
+
+    __tablename__ = "sql_values"
+
+    id = Column(Integer, primary_key=True)
+    knowledge_id = Column(Integer, ForeignKey("knowledge.id", ondelete="CASCADE"), nullable=False, index=True)
+    table_name = Column(String(255), nullable=False)
+    column_name = Column(String(255), nullable=False)
+    value = Column(Text, nullable=False)
+    count = Column(Integer, nullable=False, default=1)
+
+
+class SqlValueIndex(Base):
+    """Stand des Wertverzeichnisses einer SQL-Quelle (idle | building | ready | error)."""
+
+    __tablename__ = "sql_value_index"
+
+    knowledge_id = Column(Integer, ForeignKey("knowledge.id", ondelete="CASCADE"), primary_key=True)
+    status = Column(String(20), nullable=False, default="idle")
+    built_at = Column(DateTime)
+    value_count = Column(Integer, nullable=False, default=0)
+    column_count = Column(Integer, nullable=False, default=0)
+    error = Column(Text)
+
+
 class UserSummaryFile(Base):
     """Summary Markdown-Datei-Tracking"""
 

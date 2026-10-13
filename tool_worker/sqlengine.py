@@ -15,7 +15,9 @@ from sqlalchemy import event
 from sqlalchemy.engine import URL
 from sqlalchemy.pool import NullPool
 
-from tool_worker.sqlcheck import validate_select
+from sqlglot import exp
+
+from tool_worker.sqlcheck import DIALECTS, SqlRejected, validate_select
 
 DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "mssql": 1433}
 SYSTEM_SCHEMAS = {"information_schema", "pg_catalog", "pg_toast", "sys", "mysql", "performance_schema"}
@@ -279,3 +281,80 @@ def check_connection(conn: dict, *, sqlite_dir: str, timeout_s: float = 10) -> d
         "tables": [{"name": t["name"], "columns": [c["name"] for c in t["columns"]]} for t in tables],
         "write_privilege": privilege,
     }
+
+
+# --------------------------------------------------------------------------------------
+# Wertverzeichnis: verschiedene Werte einer Textspalte und Profil der Textspalten
+# --------------------------------------------------------------------------------------
+
+TEXT_TYPE_MARKERS = ("char", "text", "string", "clob")
+MAX_PROFILE_TABLES = 100
+MAX_PROFILE_COLUMNS = 300
+
+
+def _ident(conn: dict, name: str) -> str:
+    return exp.to_identifier(name, quoted=True).sql(dialect=DIALECTS[conn["dialect"]])
+
+
+def _qualified(conn: dict, table: str) -> str:
+    schema = (conn.get("schema") or "").strip()
+    return f"{_ident(conn, schema)}.{_ident(conn, table)}" if schema else _ident(conn, table)
+
+
+def distinct_values(
+    conn: dict, *, sqlite_dir: str, table: str, column: str, allowed_tables, blocked_columns, max_distinct: int,
+    timeout_s: float, max_cell_chars: int,
+) -> dict:
+    """Die verschiedenen Werte einer Spalte mit Haeufigkeit (haeufigste zuerst, ohne NULL).
+
+    Hat die Spalte mehr als ``max_distinct`` verschiedene Werte, kommt ``too_many=True`` ohne Werte zurueck
+    (dann ist es kein Kategoriefeld)."""
+    c, t = _ident(conn, column), _qualified(conn, table)
+    sql = f"SELECT {c} AS v, COUNT(*) AS n FROM {t} WHERE {c} IS NOT NULL GROUP BY {c} ORDER BY n DESC"
+    out = run_query(
+        conn, sql, sqlite_dir=sqlite_dir, allowed_tables=allowed_tables, blocked_columns=blocked_columns,
+        row_limit=max_distinct + 1, timeout_s=timeout_s, max_cell_chars=max_cell_chars,
+    )
+    if len(out["rows"]) > max_distinct:
+        return {"values": [], "too_many": True}
+    return {"values": [[str(v), int(n)] for v, n in out["rows"] if v is not None and str(v).strip()], "too_many": False}
+
+
+def profile_columns(conn: dict, *, sqlite_dir: str, allowed_tables, blocked_columns, timeout_s: float) -> list[dict]:
+    """Textspalten der freigegebenen Tabellen mit Zeilen-, Nicht-NULL- und Distinct-Zahl (fuer den Vorschlag)."""
+    tables = read_schema(
+        conn, sqlite_dir=sqlite_dir, allowed_tables=allowed_tables, blocked_columns=blocked_columns, timeout_s=timeout_s
+    )[:MAX_PROFILE_TABLES]
+    result: list[dict] = []
+    budget = MAX_PROFILE_COLUMNS
+    for tbl in tables:
+        cols = [c for c in tbl["columns"] if any(m in c["type"].lower() for m in TEXT_TYPE_MARKERS)][:budget]
+        if not cols:
+            continue
+        budget -= len(cols)
+        parts = ["COUNT(*) AS r"]
+        for i, col in enumerate(cols):
+            q = _ident(conn, col["name"])
+            parts += [f"COUNT(DISTINCT {q}) AS d{i}", f"COUNT({q}) AS n{i}"]
+        sql = f"SELECT {', '.join(parts)} FROM {_qualified(conn, tbl['name'])}"
+        try:
+            row = run_query(
+                conn, sql, sqlite_dir=sqlite_dir, allowed_tables=allowed_tables, blocked_columns=blocked_columns,
+                row_limit=1, timeout_s=timeout_s, max_cell_chars=50,
+            )["rows"][0]
+        except (SqlRejected, SqlError):
+            continue  # eine Tabelle, die nicht zaehlbar ist, fehlt im Vorschlag
+        for i, col in enumerate(cols):
+            result.append(
+                {
+                    "table": tbl["name"],
+                    "column": col["name"],
+                    "type": col["type"],
+                    "rows": int(row[0]),
+                    "distinct": int(row[1 + 2 * i]),
+                    "non_null": int(row[2 + 2 * i]),
+                }
+            )
+        if budget <= 0:
+            break
+    return result

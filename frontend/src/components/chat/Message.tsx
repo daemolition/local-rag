@@ -39,6 +39,7 @@ const TOOL_META: Record<string, { label: string; icon: ReactNode }> = {
   run_pandas: { label: "Datenanalyse", icon: <BarChart3 className="size-4" /> },
   sql_schema: { label: "Datenbank-Schema", icon: <Database className="size-4" /> },
   sql_query: { label: "Datenbankabfrage", icon: <Database className="size-4" /> },
+  sql_find_values: { label: "Wertesuche", icon: <Search className="size-4" /> },
   list_summaries: { label: "Ablagen auflisten", icon: <List className="size-4" /> },
   read_summary: { label: "Ablage lesen", icon: <Table className="size-4" /> },
   write_summary: { label: "Ablage speichern", icon: <FileText className="size-4" /> },

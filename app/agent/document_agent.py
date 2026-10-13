@@ -34,7 +34,7 @@ CONVERSATION_ONLY_HINT = (
 )
 
 
-SQL_TOOLS = frozenset({"sql_schema", "sql_query"})
+SQL_TOOLS = frozenset({"sql_schema", "sql_query", "sql_find_values"})
 
 
 def select_tools(tools: list, has_knowledge: bool, has_sql: bool = False) -> list:

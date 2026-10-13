@@ -478,9 +478,16 @@ def _sql_probe(cfg: "sqlcfg.SqlConfig") -> dict:
 
 
 def _sql_source_from(data: dict, stored: dict | None = None) -> "sqlcfg.SqlConfig":
-    cfg = sqlcfg.parse_config(data.get("source") or {})
+    raw = data.get("source") or {}
+    cfg = sqlcfg.parse_config(raw)
     old = sqlcfg.parse_config(stored.get("source_config")) if stored else None
     cfg = sqlcfg.merge_password(cfg, old)
+    if old is not None and "value_columns" not in raw:  # der Dialog kennt das Wertverzeichnis nicht
+        cfg = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": old.value_columns})
+    # Gesperrte oder nicht mehr freigegebene Spalten fliegen aus der Auswahl des Wertverzeichnisses
+    from app.sqlsource import valueindex
+
+    cfg = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": valueindex.clean_value_columns(cfg)})
     sqlcfg.validate(cfg)
     return cfg
 
@@ -516,6 +523,101 @@ def knowledge_sql_test():
     except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
         return _sql_error(e)
     return jsonify({"success": True, **facts})
+
+
+# --- Wertverzeichnis einer SQL-Quelle (nur Admins) ---------------------------------------------------
+
+
+def _sql_knowledge_or_404(knowledge_id: int):
+    k = get_knowledge(knowledge_id)
+    if not is_sql(k):
+        abort(make_response(jsonify({"success": False, "error": "SQL-Quelle nicht gefunden"}), 404))
+    return k
+
+
+def _values_overview(k: dict) -> dict:
+    from app.sqlsource import valueindex
+    from app.toolworker import config as worker_config
+
+    cfg = sqlcfg.parse_config(k["source_config"])
+    max_distinct, max_results = worker_config.values_settings()
+    return {
+        **valueindex.status(k["id"]),
+        "columns": {t: list(c) for t, c in cfg.value_columns.items()},
+        "max_distinct": max_distinct,
+        "max_results": max_results,
+    }
+
+
+@api_bp.route("/knowledge/<int:knowledge_id>/sql-values", methods=["GET"])
+@require_role("admin")
+def sql_values_overview(knowledge_id):
+    return jsonify(_values_overview(_sql_knowledge_or_404(knowledge_id)))
+
+
+@api_bp.route("/knowledge/<int:knowledge_id>/sql-values/suggest", methods=["POST"])
+@require_role("admin")
+def sql_values_suggest(knowledge_id):
+    """Textspalten mit Vorschlag (aufnehmen oder nicht, mit Begruendung). Liest nur Zaehlungen aus der Quelle."""
+    from app.sqlsource import valueindex
+
+    k = _sql_knowledge_or_404(knowledge_id)
+    try:
+        return jsonify({"success": True, "columns": valueindex.profile(k["source_config"])})
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 502
+
+
+@api_bp.route("/knowledge/<int:knowledge_id>/sql-values", methods=["PUT"])
+@require_role("admin")
+def sql_values_save(knowledge_id):
+    """Speichert die Spaltenauswahl (``{"columns": {"tabelle": ["spalte", ...]}}``); gebaut wird separat."""
+    k = _sql_knowledge_or_404(knowledge_id)
+    cfg = sqlcfg.parse_config(k["source_config"])
+    raw = (request.get_json() or {}).get("columns") or {}
+    chosen = sqlcfg.parse_config({"value_columns": raw}).value_columns
+    allowed = {t.lower() for t in cfg.tables}
+    blocked = {t.lower(): {c.lower() for c in cols} for t, cols in cfg.blocked_columns.items()}
+    for table, columns in chosen.items():
+        if allowed and table.lower() not in allowed:
+            return jsonify({"success": False, "error": f"Die Tabelle {table} ist nicht freigegeben"}), 400
+        for column in columns:
+            if column.lower() in blocked.get(table.lower(), set()):
+                return jsonify({"success": False, "error": f"Die Spalte {table}.{column} ist gesperrt"}), 400
+    updated = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": chosen})
+    try:
+        sqlcfg.validate(updated)
+    except sqlcfg.SqlConfigError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    update_sql_source(knowledge_id, updated.to_dict())
+    return jsonify(_values_overview(get_knowledge(knowledge_id)))
+
+
+@api_bp.route("/knowledge/<int:knowledge_id>/sql-values/build", methods=["POST"])
+@require_role("admin")
+def sql_values_build(knowledge_id):
+    from app.sqlsource import valueindex
+
+    k = _sql_knowledge_or_404(knowledge_id)
+    if not sqlcfg.parse_config(k["source_config"]).value_columns:
+        return jsonify({"success": False, "error": "Erst Spalten auswählen und speichern"}), 400
+    if not valueindex.start_build(knowledge_id, k["source_config"]):
+        return jsonify({"success": False, "error": "Der Aufbau läuft bereits"}), 409
+    return jsonify({"success": True, **valueindex.status(knowledge_id)}), 202
+
+
+@api_bp.route("/knowledge/<int:knowledge_id>/sql-values/search", methods=["POST"])
+@require_role("admin")
+def sql_values_search(knowledge_id):
+    """Probe: welche Werte findet die Suche zu einem Begriff (wie das Modell sie sieht)."""
+    from app.sqlsource import valueindex
+
+    _sql_knowledge_or_404(knowledge_id)
+    term = str((request.get_json() or {}).get("term") or "")
+    hits = valueindex.search(knowledge_id, term)
+    return jsonify(
+        {"results": [{"table": e["table"], "column": e["column"], "value": e["value"], "count": e["count"], "score": round(s, 2)} for e, s in hits]}
+    )
 
 
 @api_bp.route("/knowledge/external/test", methods=["POST"])
@@ -618,6 +720,9 @@ def knowledge_update(knowledge_id):
         except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
             return _sql_error(e)
         update_sql_source(knowledge_id, cfg.to_dict())
+        from app.sqlsource import valueindex
+
+        valueindex.prune(knowledge_id, cfg.to_dict())  # bereits gespeicherte Werte gesperrter Spalten entfernen
     knowledge = update_knowledge(
         knowledge_id, data.get("name"), data.get("description")
     )
