@@ -35,6 +35,11 @@ def paths_of(kb):
     return knowledge.knowledge_paths(kb)
 
 
+def stored(kb):
+    """Das am Knowledge gespeicherte Inhaltsverzeichnis (Text oder None)."""
+    return index_doc.get_index(kb["id"])[0]
+
+
 # --- Inhalt ----------------------------------------------------------------
 
 
@@ -94,31 +99,29 @@ def test_long_outlines_are_capped(db):
 
 def test_refresh_rebuilds_from_the_current_state(db):
     kb = default_kb()
-    target = index_doc.index_path(paths_of(kb))
     assert index_doc.refresh_index(kb["id"]) is True
-    assert "Noch keine Dokumente." in target.read_text(encoding="utf-8")
+    assert "Noch keine Dokumente." in stored(kb)
 
     add_doc(db, kb, "Neu.pdf", "# Neu\n\n## Teil", fg="11111111-aaaa")
     index_doc.refresh_index(kb["id"])
-    first = target.read_text(encoding="utf-8")
+    first = stored(kb)
     assert "### Neu.pdf" in first and "Noch keine Dokumente." not in first
 
     index_doc.refresh_index(kb["id"])  # zweiter Lauf: kein Wachstum
-    again = target.read_text(encoding="utf-8")
+    again = stored(kb)
     assert again.count("### Neu.pdf") == 1 and len(again) - len(first) <= 3
 
     db.delete_user_document(db.get_all_documents()[0].id)
     index_doc.refresh_index(kb["id"])
-    assert "Neu.pdf" not in target.read_text(encoding="utf-8")  # kann nicht veralten
+    assert "Neu.pdf" not in stored(kb)  # kann nicht veralten
 
 
 def test_the_index_can_be_switched_off(db):
     kb = default_kb()
     index_doc.refresh_index(kb["id"])
-    target = index_doc.index_path(paths_of(kb))
-    assert target.exists()
+    assert stored(kb)
     set_setting(db, "INGEST_INDEX_ENABLED", "false")
-    assert index_doc.refresh_index(kb["id"]) is False and not target.exists()
+    assert index_doc.refresh_index(kb["id"]) is False and stored(kb) is None
 
 
 def test_refresh_never_raises(db, monkeypatch):
@@ -132,7 +135,7 @@ def test_refresh_never_raises(db, monkeypatch):
 
 def test_ingestion_creates_the_index_with_tables(db, qd, no_enrichment, tmp_path):
     ingest_docx(qd, make_docx_with_tables(tmp_path))
-    text = index_doc.index_path(paths_of(default_kb())).read_text(encoding="utf-8")
+    text = stored(default_kb())
     assert "### preise.docx" in text and "Gliederung: Preisliste" in text
     assert text.count("Tabelle: `preise--") == 2 and "Spalten: Monat, Umsatz, Kosten" in text
 
@@ -144,7 +147,7 @@ def test_second_ingest_extends_the_index_automatically(db, qd, no_enrichment):
     put_file("zwei.md", "## Zwei\n\nZweiter Text hier zum Testen.")
     with make_ingestion(qd) as ing:
         ing.ingest_documents()
-    text = index_doc.index_path(paths_of(default_kb())).read_text(encoding="utf-8")
+    text = stored(default_kb())
     assert "### eins.md" in text and "### zwei.md" in text and "2 Dokumente" in text
 
 
@@ -183,28 +186,27 @@ def test_api_changes_refresh_the_index(app, db, qd):
     app.extensions["client"] = qd
     add_doc(db, kb, "Bericht.pdf", "# Bericht", fg="22222222-bbbb")
     index_doc.refresh_index(kb["id"])
-    target = index_doc.index_path(paths_of(kb))
     admin = client_for(app, {"id": 1})
-    assert "Bericht.pdf" in target.read_text(encoding="utf-8")
+    assert "Bericht.pdf" in stored(kb)
 
     assert admin.delete(f"/api/documents/{db.get_all_documents()[0].id}").status_code == 200
-    assert "Bericht.pdf" not in target.read_text(encoding="utf-8")
+    assert "Bericht.pdf" not in stored(kb)
 
     other = knowledge.create_knowledge("Alt")
     index_doc.refresh_index(other["id"])
     admin.patch(f"/api/knowledge/{other['id']}", json={"name": "Neuer Name"})
-    assert "Inhaltsverzeichnis: Neuer Name" in index_doc.index_path(paths_of(other)).read_text(encoding="utf-8")
+    assert "Inhaltsverzeichnis: Neuer Name" in stored(other)
 
     (Path("./data")).mkdir(exist_ok=True)
     admin.post("/api/documents/upload", data={"files": (__import__("io").BytesIO(b"a,b\n1,2\n"), "neu.csv")})
-    assert "`neu.csv`" in target.read_text(encoding="utf-8")
+    assert "`neu.csv`" in stored(kb)
 
 
 # --- Zugriff durch das Modell ---------------------------------------------
 
 
 def scope_for(*kbs, **kw):
-    indexes = tuple((k["name"], str(index_doc.index_path(paths_of(k)))) for k in kbs)
+    indexes = tuple((k["name"], stored(k) or "") for k in kbs)
     return RetrievalScope(tuple(k["collection_name"] for k in kbs), None, indexes=indexes, **kw)
 
 
@@ -246,7 +248,7 @@ def test_inline_hint_only_for_small_indexes(db):
     scope = scope_for(kb)
     assert "Inhaltsverzeichnis des durchsuchbaren Wissens" in index_doc.inline_hint(scope.indexes)
     assert index_doc.inline_hint(scope.indexes, max_chars=10) == ""  # zu gross
-    assert index_doc.inline_hint(()) == "" and index_doc.inline_hint((("x", "/gibt/es/nicht.md"),)) == ""
+    assert index_doc.inline_hint(()) == "" and index_doc.inline_hint((("x", ""),)) == ""
 
 
 class CapturingAgent:
@@ -311,3 +313,58 @@ def test_no_index_is_sent_when_it_is_switched_off(app, db, chat_env):
     set_setting(db, "INGEST_INDEX_ENABLED", "false")
     index_doc.refresh_index(default_kb()["id"])
     assert chat(client_for(app, {"id": 1}), chat_env) == "Welche Dokumente gibt es?"
+
+
+# --- Das Verzeichnis haengt am Knowledge -----------------------------------
+
+
+def test_each_knowledge_keeps_its_own_index_and_says_so(db):
+    a, b = default_kb(), knowledge.create_knowledge("Zweites")
+    add_doc(db, a, "nur-in-a.pdf", "# A", fg="aaaaaaaa-0000")
+    add_doc(db, b, "nur-in-b.pdf", "# B", fg="bbbbbbbb-0000")
+    for kb in (a, b):
+        index_doc.refresh_index(kb["id"])
+    assert "nur-in-a.pdf" in stored(a) and "nur-in-b.pdf" not in stored(a)
+    assert "nur-in-b.pdf" in stored(b) and "nur-in-a.pdf" not in stored(b)
+    assert "Gilt nur für das Knowledge „Zweites“." in stored(b)
+    retrieval.set_scope(scope_for(b))  # ein Chat mit Knowledge B liest nie das Verzeichnis von A
+    assert "nur-in-a.pdf" not in index_doc.read_indexes()
+
+
+def test_a_missing_index_is_created_once_on_first_use_and_remote_sources_have_none(db):
+    kb = knowledge.create_knowledge("Altbestand")
+    assert stored(kb) is None  # z. B. angelegt vor Migration 0029
+    text = index_doc.ensure_index(kb)
+    assert "Inhaltsverzeichnis: Altbestand" in text and stored(kb) == text
+    sql = knowledge.create_sql_knowledge("DB", "", {"dialect": "sqlite", "database": "x.db"})
+    assert index_doc.ensure_index(sql) is None and index_doc.refresh_index(sql["id"]) is False
+
+
+def test_the_old_index_file_is_removed_when_the_index_is_rebuilt(db):
+    kb = default_kb()
+    legacy = index_doc.legacy_index_file(paths_of(kb))
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("alt", encoding="utf-8")
+    index_doc.refresh_index(kb["id"])
+    assert not legacy.exists() and stored(kb)
+
+
+def test_same_file_name_in_two_knowledge_gives_two_sources_with_their_knowledge_name(db):
+    from langchain_core.documents import Document
+
+    from app.rag.format import format_hits, record_sources
+
+    a, b = default_kb(), knowledge.create_knowledge("Zweites")
+    doc = lambda col: Document(page_content="Text", metadata={"filename": "vertrag.pdf", "collection": col, "chunk_index": 0})  # noqa: E731
+    scope = RetrievalScope(
+        (a["collection_name"], b["collection_name"]), None,
+        knowledge_names=((a["collection_name"], a["name"]), (b["collection_name"], "Zweites")),
+    )
+    retrieval.set_scope(scope)
+    docs = [doc(a["collection_name"]), doc(b["collection_name"])]
+    numbers = record_sources(docs)
+    assert numbers == [1, 2] and [e["knowledge"] for e in scope.sources] == [a["name"], "Zweites"]
+    out = format_hits(docs, numbers)
+    assert f"Knowledge „{a['name']}“" in out and "Knowledge „Zweites“" in out
+    retrieval.set_scope(RetrievalScope((a["collection_name"],), None, knowledge_names=((a["collection_name"], a["name"]),)))
+    assert "Knowledge „" not in format_hits(docs[:1], [1])  # bei einem einzigen Knowledge unnoetig

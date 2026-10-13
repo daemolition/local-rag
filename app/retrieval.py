@@ -66,8 +66,10 @@ class RetrievalScope:
     # Strukturierte Dateien (CSV/Excel) der durchsuchten Knowledge-Bereiche fuer die
     # pandas-Tools: (Namenspraefix, Ordner). Nur diese Ordner sind den Tools zugaenglich.
     data_dirs: tuple[tuple[str, str], ...] = field(default=(), compare=False)
-    # Inhaltsverzeichnis (index.md) je Knowledge: (Name, Pfad)
+    # Inhaltsverzeichnis je Knowledge: (Name, Text); haengt am Knowledge-Eintrag
     indexes: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+    # Name des Knowledge je Collection: (Collection, Name), fuer die Herkunftsangabe der Treffer
+    knowledge_names: tuple[tuple[str, str], ...] = field(default=(), compare=False)
     # Embedding-Modell je Collection (JSON-Spec): womit die Vektoren entstanden sind. Fehlt eine
     # Collection, gilt das globale Modell.
     specs: tuple[tuple[str, str], ...] = field(default=(), compare=False)

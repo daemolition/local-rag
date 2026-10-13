@@ -322,7 +322,7 @@ def chat_setup(app, db, monkeypatch, pii_url, chunks=("Antwort",)):
     monkeypatch.setattr("app.routes.resources_ready", lambda: True)
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
-    set_settings(db, PII_FILTER_URL=pii_url, PII_FILTER_ENABLED="true")
+    set_settings(db, PII_FILTER_URL=pii_url, PII_FILTER_ENABLED="true", INGEST_INDEX_ENABLED="false")
     app.extensions["agent_tools"] = []
     agent = FakeAgent(chunks)
     monkeypatch.setattr("app.routes.get_agent", lambda *a, **k: agent)

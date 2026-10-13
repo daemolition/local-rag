@@ -236,7 +236,7 @@ def setup_chat(app, db, monkeypatch, pii_url, chunks):
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
     s = db.get_session()
-    SettingsService(s).set_batch({"PII_FILTER_URL": pii_url, "PII_FILTER_ENABLED": "true"})
+    SettingsService(s).set_batch({"PII_FILTER_URL": pii_url, "PII_FILTER_ENABLED": "true", "INGEST_INDEX_ENABLED": "false"})
     s.close()
     agent = FakeAgent(chunks)
     monkeypatch.setattr("app.routes.get_agent", lambda *a, **k: agent)

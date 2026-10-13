@@ -122,3 +122,45 @@ def test_the_group_rule_does_not_reach_other_groups_or_other_roles(app, db):
     assert not access.can_access_knowledge(ed, k_public["id"], "write")  # oeffentlich = nur lesen
     assert access.can_access_knowledge(bob, k_mine["id"], "read")
     assert not access.can_access_knowledge(bob, k_mine["id"], "write")  # Rolle "Benutzer": bleibt beim Freigabe-Level
+
+
+# --- Inhaltsverzeichnis (index.md) im Knowledge ------------------------------------------------------
+def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_access(app, db):
+    from app.ingest.index_doc import get_index
+
+    bob = add_user(db, "bob", "user")
+    reader = add_user(db, "leser", "user")
+    c = client_for(app, bob)
+    kid = c.post("/api/knowledge", json={"name": "Vertraege", "description": "Mietvertraege"}).json["id"]
+
+    got = c.get(f"/api/knowledge/{kid}/index").json
+    assert got["enabled"] is True and "# Inhaltsverzeichnis: Vertraege" in got["markdown"] and got["updated_at"]
+    assert get_index(kid)[0] == got["markdown"]  # haengt am Knowledge
+
+    # Lesen genuegt fuer die Ansicht, Neu erzeugen braucht Schreibrecht, Fremde sehen nichts
+    access.add_grant("knowledge", kid, "user", reader["id"], "read")
+    r = client_for(app, reader)
+    assert "Vertraege" in r.get(f"/api/knowledge/{kid}/index").json["markdown"]
+    assert r.post(f"/api/knowledge/{kid}/index/refresh").status_code == 404
+    stranger = client_for(app, add_user(db, "fremd", "user"))
+    assert stranger.get(f"/api/knowledge/{kid}/index").status_code == 404
+    from app.ingest import index_doc
+
+    index_doc._store(kid, "alt")
+    assert "Inhaltsverzeichnis" in c.post(f"/api/knowledge/{kid}/index/refresh").json["markdown"]
+
+
+def test_a_disabled_index_is_reported_and_remote_sources_have_none(app, db):
+    from app.settings_service import SettingsService
+
+    c = client_for(app, {"id": 1, "role": "admin", "username": "admin"})
+    kid = c.post("/api/knowledge", json={"name": "K"}).json["id"]
+    s = db.get_session()
+    SettingsService(s).set("INGEST_INDEX_ENABLED", "false")
+    s.commit()
+    s.close()
+    got = c.get(f"/api/knowledge/{kid}/index").json
+    assert got["enabled"] is False and got["markdown"] is None
+    sql = knowledge.create_sql_knowledge("DB", "", {"dialect": "sqlite", "database": "x.db"})
+    assert c.get(f"/api/knowledge/{sql['id']}/index").json["available"] is False
+    assert c.post(f"/api/knowledge/{sql['id']}/index/refresh").status_code == 409

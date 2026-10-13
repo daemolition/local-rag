@@ -71,6 +71,7 @@ interface MessageProps {
 export interface SourceInfo {
   n?: number;
   filename: string;
+  knowledge?: string;
   score: number | null;
   section: string | number | null;
   page?: string | null;
@@ -112,6 +113,7 @@ function SourcesBlock({
       <CollapsibleContent>
         <ol className="space-y-1.5 px-3 pb-3 text-xs">
           {sources.map((src, i) => {
+            const manyKnowledge = new Set(sources.map((x) => x.knowledge).filter(Boolean)).size > 1;
             const path = src.headers ? Object.values(src.headers).join(" › ") : "";
             return (
               <li
@@ -125,6 +127,9 @@ function SourcesBlock({
                 <span className="text-muted-foreground">[{src.n ?? i + 1}]</span>
                 <div className="min-w-0 flex-1">
                   <span className="font-medium">{src.filename}</span>
+                  {manyKnowledge && src.knowledge ? (
+                    <span className="text-muted-foreground"> · Knowledge „{src.knowledge}“</span>
+                  ) : null}
                   {src.page ? (
                     <span className="text-muted-foreground"> · {src.page}</span>
                   ) : null}

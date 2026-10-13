@@ -31,6 +31,7 @@ import { DataFileDialog } from "@/components/DataFileDialog";
 import { ExternalSourceDialog } from "@/components/ExternalSourceDialog";
 import { SqlSourceDialog } from "@/components/SqlSourceDialog";
 import { SqlValuesCard } from "@/components/SqlValuesCard";
+import { KnowledgeIndexCard } from "@/components/KnowledgeIndexCard";
 import type { ExternalSource, SqlSource } from "@/lib/types";
 import { MarkdownDialog } from "@/components/MarkdownDialog";
 import { ReindexProgress } from "@/components/ReindexProgress";
@@ -448,6 +449,8 @@ export function KnowledgeDetailPage() {
 
         {remote ? null : (
           <>
+        <KnowledgeIndexCard knowledgeId={knowledge.id} canWrite={canWrite} refreshKey={documents} />
+
         <section className="space-y-3">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <FileText className="size-5" />

@@ -37,6 +37,10 @@ def format_hits(docs: list[Document], numbers: list[int] | None = None) -> str:
     """
     if not docs:
         return NO_RESULTS
+    from app.retrieval import get_scope_or_none
+
+    scope = get_scope_or_none()
+    names = dict(scope.knowledge_names) if scope is not None and len(scope.knowledge_names) > 1 else {}
     blocks = []
     for k, doc in enumerate(docs):
         i = numbers[k] if numbers and k < len(numbers) else k + 1
@@ -52,7 +56,8 @@ def format_hits(docs: list[Document], numbers: list[int] | None = None) -> str:
         pages = _pages(meta)
         if pages:
             where = f" ({pages}{', ' + where.strip(' ()') if where else ''})"
-        blocks.append(f"[{i}] Quelle: {source}{where}\n{doc.page_content.strip()}")
+        wissen = f" – Knowledge „{names[meta.get('collection')]}“" if meta.get("collection") in names else ""
+        blocks.append(f"[{i}] Quelle: {source}{where}{wissen}\n{doc.page_content.strip()}")
     return "\n\n---\n\n".join(blocks)
 
 
@@ -83,11 +88,20 @@ def record_sources(docs: list[Document]) -> list[int]:
     scope = get_scope_or_none()
     if scope is None:
         return list(range(1, len(docs) + 1))
+    names = dict(scope.knowledge_names)
     numbers = []
     for doc in docs:
         entry = source_entry(doc)
+        entry["collection"] = (doc.metadata or {}).get("collection")
+        entry["knowledge"] = names.get(entry["collection"])
+        # gleicher Dateiname und Abschnitt in zwei Knowledge sind zwei verschiedene Quellen
         found = next(
-            (e for e in scope.sources if (e["filename"], e["section"]) == (entry["filename"], entry["section"])),
+            (
+                e
+                for e in scope.sources
+                if (e.get("collection"), e["filename"], e["section"])
+                == (entry["collection"], entry["filename"], entry["section"])
+            ),
             None,
         )
         if found is None:

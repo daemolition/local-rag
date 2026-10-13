@@ -22,7 +22,8 @@ Die Vektorsuche findet Textstellen, aber sie sagt nicht, *was es gibt*: Fragen w
 Ueberblick. Die Datei listet pro Dokument Titel, Gliederung und extrahierte Tabellen sowie
 die strukturierten Dateien (CSV/Excel) mit ihren Spalten.
 
-Sie wird nach jedem Einlesen, Loeschen und Umbenennen **aus dem Bestand neu erzeugt**
+Es haengt direkt am Knowledge-Eintrag (``knowledge.index_md``), damit ein Chat nie das Verzeichnis eines
+anderen Knowledge liest. Es wird nach jedem Einlesen, Loeschen und Umbenennen **aus dem Bestand neu erzeugt**
 (nicht angehaengt) und kann deshalb nicht veralten. Kleine Verzeichnisse bekommt das Modell
 direkt mit der Frage, grosse ueber das Werkzeug ``read_knowledge_index``.
 """
@@ -46,7 +47,8 @@ _TABLE_FILE = re.compile(r"^(?P<stem>.+)--(?P<fg>[0-9a-f]{8})--tabelle-(?P<n>\d+
 STRUCTURED = {".csv", ".xlsx", ".xls"}
 
 
-def index_path(paths) -> Path:
+def legacy_index_file(paths) -> Path:
+    """Fruehere Ablage als Datei (vor Migration 0029); wird beim Erzeugen aufgeraeumt."""
     return Path(paths.markdown_dir) / INDEX_NAME
 
 
@@ -101,7 +103,7 @@ def build_index(knowledge: dict, documents: list, paths) -> str:
         else:
             plain_files.append(f)
 
-    lines = [f"# Inhaltsverzeichnis: {knowledge['name']}", ""]
+    lines = [f"# Inhaltsverzeichnis: {knowledge['name']}", "", f"Gilt nur für das Knowledge „{knowledge['name']}“.", ""]
     if knowledge.get("description"):
         lines += [knowledge["description"], ""]
     n_tables = sum(len(v) for v in tables_by_doc.values())
@@ -136,48 +138,90 @@ def build_index(knowledge: dict, documents: list, paths) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _index_enabled() -> bool:
+    from app.database_service import get_db_service
+    from app.settings_service import SettingsService
+
+    session = get_db_service().get_session()
+    try:
+        return SettingsService(session).get_bool("INGEST_INDEX_ENABLED", True)
+    finally:
+        session.close()
+
+
+def _store(knowledge_id: int, text: str | None) -> None:
+    from app.database_service import get_db_service
+    from app.models import Knowledge
+
+    session = get_db_service().get_session()
+    try:
+        row = session.query(Knowledge).filter_by(id=knowledge_id).first()
+        if row is not None:
+            row.index_md = text
+            row.index_updated_at = datetime.utcnow() if text else None
+            session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def get_index(knowledge_id: int) -> tuple[str | None, datetime | None]:
+    """Gespeichertes Inhaltsverzeichnis dieses Knowledge (Text, Stand) oder ``(None, None)``."""
+    from app.database_service import get_db_service
+    from app.models import Knowledge
+
+    session = get_db_service().get_session()
+    try:
+        row = session.query(Knowledge).filter_by(id=knowledge_id).first()
+        return (row.index_md, row.index_updated_at) if row is not None else (None, None)
+    finally:
+        session.close()
+
+
 def refresh_index(knowledge_id: int | None) -> bool:
-    """Erzeugt ``index.md`` des Knowledge neu (oder entfernt sie, wenn abgeschaltet).
+    """Erzeugt das Inhaltsverzeichnis des Knowledge neu und speichert es am Knowledge-Eintrag (oder entfernt es,
+    wenn die Funktion abgeschaltet ist).
 
     Fehler werden geloggt und nie weitergereicht: Das Verzeichnis darf das Einlesen nicht stoeren.
     """
     try:
         from app.database_service import get_db_service
-        from app.knowledge import get_knowledge, knowledge_paths
-        from app.settings_service import SettingsService
+        from app.knowledge import get_knowledge, is_remote, knowledge_paths
 
         knowledge = get_knowledge(knowledge_id)
-        if not knowledge:
+        if not knowledge or is_remote(knowledge):
             return False
         paths = knowledge_paths(knowledge)
-        session = get_db_service().get_session()
-        try:
-            enabled = SettingsService(session).get_bool("INGEST_INDEX_ENABLED", True)
-        finally:
-            session.close()
-        target = index_path(paths)
-        if not enabled:
-            target.unlink(missing_ok=True)
+        legacy_index_file(paths).unlink(missing_ok=True)
+        if not _index_enabled():
+            _store(knowledge["id"], None)
             return False
         documents = get_db_service().get_all_documents(knowledge_id=knowledge["id"])
-        text = build_index(knowledge, documents, paths)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+        _store(knowledge["id"], build_index(knowledge, documents, paths))
         return True
     except Exception as e:
         logger.warning(f"Inhaltsverzeichnis konnte nicht erzeugt werden: {e}")
         return False
 
 
+def ensure_index(knowledge: dict) -> str | None:
+    """Das Verzeichnis dieses Knowledge; fehlt es (Bestand vor Migration 0029), wird es einmal erzeugt.
+    Fremde Quellen (Qdrant, SQL) haben keines."""
+    from app.knowledge import is_remote
+
+    if is_remote(knowledge):
+        return None
+    text, _ = get_index(knowledge["id"])
+    if text is None and _index_enabled() and refresh_index(knowledge["id"]):
+        text, _ = get_index(knowledge["id"])
+    return text
+
+
 def _read_texts(indexes) -> list[str]:
-    texts = []
-    for _name, path in indexes:
-        p = Path(path)
-        if p.is_file():
-            text = p.read_text(encoding="utf-8").strip()
-            if text:
-                texts.append(text)
-    return texts
+    """``indexes``: ``(Knowledge-Name, Verzeichnistext)``; leere Verzeichnisse entfallen."""
+    return [text.strip() for _name, text in indexes if text and text.strip()]
 
 
 def read_indexes(max_chars: int = TOOL_MAX_CHARS) -> str:

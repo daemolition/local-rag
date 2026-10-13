@@ -56,7 +56,7 @@ from app.access import (
 from app.auth import auth_required_api, current_user, require_role
 from app.users import role_at_least
 from app.database_service import get_db_service
-from app.ingest.index_doc import refresh_index
+from app.ingest.index_doc import ensure_index, get_index, refresh_index
 from app.knowledge import (
     create_external_knowledge,
     create_knowledge,
@@ -406,6 +406,46 @@ def knowledge_create():
         delete_knowledge(knowledge["id"])
         return jsonify({"success": False, "error": f"Qdrant Fehler: {e!s}"}), 500
     return jsonify(_knowledge_with_counts(knowledge)), 201
+
+
+def _index_payload(knowledge: dict) -> dict:
+    """Inhaltsverzeichnis (``index.md``) des Knowledge fuer die Anzeige. Fehlt die Datei (Bestand aus einer
+    aelteren Version, abgeschaltet gewesen), wird sie bei eingeschalteter Funktion nachtraeglich erzeugt."""
+    if is_remote(knowledge):
+        return {"available": False, "enabled": True, "markdown": None, "updated_at": None}
+    session = get_db_service().get_session()
+    try:
+        enabled = SettingsService(session).get_bool("INGEST_INDEX_ENABLED", True)
+    finally:
+        session.close()
+    text = ensure_index(knowledge) if enabled else None
+    if not text:
+        return {"available": True, "enabled": enabled, "markdown": None, "updated_at": None}
+    _, updated = get_index(knowledge["id"])
+    return {"available": True, "enabled": True, "markdown": text, "updated_at": updated.isoformat() if updated else None}
+
+
+@api_bp.route("/knowledge/<int:knowledge_id>/index", methods=["GET"])
+@auth_required_api
+def knowledge_index(knowledge_id):
+    """Das Inhaltsverzeichnis, das das Modell zur Orientierung bekommt (lesen genuegt)."""
+    knowledge = get_knowledge(knowledge_id)
+    if not knowledge or not can_access_knowledge(current_user(), knowledge_id, "read"):
+        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
+    return jsonify(_index_payload(knowledge))
+
+
+@api_bp.route("/knowledge/<int:knowledge_id>/index/refresh", methods=["POST"])
+@require_role("user")
+def knowledge_index_refresh(knowledge_id):
+    """Erzeugt das Inhaltsverzeichnis neu (Schreibrecht)."""
+    knowledge = get_knowledge(knowledge_id)
+    if not knowledge or not can_access_knowledge(current_user(), knowledge_id, "write"):
+        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
+    if is_remote(knowledge):
+        return jsonify({"success": False, "error": "Diese Quelle hat kein Inhaltsverzeichnis"}), 409
+    refresh_index(knowledge_id)
+    return jsonify(_index_payload(knowledge))
 
 
 @api_bp.route("/knowledge/<int:knowledge_id>", methods=["GET"])

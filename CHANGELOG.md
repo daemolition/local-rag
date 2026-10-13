@@ -6,20 +6,26 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Neu
+
+- **Inhaltsverzeichnis im Knowledge sichtbar**: Die `index.md`, die das Modell zur Orientierung bekommt (Dokumente mit Gliederung, Tabellen, Datendateien), zeigt die Detailseite jedes Knowledge jetzt als aufklappbaren Abschnitt „Inhaltsverzeichnis“ mit Stand und Knopf „Neu erzeugen“. Fehlt die Datei bei einem bestehenden Knowledge, wird sie beim Öffnen nachträglich erzeugt. Mit Leserecht sichtbar, „Neu erzeugen“ braucht Schreibrecht; ist die Funktion abgeschaltet, steht das dort.
+
+### Geändert
+
+- **Das Inhaltsverzeichnis hängt direkt am Knowledge** (Datenbank, Migration `0029`) statt als Datei im Ordner. Ein Chat liest damit nur das Verzeichnis der Knowledge, die für ihn gewählt sind, und jedes Verzeichnis nennt sein Knowledge („Gilt nur für das Knowledge …“). Bestehende Knowledge bekommen ihr Verzeichnis beim ersten Gebrauch nachträglich erzeugt; die alte Datei wird dabei gelöscht.
+- **Quellen nennen das Knowledge, wenn mehrere durchsucht wurden.** Gleiche Dateinamen oder Abschnitte in zwei Knowledge werden nicht mehr zu einer Quelle verschmolzen, sondern bekommen eigene Nummern, und in Quellenliste und Antwort steht, aus welchem Knowledge sie stammen.
+- **„Meine Uploads“ zeigt nur noch Chat-Anhänge.** Dokumente, die du in ein Knowledge hochlädst, tauchten dort fälschlich mit auf; sie gehören zum Knowledge und stehen in dessen Dokumentliste. Wer ein Dokument hochgeladen hat, darf es dort weiterhin löschen, auch wenn er kein Schreibrecht auf das Knowledge mehr hat.
+
+### Behoben
+
+- **Klick auf eine Quellennummer im Chat tat nichts.** Die Quellenliste ist eingeklappt, der Sprung zum Eintrag fand ihn deshalb nicht. Jetzt öffnet der Klick die Liste, springt zur Quelle und hebt sie kurz hervor. Außerdem sind die Anker pro Antwort eindeutig (jede Antwort nummeriert ihre Quellen ab 1, ein Klick in einer späteren Antwort sprang bisher zur ersten).
+
 ## [0.2.1] - 2026-10-13
 
 ### Neu
 
 - **Images für amd64 und arm64, Mac-Unterstützung für die Worker**: Bei jedem Release-Tag baut der neue Workflow `images.yml` auf nativen Runnern (ohne QEMU) und veröffentlicht in ghcr.io: das App-Image als `:X.Y.Z`/`:latest` (CUDA, amd64) und `:X.Y.Z-cpu`/`:latest-cpu` (CPU, **amd64 und arm64**) sowie `…-tool-worker` (amd64 und arm64). Ohne NVIDIA-GPU oder auf ARM-Servern genügt `docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build`. Auf dem **Mac** startet `docker-compose.mac.yml` jetzt auch `tool-worker` und `tool-worker-sql` (Port auf localhost); `run_mac.py` legt `TOOL_WORKER_TOKEN` in der `.env` an und stellt die Worker-Adressen in den Einstellungen ein (nur wenn sie noch den Docker-Standard haben). Vorher fehlten dort die Pandas-Auswertung und die SQL-Anbindung. Der Workflow lässt sich auch von Hand starten (*Actions › Images › Run workflow*): „Version“ leer nimmt die Version aus `pyproject.toml`, `dev` ist ein Probelauf, „latest“ setzt zusätzlich `latest`/`latest-cpu` (nur auf `master`). Geprüft: alle Abhängigkeiten der App und des Workers lösen sich für `aarch64` ohne Quellcode-Build auf, der Workflow ist mit actionlint geprüft und lief als Probelauf auf GitHub durch (alle Jobs grün, Manifeste für amd64 und arm64).
 - **Wertverzeichnis für SQL-Quellen**: „Stühle“ findet jetzt `Stuhl`, `Bürostuhl` und `Gartenstühle`. Die App merkt sich nur die *verschiedenen Werte* ausgewählter Textspalten mit Häufigkeit (keine Zeilen, die Daten werden nicht kopiert); das neue Werkzeug `sql_find_values` liefert dem Modell die exakten Schreibweisen (Ein-/Mehrzahl, Umlaute, ß/ss, zusammengesetzte Wörter, kleine Tippfehler), die es per `IN (...)` einsetzt. Einrichtung auf der Detailseite der SQL-Quelle: *Spalten vorschlagen* (Schlüssel-, Kontakt- und Personenspalten, Freitext und fast eindeutige Spalten werden mit Begründung weggelassen), prüfen, *Speichern und aufbauen*; schlägt ein Neuaufbau fehl, bleibt das alte Verzeichnis. Die Suchmethode wurde gemessen: Stemmer + Stamm-Teilstring + Trigramme erreichen Präzision 0,98 und Recall 1,00 (Einbettungen nur 0,12 bis 0,53 Präzision, darum nicht verwendet). Im Test mit dem LAN-LLM lieferte „Wie viele Stühle wurden verkauft?“ mit Verzeichnis die richtige Zahl, ohne nur die Hälfte. Migration `0028`, Einstellungen `SQL_VALUES_*`, Details in `docs/sql-knowledge.md`.
-
-### Geändert
-
-- **„Meine Uploads“ zeigt nur noch Chat-Anhänge.** Dokumente, die du in ein Knowledge hochlädst, tauchten dort fälschlich mit auf; sie gehören zum Knowledge und stehen in dessen Dokumentliste. Wer ein Dokument hochgeladen hat, darf es dort weiterhin löschen, auch wenn er kein Schreibrecht auf das Knowledge mehr hat.
-
-### Behoben
-
-- **Klick auf eine Quellennummer im Chat tat nichts.** Die Quellenliste ist eingeklappt, der Sprung zum Eintrag fand ihn deshalb nicht. Jetzt öffnet der Klick die Liste, springt zur Quelle und hebt sie kurz hervor. Außerdem sind die Anker pro Antwort eindeutig (jede Antwort nummeriert ihre Quellen ab 1, ein Klick in einer späteren Antwort sprang bisher zur ersten).
 
 ### Entfernt
 

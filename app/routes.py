@@ -428,7 +428,7 @@ def chat():
     # SQL-Quellen haben keine Collection und keine Dateien: eigener Weg ueber die SQL-Werkzeuge
     sql_knowledge = [k for k in all_knowledge if k.get("kind") == "sql"]
     all_knowledge = [k for k in all_knowledge if k.get("kind") != "sql"]
-    from app.ingest.index_doc import index_path, inline_hint
+    from app.ingest.index_doc import ensure_index, inline_hint
     from app.knowledge import knowledge_paths
     from app.rag import model_settings
     from app.rag.helper import make_helper
@@ -455,7 +455,9 @@ def chat():
             (paths.name_prefix, str(paths.data_dir))
             for paths in (knowledge_paths(k) for k in all_knowledge)
         ),
-        indexes=tuple((k["name"], str(index_path(knowledge_paths(k)))) for k in all_knowledge),
+        # Inhaltsverzeichnis hängt am Knowledge-Eintrag: genau das der gewählten Knowledge, nie ein fremdes
+        indexes=tuple((k["name"], ensure_index(k) or "") for k in all_knowledge),
+        knowledge_names=tuple((k["collection_name"], k["name"]) for k in all_knowledge),
         # fremde Vektorspeicher: Konfiguration (inkl. Key, bleibt im Prozess) je Knowledge
         externals=tuple(
             (k["collection_name"], k["source_config"])
