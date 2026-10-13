@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-13
+
 ### Neu
 
 - **Images für amd64 und arm64, Mac-Unterstützung für die Worker**: Bei jedem Release-Tag baut der neue Workflow `images.yml` auf nativen Runnern (ohne QEMU) und veröffentlicht in ghcr.io: das App-Image als `:X.Y.Z`/`:latest` (CUDA, amd64) und `:X.Y.Z-cpu`/`:latest-cpu` (CPU, **amd64 und arm64**) sowie `…-tool-worker` (amd64 und arm64). Ohne NVIDIA-GPU oder auf ARM-Servern genügt `docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build`. Auf dem **Mac** startet `docker-compose.mac.yml` jetzt auch `tool-worker` und `tool-worker-sql` (Port auf localhost); `run_mac.py` legt `TOOL_WORKER_TOKEN` in der `.env` an und stellt die Worker-Adressen in den Einstellungen ein (nur wenn sie noch den Docker-Standard haben). Vorher fehlten dort die Pandas-Auswertung und die SQL-Anbindung. Der Workflow lässt sich auch von Hand starten (*Actions › Images › Run workflow*): „Version“ leer nimmt die Version aus `pyproject.toml`, `dev` ist ein Probelauf, „latest“ setzt zusätzlich `latest`/`latest-cpu` (nur auf `master`). Geprüft: alle Abhängigkeiten der App und des Workers lösen sich für `aarch64` ohne Quellcode-Build auf, der Workflow ist mit actionlint geprüft und lief als Probelauf auf GitHub durch (alle Jobs grün, Manifeste für amd64 und arm64).
@@ -152,7 +154,8 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
 
-[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.1.1...v0.1.2
