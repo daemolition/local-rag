@@ -22,7 +22,7 @@ Unterstützt: PostgreSQL, MySQL/MariaDB, Microsoft SQL Server (auch benannte Ins
 Drei Schichten im Worker (`tool_worker/`), keine davon verlässt sich auf die andere:
 
 1. **Read-only-Sitzung** (PostgreSQL, MySQL/MariaDB, SQLite). **SQL Server hat keine Sitzungsoption dafür**: dort schützen die SQL-Prüfung und der SELECT-only-Benutzer.
-2. **SQL-Prüfung** (`sqlglot`): genau ein SELECT, kein `INTO`, kein `FOR UPDATE`, keine Sperrfunktionen (`pg_read_file`, `load_file`, `xp_cmdshell`, `load_extension` …), keine Tabellenfunktionen, nur freigegebene Tabellen, gesperrte Spalten auch über `SELECT *`, Alias und Unterabfragen nicht lesbar.
+2. **SQL-Prüfung** (`sqlglot`): genau ein SELECT, kein `INTO`, kein `FOR UPDATE`, keine Sperrfunktionen (`pg_read_file`, `load_file`, `xp_cmdshell`, `load_extension` …), keine Tabellenfunktionen, nur freigegebene Tabellen, gesperrte Spalten auch über `SELECT *`, Alias, Unterabfragen und die ganze Zeile (`SELECT tabelle`, `row_to_json(t)`) nicht lesbar. Wirklich verlässlich ist die Sperre erst zusätzlich in der Datenbank: Vergib dem Benutzer Spalten-Rechte oder gib nur eine View ohne die sensiblen Spalten frei.
 3. **Grenzen**: Zeilenlimit (Standard 50), Zeitlimit (15 s, serverseitig bei PostgreSQL, MariaDB; SQL Server und SQLite über Treiber), Zellenkürzung.
 
 Der Worker läuft nicht als root, mit schreibgeschütztem Dateisystem und ohne Zugriff auf Postgres, Qdrant oder Daten der App. Er ist der einzige Dienst mit Ausgang zu den Datenbankzielen.

@@ -76,9 +76,21 @@ def validate_select(
         for tname, cols in blocked.items():
             if col in cols and (not owner or owner == tname or tname in tables_in_query):
                 raise SqlRejected(f"Die Spalte {node.name} ist gesperrt")
-    if blocked and any(isinstance(n, exp.Star) for n in root.walk()):
-        hit = [t for t in blocked if t in tables_in_query]
-        if hit:
+    hit = [t for t in blocked if t in tables_in_query]
+    if hit:
+        # Ganze Zeile ohne Spaltennamen (PostgreSQL: "SELECT items FROM items", row_to_json(i), json_agg(i)):
+        # Tabellenname bzw. Alias allein als Wert wuerde die gesperrte Spalte mitliefern.
+        row_names = set(hit)
+        for node in root.find_all(exp.Table):
+            if _norm(node.name) in blocked and node.alias:
+                row_names.add(_norm(node.alias))
+        for node in root.find_all(exp.Column):
+            if _norm(node.name) in row_names and _norm(node.table) not in row_names:
+                raise SqlRejected(
+                    "Die ganze Zeile einer Tabelle mit gesperrten Spalten ist nicht abfragbar, nenne die Spalten einzeln"
+                )
+        # COUNT(*) liefert keine Spaltenwerte und bleibt erlaubt
+        if any(isinstance(n, exp.Star) and not isinstance(n.parent, exp.Count) for n in root.walk()):
             raise SqlRejected("SELECT * ist hier nicht erlaubt (gesperrte Spalten), nenne die Spalten einzeln")
     if isinstance(root, exp.Select):
         current = root.args.get("limit")

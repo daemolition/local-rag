@@ -90,3 +90,32 @@ def test_unknown_dialect_is_rejected():
 def test_cte_names_are_not_treated_as_unlisted_tables():
     sql = "with recent as (select a from t) select a from recent"
     assert "recent" in validate_select(sql, "postgresql", {"t"})
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "select items from items",
+        "select i from items i",
+        "select row_to_json(items) from items",
+        "select to_jsonb(i) from items i",
+        "select json_agg(i) from items i",
+        "select array_agg(items) from items",
+        "select (i).salary from items i",
+        "select (select i from items i limit 1)",
+        "select public.items from public.items",
+        "with x as (select i from items i) select * from x",
+    ],
+)
+def test_whole_row_references_cannot_smuggle_blocked_columns(sql):
+    with pytest.raises(SqlRejected):
+        validate_select(sql, "postgresql", {"items"}, BLOCKED)
+
+
+def test_count_star_and_ordinary_columns_stay_usable_with_blocked_columns():
+    assert "COUNT(*)" in validate_select("select count(*) from items", "postgresql", {"items"}, BLOCKED)
+    assert validate_select("select name, category from items i where i.name = 'x'", "postgresql", {"items"}, BLOCKED)
+
+
+def test_whole_row_of_tables_without_blocked_columns_is_fine():
+    assert validate_select("select o from orders o", "postgresql", {"items", "orders"}, BLOCKED)
