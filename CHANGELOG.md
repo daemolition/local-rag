@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-13
+
 ### Neu
 
 - **Inhaltsverzeichnis im Knowledge sichtbar**: Die `index.md`, die das Modell zur Orientierung bekommt (Dokumente mit Gliederung, Tabellen, Datendateien), zeigt die Detailseite jedes Knowledge jetzt als aufklappbaren Abschnitt „Inhaltsverzeichnis“ mit Stand und Knopf „Neu erzeugen“. Fehlt die Datei bei einem bestehenden Knowledge, wird sie beim Öffnen nachträglich erzeugt. Mit Leserecht sichtbar, „Neu erzeugen“ braucht Schreibrecht; ist die Funktion abgeschaltet, steht das dort.
@@ -168,7 +170,8 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
 
-[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.1.2...v0.1.3
