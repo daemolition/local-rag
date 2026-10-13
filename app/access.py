@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,7 +23,10 @@ seiner Gruppen existiert. ``write`` schliesst ``read`` ein.
 
 Ressourcentypen: ``knowledge`` (Schluessel: knowledge.id) und ``model``
 (Schluessel: model_configs.id; ein Basismodell ohne Konfiguration ist oeffentlich).
-Die Rollenpruefung (``editor`` fuer Verwaltung) sitzt an den Endpunkten, nicht hier.
+Die Rollenpruefung (``editor`` fuer Freigaben, ``admin`` fuer Fremdquellen) sitzt an den Endpunkten, nicht hier.
+Ausnahme Knowledge: Ein Editor darf alles bearbeiten, was einer seiner Gruppen freigegeben ist (auch mit
+Lese-Freigabe). Der Rolle "Benutzer" bleibt es beim vergebenen Level; eigenes Knowledge verwaltet er ueber
+das Schreibrecht, das der Ersteller automatisch bekommt.
 """
 
 from logging import getLogger
@@ -50,12 +53,12 @@ def _group_ids(db, user_id: int) -> set[int]:
 def _granted(db, user: dict, rtype: str, rid: int, level: str) -> bool:
     groups = _group_ids(db, user["id"])
     wanted = ("write",) if level == "write" else LEVELS
+    # Editoren duerfen alles bearbeiten, was einer ihrer Gruppen freigegeben ist (auch bei Lese-Freigabe)
+    group_wanted = LEVELS if (level == "write" and rtype == "knowledge" and user.get("role") == "editor") else wanted
     for g in db.query(ResourceGrant).filter_by(resource_type=rtype, resource_id=rid):
-        if g.access not in wanted:
-            continue
-        if (g.principal_type == "user" and g.principal_id == user["id"]) or (
-            g.principal_type == "group" and g.principal_id in groups
-        ):
+        if g.principal_type == "user" and g.principal_id == user["id"] and g.access in wanted:
+            return True
+        if g.principal_type == "group" and g.principal_id in groups and g.access in group_wanted:
             return True
     return False
 

@@ -55,15 +55,15 @@ export function App() {
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="/admin/*" element={<Navigate to="/" replace />} />
             <Route path="/uploads" element={<MyUploadsPage />} />
-            <Route path="/knowledge" element={<Guard role="editor"><KnowledgePage /></Guard>} />
-            <Route path="/knowledge/:id" element={<Guard role="editor"><KnowledgeDetailPage /></Guard>} />
+            <Route path="/knowledge" element={<Guard role="user"><KnowledgePage /></Guard>} />
+            <Route path="/knowledge/:id" element={<Guard role="user"><KnowledgeDetailPage /></Guard>} />
             <Route path="/documents" element={<Navigate to="/knowledge" replace />} />
             <Route
               path="/documents/upload"
               element={<Navigate to="/knowledge" replace />}
             />
-            <Route path="/vectordb" element={<Guard role="editor"><VectorDbPage /></Guard>} />
-            <Route path="/vectordb/:docId" element={<Guard role="editor"><VectorDbDetailPage /></Guard>} />
+            <Route path="/vectordb" element={<Guard role="user"><VectorDbPage /></Guard>} />
+            <Route path="/vectordb/:docId" element={<Guard role="user"><VectorDbDetailPage /></Guard>} />
             <Route path="/summaries" element={<SummariesPage />} />
             <Route path="/summaries/:filename" element={<EditSummaryPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

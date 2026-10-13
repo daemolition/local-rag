@@ -4,7 +4,7 @@
 #   docker compose -f docker-compose.mac.yml up -d
 #
 # Alle Ports sind nur auf localhost gebunden.
-name: local-document-rag-mac
+name: open-knowledge-ui-mac
 
 services:
   # Datenbank der App; die native App verbindet sich ueber localhost:5432.
@@ -58,7 +58,7 @@ services:
       context: ./parakeet
       args:
         DEVICE: cpu
-    image: local-document-rag-parakeet-cpu
+    image: open-knowledge-ui-parakeet-cpu
     restart: unless-stopped
     environment:
       - PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3

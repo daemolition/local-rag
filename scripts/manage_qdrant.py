@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -394,7 +394,7 @@ Beispiele:
     uv run python scripts/manage_qdrant.py migrate \\
         --source-host localhost --source-port 6333 \\
         --target-host 192.168.1.100 --target-port 6333 \\
-        --collection local_rag
+        --collection open_knowledge_ui
 
     # Collection-Info
     uv run python scripts/manage_qdrant.py info --host localhost --port 6333

@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,7 @@
 Knowledge-Bereiche: Verwaltung und Pfad-Aufloesung.
 
 Jeder Bereich besitzt eine eigene Qdrant-Collection. Der Standard-Bereich
-(``is_default``) bleibt bei der urspruenglichen Collection ``local_rag`` und den
+(``is_default``) bleibt bei der urspruenglichen Collection ``open_knowledge_ui`` und den
 urspruenglichen Ordnern, damit Bestandsdaten unveraendert weiterlaufen.
 """
 
@@ -35,7 +35,7 @@ from app.settings_service import SettingsService
 
 logger = getLogger(__name__)
 
-DEFAULT_COLLECTION = "local_rag"
+DEFAULT_COLLECTION = "open_knowledge_ui"
 FILES_ROOT = Path("./data")
 
 
@@ -107,7 +107,7 @@ def knowledge_paths(knowledge: dict) -> KnowledgePaths:
 
 def ensure_default_knowledge(db_session) -> None:
     """Legt den Standard-Bereich an, falls er fehlt (idempotent)."""
-    # Nach dem Neu-Indexieren kann die Collection anders heissen als "local_rag".
+    # Nach dem Neu-Indexieren kann die Collection anders heissen als "open_knowledge_ui".
     existing = (
         db_session.query(Knowledge).filter_by(is_default=True).first()
         or db_session.query(Knowledge).filter_by(collection_name=DEFAULT_COLLECTION).first()
@@ -335,3 +335,53 @@ def set_reindex_error(knowledge_id: int, message: str | None) -> None:
             db.commit()
     finally:
         db.close()
+
+
+def create_sql_knowledge(name: str, description: str, source_config: dict) -> dict:
+    """Legt ein Knowledge fuer eine SQL-Datenbank an (keine Collection, keine Embeddings)."""
+    db = get_db_service().get_session()
+    try:
+        k = Knowledge(
+            name=name.strip(),
+            description=(description or "").strip(),
+            collection_name=f"sql_tmp_{os.urandom(6).hex()}",
+            is_default=False,
+            is_public=False,
+            kind="sql",
+            source_config=json.dumps(source_config),
+        )
+        db.add(k)
+        db.flush()
+        k.collection_name = f"sql_{k.id}"
+        db.commit()
+        return _to_dict(k)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def update_sql_source(knowledge_id: int, source_config: dict) -> dict | None:
+    db = get_db_service().get_session()
+    try:
+        k = db.query(Knowledge).filter_by(id=knowledge_id, kind="sql").first()
+        if not k:
+            return None
+        k.source_config = json.dumps(source_config)
+        db.commit()
+        return _to_dict(k)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def is_sql(knowledge: dict | None) -> bool:
+    return bool(knowledge) and knowledge.get("kind") == "sql"
+
+
+def is_remote(knowledge: dict | None) -> bool:
+    """Quelle ausserhalb: kein eigener Speicher, keine lokale Collection, nur lesend."""
+    return bool(knowledge) and knowledge.get("kind") in ("external", "sql")

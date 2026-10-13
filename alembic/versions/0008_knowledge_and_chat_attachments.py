@@ -5,7 +5,7 @@ Revises: 0007
 Create Date: 2026-10-12
 
 - knowledge: ein Bereich pro Qdrant-Collection. Der Bestand (Collection
-  ``local_rag``) wird zum Standard-Bereich.
+  ``open_knowledge_ui``) wird zum Standard-Bereich.
 - user_documents.knowledge_id: Zuordnung der Dokumente zum Bereich.
 - chat_attachments: Dateien, die im Chat hochgeladen wurden (pro Session).
 
@@ -44,19 +44,19 @@ def upgrade() -> None:
         )
 
     default_id = conn.execute(
-        sa.text("SELECT id FROM knowledge WHERE collection_name = 'local_rag'")
+        sa.text("SELECT id FROM knowledge WHERE collection_name = 'open_knowledge_ui'")
     ).scalar()
     if default_id is None:
         conn.execute(
             sa.text(
                 "INSERT INTO knowledge (name, description, collection_name, "
                 "is_default, created_at) VALUES ('Standard', "
-                "'Bisheriger Wissensbestand', 'local_rag', :t, CURRENT_TIMESTAMP)"
+                "'Bisheriger Wissensbestand', 'open_knowledge_ui', :t, CURRENT_TIMESTAMP)"
             ),
             {"t": True},
         )
         default_id = conn.execute(
-            sa.text("SELECT id FROM knowledge WHERE collection_name = 'local_rag'")
+            sa.text("SELECT id FROM knowledge WHERE collection_name = 'open_knowledge_ui'")
         ).scalar()
 
     doc_cols = {c["name"] for c in insp.get_columns("user_documents")}

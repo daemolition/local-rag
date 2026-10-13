@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -60,15 +60,20 @@ from app.ingest.index_doc import refresh_index
 from app.knowledge import (
     create_external_knowledge,
     create_knowledge,
+    create_sql_knowledge,
     delete_knowledge,
     get_knowledge,
     is_external,
+    is_remote,
+    is_sql,
     knowledge_paths,
     list_knowledge,
     update_external_source,
     update_knowledge,
+    update_sql_source,
 )
 from app.rag import model_settings
+from app.sqlsource import config as sqlcfg
 from app.vector import sources
 from app.settings_service import SettingsService
 from app.users import LoginThrottledError, authenticate, set_password, verify_password
@@ -145,10 +150,10 @@ def _current_knowledge() -> dict:
                 jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
             )
         )
-    if is_external(knowledge) and (level == "write" or request.path.startswith("/api/vectordb")):
+    if is_remote(knowledge) and (level == "write" or request.path.startswith("/api/vectordb")):
         abort(
             make_response(
-                jsonify({"success": False, "error": "Externe Quelle ist schreibgeschützt"}), 409
+                jsonify({"success": False, "error": "Diese Quelle ist schreibgeschützt"}), 409
             )
         )
     if level == "write":
@@ -187,7 +192,7 @@ def _get_collection_and_embeddings():
     if not sparse:
         return None
     # Modell des aktuellen Knowledge (nicht blind das globale)
-    return model_settings.embedder_for(_current_knowledge()), sparse, "local_rag"
+    return model_settings.embedder_for(_current_knowledge()), sparse, "open_knowledge_ui"
 
 
 def _index_data_references_best_effort() -> None:
@@ -337,6 +342,9 @@ def _knowledge_with_counts(knowledge: dict) -> dict:
         # Index passt nicht zur aktuellen Modell-/Zerlege-Konfiguration (Neu indexieren)
         "stale": model_settings.is_stale(knowledge),
     }
+    if is_sql(knowledge):
+        entry["source_config"] = sqlcfg.parse_config(knowledge.get("source_config")).public()
+        return entry
     if is_external(knowledge):
         entry["source_config"] = _public_source(knowledge)
         return entry
@@ -365,7 +373,7 @@ def knowledge_list():
 
 
 @api_bp.route("/knowledge", methods=["POST"])
-@require_role("editor")
+@require_role("user")
 def knowledge_create():
     from app.vector.collections import ensure_collection
 
@@ -378,6 +386,8 @@ def knowledge_create():
 
     if data.get("kind") == "external":
         return _create_external(name, data)
+    if data.get("kind") == "sql":
+        return _create_sql(name, data)
 
     try:  # Modell laden und Dimension per Probe ermitteln (beim ersten Mal ggf. Download)
         dimension = models_runtime.get_embedder(model_settings.embedding_spec()).dimension
@@ -453,6 +463,61 @@ def _create_external(name: str, data: dict):
     return jsonify(_knowledge_with_counts(knowledge)), 201
 
 
+def _sql_probe(cfg: "sqlcfg.SqlConfig") -> dict:
+    """Verbindungsprobe ueber den SQL-Worker. Wirft ValueError (Text fuer den Admin) bzw. RuntimeError (Worker nicht erreichbar)."""
+    from app.toolworker import client as worker
+    from app.toolworker import config as worker_config
+
+    try:
+        out = worker.get_client("sql").sql("test", {"connection": cfg.connection()}, worker_config.load_sql().timeout_s + 15)
+    except worker.ToolWorkerUnavailable as e:
+        raise RuntimeError(str(e)) from None
+    if not out.get("ok"):
+        raise ValueError(out.get("error") or "Verbindung fehlgeschlagen")
+    return {k: out.get(k) for k in ("version", "tables", "write_privilege")}
+
+
+def _sql_source_from(data: dict, stored: dict | None = None) -> "sqlcfg.SqlConfig":
+    cfg = sqlcfg.parse_config(data.get("source") or {})
+    old = sqlcfg.parse_config(stored.get("source_config")) if stored else None
+    cfg = sqlcfg.merge_password(cfg, old)
+    sqlcfg.validate(cfg)
+    return cfg
+
+
+def _sql_error(e: Exception):
+    if isinstance(e, RuntimeError):
+        return jsonify({"success": False, "error": str(e)}), 503
+    return jsonify({"success": False, "error": str(e)}), 400
+
+
+def _create_sql(name: str, data: dict):
+    if not role_at_least(current_user()["role"], "admin"):
+        return jsonify({"success": False, "error": "SQL-Quellen legen nur Admins an"}), 403
+    try:
+        cfg = _sql_source_from(data)
+        _sql_probe(cfg)
+    except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
+        return _sql_error(e)
+    knowledge = create_sql_knowledge(name, data.get("description", ""), cfg.to_dict())
+    add_grant("knowledge", knowledge["id"], "user", current_user()["id"], "write")
+    return jsonify(_knowledge_with_counts(knowledge)), 201
+
+
+@api_bp.route("/knowledge/sql/test", methods=["POST"])
+@require_role("admin")
+def knowledge_sql_test():
+    """Verbindungsprobe: Version, Tabellen mit Spalten, Warnung bei Schreibrechten (nichts wird gespeichert)."""
+    data = request.get_json() or {}
+    stored = get_knowledge(int(data["knowledge_id"])) if str(data.get("knowledge_id") or "").isdigit() else None
+    try:
+        cfg = _sql_source_from(data, stored if is_sql(stored) else None)
+        facts = _sql_probe(cfg)
+    except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
+        return _sql_error(e)
+    return jsonify({"success": True, **facts})
+
+
 @api_bp.route("/knowledge/external/test", methods=["POST"])
 @require_role("admin")
 def knowledge_external_test():
@@ -525,7 +590,7 @@ def knowledge_external_filter_test():
 
 
 @api_bp.route("/knowledge/<int:knowledge_id>", methods=["PATCH"])
-@require_role("editor")
+@require_role("user")
 def knowledge_update(knowledge_id):
     if not can_access_knowledge(current_user(), knowledge_id, "write"):
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
@@ -544,18 +609,27 @@ def knowledge_update(knowledge_id):
         except ValueError as e:
             return jsonify({"success": False, "error": str(e)}), 400
         update_external_source(knowledge_id, spec, dimension, cfg.to_dict())
+    if is_sql(current) and "source" in data:
+        if not role_at_least(current_user()["role"], "admin"):
+            return jsonify({"success": False, "error": "Nur Admins ändern die Quelle"}), 403
+        try:
+            cfg = _sql_source_from(data, current)
+            _sql_probe(cfg)
+        except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
+            return _sql_error(e)
+        update_sql_source(knowledge_id, cfg.to_dict())
     knowledge = update_knowledge(
         knowledge_id, data.get("name"), data.get("description")
     )
     if not knowledge:
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
-    if not is_external(knowledge):
+    if not is_remote(knowledge):
         refresh_index(knowledge_id)  # Name steht im Verzeichnis
     return jsonify(_knowledge_with_counts(knowledge))
 
 
 @api_bp.route("/knowledge/<int:knowledge_id>", methods=["DELETE"])
-@require_role("editor")
+@require_role("user")
 def knowledge_delete(knowledge_id):
     if not can_access_knowledge(current_user(), knowledge_id, "write"):
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
@@ -579,7 +653,7 @@ def knowledge_delete(knowledge_id):
         ), 404
 
     client = current_app.extensions.get("client")
-    if client and not is_external(knowledge):  # eine fremde Quelle wird nie angefasst
+    if client and not is_remote(knowledge):  # eine fremde Quelle wird nie angefasst
         try:
             client.delete_collection(knowledge["collection_name"])
         except Exception as e:
@@ -593,12 +667,12 @@ def knowledge_delete(knowledge_id):
 
 
 @api_bp.route("/knowledge/<int:knowledge_id>/reindex", methods=["POST"])
-@require_role("editor")
+@require_role("user")
 def knowledge_reindex(knowledge_id):
     if not can_access_knowledge(current_user(), knowledge_id, "write"):
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
-    if is_external(get_knowledge(knowledge_id)):
-        return jsonify({"success": False, "error": "Externe Quelle ist schreibgeschützt"}), 409
+    if is_remote(get_knowledge(knowledge_id)):
+        return jsonify({"success": False, "error": "Diese Quelle ist schreibgeschützt"}), 409
     return _start_reindex([knowledge_id])
 
 
@@ -695,7 +769,7 @@ def chat_attachment_status(attachment_id):
 
 
 @api_bp.route("/documents", methods=["GET"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def documents():
     db = get_db_service()
@@ -752,7 +826,7 @@ def documents():
 
 
 @api_bp.route("/documents/<int:doc_id>", methods=["DELETE"])
-@require_role("editor")
+@require_role("user")
 def delete_document(doc_id):
     from app.models import UserDocument
 
@@ -835,7 +909,7 @@ def my_uploads_delete(kind, item_id):
 
 
 @api_bp.route("/documents/<int:doc_id>/markdown", methods=["GET"])
-@require_role("editor")
+@require_role("user")
 def document_markdown(doc_id):
     """Das beim Einlesen erzeugte Markdown (so sieht der Splitter das Dokument).
     ``?download=1`` liefert eine Datei."""
@@ -883,7 +957,7 @@ def document_markdown(doc_id):
 
 
 @api_bp.route("/documents/upload", methods=["POST"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def upload_document():
     from app.utils.file_manager import store_uploaded_files
@@ -946,7 +1020,7 @@ def upload_document():
 
 
 @api_bp.route("/documents/upload/clear", methods=["POST"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def clear_uploaded_files():
     target_dir = knowledge_paths(_current_knowledge()).files_dir
@@ -972,7 +1046,7 @@ def clear_uploaded_files():
 
 
 @api_bp.route("/data-files", methods=["GET"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def data_files():
     from app.utils.file_manager import list_data_files
@@ -995,7 +1069,7 @@ def _data_file_path(filename: str) -> Path | None:
 
 
 @api_bp.route("/data-files/<path:filename>", methods=["GET"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def data_file_view(filename):
     """Vorschau (erste Zeilen) einer CSV/Excel-Datei; ``?download=1`` liefert die Datei selbst."""
@@ -1024,7 +1098,7 @@ def data_file_view(filename):
 
 
 @api_bp.route("/data-files/<path:filename>", methods=["DELETE"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def delete_data_file_route(filename):
     from app.utils.file_manager import delete_data_file
@@ -1048,7 +1122,7 @@ def delete_data_file_route(filename):
 
 
 @api_bp.route("/documents/ingest", methods=["POST"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def trigger_ingestion():
     from app import wait_for_resources
@@ -1103,7 +1177,7 @@ def trigger_ingestion():
 
 
 @api_bp.route("/vectordb", methods=["GET"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def vectordb():
     client = current_app.extensions.get("client")
@@ -1185,7 +1259,7 @@ def vectordb():
 
 
 @api_bp.route("/vectordb/<doc_id>", methods=["GET"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def vectordb_detail(doc_id):
     client = current_app.extensions.get("client")
@@ -1221,7 +1295,7 @@ def vectordb_detail(doc_id):
 
 
 @api_bp.route("/vectordb/<doc_id>", methods=["DELETE"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def delete_vectordb_document(doc_id):
     client = current_app.extensions.get("client")
@@ -1253,7 +1327,7 @@ def delete_vectordb_document(doc_id):
 
 
 @api_bp.route("/vectordb/batch-delete", methods=["POST"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def vectordb_batch_delete():
     client = current_app.extensions.get("client")
@@ -1298,7 +1372,7 @@ def vectordb_batch_delete():
 
 
 @api_bp.route("/vectordb/clear", methods=["POST"])
-@require_role("editor")
+@require_role("user")
 @knowledge_scoped
 def vectordb_clear_all():
     client = current_app.extensions.get("client")

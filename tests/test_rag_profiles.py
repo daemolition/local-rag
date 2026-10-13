@@ -163,9 +163,9 @@ def app(db, monkeypatch):
     # Standardprofil enthaelt Reranking: Tests duerfen kein Modell laden.
     monkeypatch.setattr(model_settings, "rerank_score", lambda model, q, texts: [-float(i) for i in range(len(texts))])
     qd = QdrantClient(":memory:")
-    ensure_collection(qd, "local_rag", 7)
+    ensure_collection(qd, "open_knowledge_ui", 7)
     for i, t in enumerate(["Dach Sanierung", "Dach Reparatur", "Dach Garantie", "Dach Daemmung"]):
-        add_point(qd, "local_rag", i + 1, t, filename=f"d{i}.md")
+        add_point(qd, "open_knowledge_ui", i + 1, t, filename=f"d{i}.md")
     app.extensions.update(client=qd, sparse_embeddings=FakeSparse())
     # Retrieval-Test und Suche nutzen den Embedder des Knowledge: hier der Fake
     monkeypatch.setattr(model_settings, "embedder_for", lambda k: FakeDense())
@@ -189,7 +189,7 @@ def test_profile_api_permissions(app, db):
 
     assert admin.get("/api/retrieval/profiles").status_code == 200
     assert ed.get("/api/retrieval/profiles").status_code == 200  # zum Auswaehlen am Knowledge
-    assert us.get("/api/retrieval/profiles").status_code == 403
+    assert us.get("/api/retrieval/profiles").status_code == 200  # auch Benutzer waehlen ein Profil fuer eigenes Knowledge
     for c in (ed, us):
         assert c.post("/api/retrieval/profiles", json={"name": "x"}).status_code in (403,)
         assert c.patch("/api/retrieval/profiles/1", json={"name": "y"}).status_code == 403
@@ -279,6 +279,8 @@ def test_test_endpoint_respects_knowledge_access(app, db):
     assert ed.post("/api/retrieval/test", json={"question": " "}).status_code == 400
 
 
-def test_normal_users_cannot_run_pipeline_tests(app, db):
+def test_normal_users_run_pipeline_tests_only_on_readable_knowledge(app, db):
     us = client_for(app, add_user(db, "us", "user"))
-    assert us.post("/api/retrieval/test", json={"question": "Dach"}).status_code == 403
+    private = knowledge.create_knowledge("Privat")
+    res = us.post("/api/retrieval/test", json={"question": "Dach", "knowledge_ids": [private["id"]]})
+    assert res.status_code in (400, 404) or not res.json.get("results")  # fremdes Knowledge wird nie getestet

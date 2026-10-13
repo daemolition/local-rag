@@ -322,11 +322,15 @@ def test_sharing_with_a_group_grants_read_but_not_write(app, db):
     )
     assert res.status_code == 200 and res.json["grants"][0]["name"] == "Team"
 
-    assert cb.get(f"/api/knowledge/{kb['id']}").json["can_write"] is False
-    assert cb.get(f"/api/documents?knowledge_id={kb['id']}").status_code == 200  # lesen
-    assert cb.post(f"/api/documents/ingest?knowledge_id={kb['id']}").status_code == 404  # schreiben
-    # Wer nur lesen darf, darf auch nicht weiter freigeben.
-    assert cb.put(f"/api/knowledge/{kb['id']}/access", json={"is_public": True}).status_code == 404
+    # Rolle "Benutzer": bleibt beim vergebenen Level (nur lesen)
+    carol = add_user(db, "carol", "user")
+    user_admin.set_group_members(group["id"], [bob["id"], carol["id"]])
+    cc = client_for(app, carol)
+    assert cc.get(f"/api/knowledge/{kb['id']}").json["can_write"] is False
+    assert cc.get(f"/api/documents?knowledge_id={kb['id']}").status_code == 200  # lesen
+    assert cc.post(f"/api/documents/ingest?knowledge_id={kb['id']}").status_code == 404  # schreiben
+    # Editor: alles, was einer seiner Gruppen freigegeben ist, darf er bearbeiten (auch bei Lese-Freigabe)
+    assert cb.get(f"/api/knowledge/{kb['id']}").json["can_write"] is True
 
 
 def test_access_endpoint_rejects_bad_principals(app, db):
@@ -428,7 +432,7 @@ def test_chat_scope_only_contains_readable_knowledge(app, db, conn, chat_env):
 
     # Nutzer fordert ausdruecklich auch das fremde Knowledge an.
     chat(c, model=ref, knowledge_ids=[mine["id"], foreign["id"], default["id"]])
-    assert set(chat_env[-1].collections) == {mine["collection_name"], "local_rag"}
+    assert set(chat_env[-1].collections) == {mine["collection_name"], "open_knowledge_ui"}
 
     chat(c, model=ref)  # None = alle lesbaren
     assert foreign["collection_name"] not in chat_env[-1].collections

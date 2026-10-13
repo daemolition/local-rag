@@ -15,7 +15,7 @@ RUN cd frontend && npm run build
 # --- Stage 2: Python-Runtime -------------------------------------------------
 FROM python:3.12-slim-bookworm
 
-LABEL maintainer="local-document-rag"
+LABEL maintainer="open-knowledge-ui"
 
 WORKDIR /app
 

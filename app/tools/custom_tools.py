@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -20,8 +20,6 @@ Custom tools for the agent
 
 # Standard library
 import os
-import io
-import contextlib
 from pathlib import Path
 from logging import getLogger
 import time
@@ -29,7 +27,6 @@ from charset_normalizer import from_bytes
 
 # Third party
 import pandas as pd
-import numpy as np
 from pydantic import BaseModel, Field
 
 from langchain_core.tools.structured import StructuredTool
@@ -37,6 +34,8 @@ from app.rag.format import format_hits, record_sources
 from app.ingest.index_doc import read_indexes
 from app.retrieval import get_scope_or_none
 from app.utils.phase_logger import phase_logger, Phase
+from app.toolworker import config as worker_config
+from app.toolworker.client import ToolWorkerUnavailable, get_client
 
 logger = getLogger(__name__)
 
@@ -268,8 +267,9 @@ Filterungen, Gruppierungen und Aggregationen – wie ein professioneller Datenan
 - Nur lesende Operationen erlaubt (keine Datei-Exports).
 
 ### Sicherheit:
-Folgende Befehle sind aus Sicherheitsgründen BLOCKIERT:
-- os., sys., subprocess, __import__, open, to_csv, to_sql, to_json, eval(, exec(
+Der Code läuft isoliert in einem eigenen Container und wird vorher geprüft. Nicht erlaubt sind:
+Importe, Zugriffe auf Namen mit "__", open, eval, exec, compile, getattr, type, Lesen und Schreiben von Dateien
+(read_*, to_csv, to_excel, …). Nur df, pd, np und result stehen zur Verfügung.
 
 ### Output:
 Ein String mit dem Analyseergebnis oder einer Fehlermeldung bei Problemen.
@@ -280,19 +280,19 @@ LIST_SUMMARIES_DESCRIPTION = """
 list_summaries
 
 ### Tool Description:
-Listet alle verfügbaren Markdown-Analysen im summaries-Verzeichnis auf.
-Dies ist der erste Schritt, um zu verstehen, welche gespeicherten Analysen bereits existieren.
+Listet alle Markdown-Dateien aus "Meine Ablagen" des Nutzers auf.
+Dies ist der erste Schritt, um zu verstehen, welche Ablagen bereits existieren.
 
 ### Wann dieses Tool verwenden:
-1. Wenn der Nutzer wissen möchte, welche Analysen bereits gespeichert wurden.
-2. Vor dem Lesen oder Bearbeiten einer Analyse, um den korrekten Dateinamen zu ermitteln.
-3. Um den Fortschritt einer Analyse zu überprüfen (weitere Teile hinzugefügt?).
+1. Wenn der Nutzer wissen möchte, welche Ablagen bereits gespeichert wurden.
+2. Vor dem Lesen oder Bearbeiten einer Ablage, um den korrekten Dateinamen zu ermitteln.
+3. Um den Fortschritt einer Ablage zu überprüfen (weitere Teile hinzugefügt?).
 
 ### Workflow:
-1. Rufe `list_summaries` auf, um alle verfügbaren Analysen zu sehen.
-2. Wähle eine relevante Analyse basierend auf dem Dateinamen.
+1. Rufe `list_summaries` auf, um alle Ablagen zu sehen.
+2. Wähle eine passende Ablage basierend auf dem Dateinamen.
 3. Nutze `read_summary`, um den Inhalt zu lesen.
-4. Nutze `edit_summary`, um die Analyse zu erweitern.
+4. Nutze `edit_summary`, um die Ablage zu erweitern.
 
 ### Input:
 Keine Parameter erforderlich.
@@ -306,16 +306,16 @@ READ_SUMMARY_DESCRIPTION = """
 read_summary
 
 ### Tool Description:
-Liest den vollständigen Inhalt einer gespeicherten Markdown-Analyse aus dem summaries-Verzeichnis.
+Liest den vollständigen Inhalt einer Ablage (Markdown-Datei) aus dem summaries-Verzeichnis.
 
 ### Wann dieses Tool verwenden:
-1. Um eine existierende Analyse zu überprüfen.
-2. Um eine Analyse als Grundlage für eine neue Analyse zu nutzen.
-3. Um den aktuellen Stand einer fortlaufenden Analyse zu sehen.
-4. Wenn der Nutzer nach dem Inhalt einer spezifischen Analyse fragt.
+1. Um eine existierende Ablage zu überprüfen.
+2. Um eine Ablage als Grundlage für eine neue Analyse zu nutzen.
+3. Um den aktuellen Stand einer fortlaufenden Ablage zu sehen.
+4. Wenn der Nutzer nach dem Inhalt einer bestimmten Ablage fragt.
 
 ### Workflow:
-1. Liste Analysen mit `list_summaries` auf.
+1. Liste die Ablagen mit `list_summaries` auf.
 2. Wähle die gewünschte Datei.
 3. Rufe `read_summary` mit dem Dateinamen auf.
 4. Analysiere den Inhalt und fahre fort.
@@ -336,18 +336,22 @@ WRITE_SUMMARY_DESCRIPTION = """
 write_summary
 
 ### Tool Description:
-Erstellt eine neue Markdown-Analyse-Datei im summaries-Verzeichnis oder überschreibt eine existierende.
+Legt eine neue Markdown-Datei in "Meine Ablagen" des Nutzers an oder überschreibt eine existierende.
 
 ### Wann dieses Tool verwenden:
-1. Um eine neue Analyse zu starten und zu speichern.
-2. Um wichtige Erkenntnisse aus einer Dokumentenanalyse zu persistieren.
+1. Der Nutzer bittet ausdrücklich darum, etwas abzulegen oder zu speichern.
+2. Um Erkenntnisse einer Dokumentenanalyse oder eine Zusammenfassung des Gesprächs zu persistieren.
 3. Um Teilergebnisse zu speichern, die später zu einem Gesamtbild kombiniert werden.
-4. Um eine Analyse als Vorlage für zukünftige Analysen zu erstellen.
+
+### WICHTIG - Inhalt:
+- Der Inhalt stammt aus dem, was der Nutzer ablegen will: das **Gespräch ODER** eine **Dokumentanalyse**. Vermische beides nicht.
+- Nimm nichts auf, was im Gespräch oder in den Suchergebnissen nicht vorkam.
+- Einen Quellenabschnitt nur, wenn tatsächlich Dokumente verwendet wurden.
 
 ### Workflow:
-1. Führe Analysen durch (document_search, run_pandas, etc.).
+1. Falls Dokumente analysiert werden sollen: Führe die Analyse durch (document_search, run_pandas, etc.). Bei einer Gesprächs-Zusammenfassung ist keine Suche nötig.
 2. Strukturiere die Ergebnisse als Markdown.
-3. Speichere die Analyse mit `write_summary`.
+3. Speichere mit `write_summary`.
 4. Erweitere später mit `edit_summary` bei Bedarf.
 
 ### Input:
@@ -356,7 +360,7 @@ Erstellt eine neue Markdown-Analyse-Datei im summaries-Verzeichnis oder übersch
 
 ### Markdown-Struktur empfohlen:
 ```markdown
-# Analyse: [Titel]
+# [Titel]
 
 ## Zusammenfassung
 [Kurze Zusammenfassung]
@@ -368,7 +372,7 @@ Erstellt eine neue Markdown-Analyse-Datei im summaries-Verzeichnis oder übersch
 ## Details
 [Ausführliche Analyse]
 
-## Quellen
+## Quellen (nur bei Dokumentanalysen)
 - Dokument A
 - Tabelle B
 ```
@@ -382,17 +386,17 @@ EDIT_SUMMARY_DESCRIPTION = """
 edit_summary
 
 ### Tool Description:
-Bearbeitet eine existierende Markdown-Analyse-Datei, um neue Erkenntnisse hinzuzufügen oder den Inhalt zu aktualisieren.
+Bearbeitet eine existierende Ablage (Markdown-Datei in "Meine Ablagen"), um Inhalt hinzuzufügen oder zu aktualisieren.
 
 ### Wann dieses Tool verwenden:
-1. Um eine existierende Analyse zu erweitern (append).
+1. Um eine existierende Ablage zu erweitern (append).
 2. Um neue Erkenntnisse am Anfang hinzuzufügen (prepend).
-3. Um eine Analyse komplett zu aktualisieren (replace).
+3. Um eine Ablage komplett zu aktualisieren (replace).
 4. Um mehrere Teilergebnisse zu einem Gesamtbild zusammenzuführen.
 
 ### Workflow für Gesamtbild-Erstellung:
-1. Erstelle initiale Analyse mit `write_summary`.
-2. Führe weitere Analysen durch.
+1. Lege die Ablage zuerst mit `write_summary` an.
+2. Ergänze sie bei Bedarf mit neuen Ergebnissen.
 3. Füge neue Abschnitte mit `edit_summary` (mode='append') hinzu.
 4. Wiederhole, bis das Gesamtbild vollständig ist.
 
@@ -531,148 +535,33 @@ class CustomTools:
             return f"FEHLER beim Laden von '{filename}': {type(e).__name__}: {e}"
 
     def run_pandas(self, filename: str, code: str) -> str:
-        """Führt Pandas-Code auf einem DataFrame aus."""
+        """Führt Pandas-Code auf einer Datei aus. Die Ausführung läuft im Tool-Worker (eigener Container)."""
+        phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Datei: {filename}")
         start_time = time.time()
-        phase_logger.log_phase(
-            Phase.TOOL_EXECUTION, f"Tool: run_pandas | Datei: {filename}"
-        )
 
+        path = self._allowed_files().get(filename)
+        rel = os.path.relpath(path, self.DATA_DIR) if path else ""
+        if not path or rel.startswith(".."):
+            return (
+                f"FEHLER: Datei '{filename}' konnte nicht geladen werden: "
+                f"Datei '{filename}' ist nicht verfügbar"
+            )
+        limits = worker_config.load()
         try:
-            df = self._get_dataframe(filename)
-        except Exception as e:
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                f"Tool: run_pandas | Fehler beim Laden: {filename}",
-                duration=0.0,
+            out = get_client().run_pandas(
+                rel.replace(os.sep, "/"),
+                code,
+                timeout_s=limits.timeout_s,
+                memory_mb=limits.memory_mb,
+                max_output_chars=limits.max_output_chars,
             )
-            return f"FEHLER: Datei '{filename}' konnte nicht geladen werden: {e}"
-
-        if df.empty:
+        except ToolWorkerUnavailable as e:
             phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                f"Tool: run_pandas | Datei leer: {filename}",
-                duration=0.0,
+                Phase.TOOL_EXECUTION, "Tool: run_pandas | Worker nicht verfügbar", duration=time.time() - start_time
             )
-            return f"Die Datei '{filename}' ist leer oder enthält keine Daten."
-
-        # Guardrails / Security
-        forbidden_keywords = [
-            "os.",
-            "sys.",
-            "subprocess",
-            "__import__",
-            "open(",
-            "to_csv",
-            "to_sql",
-            "to_json",
-            "to_excel",
-            "to_pickle",
-            "eval(",
-            "exec(",
-            "compile(",
-            "__builtins__",
-            "import os",
-            "import sys",
-            "import subprocess",
-        ]
-
-        for word in forbidden_keywords:
-            if word in code:
-                phase_logger.log_phase(
-                    Phase.TOOL_EXECUTION,
-                    f"Tool: run_pandas | Sicherheitsverletzung: {word}",
-                    duration=0.0,
-                )
-                return f"FEHLER: '{word}' ist aus Sicherheitsgründen blockiert."
-
-        # Exec globals
-        exec_globals = {
-            "__builtins__": {
-                "range": range,
-                "len": len,
-                "sum": sum,
-                "min": min,
-                "max": max,
-                "abs": abs,
-                "round": round,
-                "sorted": sorted,
-                "enumerate": enumerate,
-                "zip": zip,
-                "map": map,
-                "filter": filter,
-                "list": list,
-                "dict": dict,
-                "set": set,
-                "tuple": tuple,
-                "str": str,
-                "int": int,
-                "float": float,
-                "bool": bool,
-                "print": print,
-                "isinstance": isinstance,
-                "type": type,
-                "True": True,
-                "False": False,
-                "None": None,
-                "Exception": Exception,
-                "ValueError": ValueError,
-                "KeyError": KeyError,
-                "TypeError": TypeError,
-                "RuntimeError": RuntimeError,
-                "IndexError": IndexError,
-                "AttributeError": AttributeError,
-                "ZeroDivisionError": ZeroDivisionError,
-            },
-            "df": df,
-            "pd": pd,
-            "np": np,
-            "result": None,
-        }
-
-        output_buffer = io.StringIO()
-
-        try:
-            with contextlib.redirect_stdout(output_buffer):
-                exec(code, exec_globals)
-
-            result = exec_globals.get("result")
-            printed_output = output_buffer.getvalue().strip()
-
-            report = []
-
-            if printed_output:
-                report.append(f"Konsolenausgabe:\n{printed_output}")
-
-            if result is not None:
-                report.append(f"Ergebnis:\n{result}")
-
-            if not report:
-                duration = time.time() - start_time
-                phase_logger.log_phase(
-                    Phase.TOOL_EXECUTION,
-                    "Tool: run_pandas | Kein Ergebnis zurückgegeben",
-                    duration=duration,
-                )
-                return "Code wurde ausgeführt, aber kein Ergebnis zurückgegeben.\nTipp: Weise das Ergebnis der Variable 'result' zu, z. B.: result = df['Spalte'].sum()"
-
-            duration = time.time() - start_time
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                "Tool: run_pandas | Ergebnis zurückgegeben",
-                duration=duration,
-            )
-
-            return "\n\n".join(report)
-
-        except Exception as e:
-            duration = time.time() - start_time
-            logger.error(f"Pandas-Ausführung fehlgeschlagen: {type(e).__name__}: {e}")
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                f"Tool: run_pandas | Fehler: {type(e).__name__}",
-                duration=duration,
-            )
-            return f"FEHLER bei der Ausführung: {type(e).__name__}: {e}\n\nKorrigiere den Code und versuche erneut."
+            return f"FEHLER: Codeausführung nicht verfügbar ({e}) Die Auswertung kann gerade nicht durchgeführt werden."
+        phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: run_pandas | fertig", duration=time.time() - start_time)
+        return out
 
     def _validate_summary_filename(self, filename: str) -> str:
         """Validiert und bereinigt den Dateinamen für summaries."""

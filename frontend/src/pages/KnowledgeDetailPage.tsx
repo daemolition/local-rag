@@ -29,6 +29,8 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { KnowledgeDialog } from "@/components/KnowledgeDialog";
 import { DataFileDialog } from "@/components/DataFileDialog";
 import { ExternalSourceDialog } from "@/components/ExternalSourceDialog";
+import { SqlSourceDialog } from "@/components/SqlSourceDialog";
+import type { ExternalSource, SqlSource } from "@/lib/types";
 import { MarkdownDialog } from "@/components/MarkdownDialog";
 import { ReindexProgress } from "@/components/ReindexProgress";
 import { useAuth } from "@/context/AuthContext";
@@ -236,16 +238,21 @@ export function KnowledgeDetailPage() {
 
   const busy = ingesting || isIngesting;
   const external = knowledge.kind === "external";
+  const sql = knowledge.kind === "sql";
+  // Fremde Quellen (Vektorspeicher, SQL) sind schreibgeschützt und haben keine eigenen Dokumente
+  const remote = external || sql;
+  const sqlSource = sql ? (knowledge.source_config as SqlSource | undefined) : undefined;
+  const extSource = external ? (knowledge.source_config as ExternalSource | undefined) : undefined;
   const isAdmin = hasRole("admin");
   // Externe Quellen sind schreibgeschützt: kein Upload, Einlesen, Löschen oder Neu-Indexieren
-  const canWrite = knowledge.can_write && !external;
+  const canWrite = knowledge.can_write && !remote;
   const activeProfile = profiles.find(
     (p) => p.id === (knowledge.retrieval_profile_id ?? profiles.find((x) => x.is_default)?.id),
   );
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-5xl space-y-6 p-6">
+      <div className="w-full space-y-6 p-6">
         <div className="space-y-3 border-b border-border-base pb-4">
           <Button variant="ghost" size="sm" asChild className="-ml-3">
             <Link to="/knowledge">
@@ -286,7 +293,7 @@ export function KnowledgeDetailPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {external ? null : (
+              {remote ? null : (
                 <Button variant="secondary" size="sm" asChild>
                   <Link to={`/vectordb?kb=${knowledge.id}`}>
                     <Database className="size-4" />
@@ -294,13 +301,13 @@ export function KnowledgeDetailPage() {
                   </Link>
                 </Button>
               )}
-              {external && isAdmin ? (
+              {remote && isAdmin ? (
                 <Button variant="secondary" size="sm" onClick={() => setSourceOpen(true)}>
                   <Pencil className="size-4" />
                   Quelle bearbeiten
                 </Button>
               ) : null}
-              {knowledge.can_write ? (
+              {knowledge.can_write && hasRole("editor") ? (
                 <Button variant="secondary" size="sm" onClick={() => setAccessOpen(true)}>
                   <Share2 className="size-4" />
                   Freigaben
@@ -429,12 +436,14 @@ export function KnowledgeDetailPage() {
         ) : (
           <p className="rounded-lg border border-border-base bg-surface-subtle px-4 py-3 text-sm text-muted-foreground">
             {external
-              ? `Externe Quelle (nur lesen): ${knowledge.source_config?.url ?? ""} · Collection „${knowledge.source_config?.collection ?? ""}“. Sie wird bei jeder Frage live abgefragt und nie verändert.`
-              : "Du hast nur Leserechte auf dieses Knowledge."}
+              ? `Externe Quelle (nur lesen): ${extSource?.url ?? ""} · Collection „${extSource?.collection ?? ""}“. Sie wird bei jeder Frage live abgefragt und nie verändert.`
+              : sql
+                ? `SQL-Datenbank (nur lesen): ${sqlSource?.dialect === "sqlite" ? sqlSource.database : `${sqlSource?.host ?? ""}${sqlSource?.instance ? `\\${sqlSource.instance}` : ""} · ${sqlSource?.database ?? ""}`}. Das Modell fragt sie bei jeder Frage live ab; es werden keine Daten kopiert.`
+                : "Du hast nur Leserechte auf dieses Knowledge."}
           </p>
         )}
 
-        {external ? null : (
+        {remote ? null : (
           <>
         <section className="space-y-3">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
@@ -549,9 +558,15 @@ export function KnowledgeDetailPage() {
       </div>
 
       <ExternalSourceDialog
-        open={sourceOpen}
+        open={sourceOpen && external}
         onOpenChange={setSourceOpen}
         existing={external ? knowledge : null}
+        onSaved={() => void load()}
+      />
+      <SqlSourceDialog
+        open={sourceOpen && sql}
+        onOpenChange={setSourceOpen}
+        existing={sql ? knowledge : null}
         onSaved={() => void load()}
       />
       <DataFileDialog

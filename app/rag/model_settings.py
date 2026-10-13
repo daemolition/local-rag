@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -132,7 +132,7 @@ def is_stale(knowledge: dict) -> bool:
 
     Ohne gespeicherte Signatur (Altbestand) zaehlt nur ein anderes Modell.
     """
-    if knowledge.get("kind") == "external":
+    if knowledge.get("kind") in ("external", "sql"):
         return False  # fremde Quelle: ihr Modell ist unabhaengig vom globalen
     current = embedding_spec()
     if knowledge_spec(knowledge).key != current.key:
@@ -187,7 +187,7 @@ def prepare(client) -> None:
     from app.vector.collections import ensure_collection
 
     for kb in list_knowledge():
-        if kb["embedding_dimension"] or kb.get("kind") == "external":
+        if kb["embedding_dimension"] or kb.get("kind") in ("external", "sql"):
             continue
         try:
             dim = mr.get_embedder(knowledge_spec(kb)).dimension

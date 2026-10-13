@@ -42,3 +42,34 @@ def silence_phase_logger():
     phase_logger.logger.disabled = True
     yield
     phase_logger.logger.disabled = False
+
+@pytest.fixture
+def worker(monkeypatch, db):
+    """Pandas-Auswertungen laufen gegen einen Worker im selben Prozess."""
+    from app.tools.custom_tools import CustomTools
+    from app.toolworker import client as worker_client
+    from tests import worker_support
+
+    w = worker_support.install(monkeypatch)
+    original_init = CustomTools.__init__
+
+    def init(self, *a, **k):
+        original_init(self, *a, **k)
+        w.root = self.DATA_DIR
+
+    monkeypatch.setattr(CustomTools, "__init__", init)
+    yield w
+    worker_client.set_override(None)
+
+
+@pytest.fixture
+def sql_worker(monkeypatch, db, tmp_path):
+    """SQL-Abfragen laufen gegen einen Worker im selben Prozess; SQLite-Dateien liegen in tmp_path/sqlite."""
+    from app.toolworker import client as worker_client
+    from tests import worker_support
+
+    folder = tmp_path / "sqlite"
+    folder.mkdir()
+    worker_support.install_sql(monkeypatch, folder)
+    yield folder
+    worker_client.set_override(None, "sql")

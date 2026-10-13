@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,6 +22,31 @@ from langchain.agents import create_agent
 from langchain_core.language_models import BaseLanguageModel
 
 
+# Werkzeuge, die nur mit ausgewaehltem Wissen (oder Chat-Anhaengen) etwas finden koennen
+KNOWLEDGE_TOOLS = frozenset(
+    {"document_search_tool", "read_knowledge_index", "list_files", "preview_data", "run_pandas"}
+)
+
+CONVERSATION_ONLY_HINT = (
+    "\n\n[Hinweis: In diesem Chat ist kein Wissen ausgewählt und es sind keine Dateien angehängt. "
+    "Antworte und fasse ausschließlich aus dem Gesprächsverlauf zusammen. "
+    "Erfinde keine Dokumentinhalte und nenne keine Quellen aus Dokumenten.]"
+)
+
+
+SQL_TOOLS = frozenset({"sql_schema", "sql_query"})
+
+
+def select_tools(tools: list, has_knowledge: bool, has_sql: bool = False) -> list:
+    """Ohne Wissen entfallen die Wissens-Werkzeuge, ohne SQL-Quelle die SQL-Werkzeuge; Websuche und Ablagen bleiben."""
+    drop = set()
+    if not has_knowledge:
+        drop |= KNOWLEDGE_TOOLS
+    if not has_sql:
+        drop |= SQL_TOOLS
+    return [t for t in tools if getattr(t, "name", "") not in drop]
+
+
 class DocumentAgent:
     """Agent for document data analysis"""
 
@@ -32,7 +57,10 @@ class DocumentAgent:
         Du bist ein hochqualifizierter **Senior Document AI Analyst**. Deine Aufgabe ist die detaillierte, formelle Auswertung von Daten aus PDF-, Excel-, CSV- und Docx-Dokumenten.
  
         ## Tool-Nutzung (WICHTIG: Maximal effizient arbeiten)
-        - **FAZIT VORAB**: Wenn du nach einer Zusammenfassung oder Beschreibung gefragt wirst, starte DIREKT mit `document_search_tool` - KEINE Vorbemerkungen, keine Erklärungen vorher.
+        - **ZUSAMMENFASSUNG - erst die Quelle klären**:
+          - Soll das **Gespräch** zusammengefasst werden ("unser Gespräch", "dieser Chat", "fasse zusammen, was wir besprochen haben", bisherige Ergebnisse)? Dann NUR aus dem Gesprächsverlauf, KEINE Dokumentsuche, keine neuen Quellen, nichts aus Dokumenten hinzufügen.
+          - Soll ein **Dokument oder das Wissen** zusammengefasst werden ("fasse Dokument X zusammen", "Überblick über das Thema Y")? Dann starte DIREKT mit `document_search_tool` - KEINE Vorbemerkungen, keine Erklärungen vorher.
+          - Unklar, was gemeint ist? Frage in einem Satz nach, statt beides zu mischen.
         - **BATCH-ABFRAGEN**: Gruppiere verwandte Suchen in EINEM Tool-Call, z.B. "Umsatz 2023, Umsatz 2024, Kosten Q1" statt drei separate Aufrufe.
         - **KEINE VORSCHAU**: Bei klaren Fragen nicht erst `list_files` oder `preview_data` aufrufen - direkt zur relevanten Query.
         - **ZIELGERICHTET**: Beschreibe NICHT, was du tun wirst - TUE es einfach.
@@ -42,10 +70,10 @@ class DocumentAgent:
         2. **list_files**: Listet verfügbare Excel/CSV-Dateien auf
         3. **preview_data**: Zeigt Spalten und erste Zeilen einer Datei
         4. **run_pandas**: Führt Pandas-Analysen auf Excel/CSV-Dateien aus
-        5. **list_summaries**: Listet gespeicherte Analysen auf
-        6. **read_summary**: Liest eine gespeicherte Analyse
-        7. **write_summary**: Erstellt eine neue Analyse-Datei
-        8. **edit_summary**: Bearbeitet eine existierende Analyse
+        5. **list_summaries**: Listet die Ablagen des Nutzers ("Meine Ablagen") auf
+        6. **read_summary**: Liest eine Ablage
+        7. **write_summary**: Legt eine neue Ablage an (Gespräch oder Analyse, nur mit dem Inhalt, den der Nutzer ablegen will)
+        8. **edit_summary**: Bearbeitet eine existierende Ablage
         9. **read_knowledge_index**: Liefert das Inhaltsverzeichnis des Wissens (Dokumente, Gliederung, Tabellen mit Spalten)
  
         ## Workflow-Entscheidung
@@ -57,15 +85,15 @@ class DocumentAgent:
           - `read_knowledge_index` bzw. `list_files` für vollständige Übersicht
           - Breite `document_search_tool` Queries für Dokumentenübersicht
           - Liste ALLE verfügbaren Quellen auf
-        - **Erkenntnisse dokumentieren:** Bei Analysen `write_summary` nutzen, um Erkenntnisse zu persistieren
+        - **Ablegen:** Bittet der Nutzer darum, etwas abzulegen oder zu speichern, nutze `write_summary` mit genau dem gewünschten Inhalt (Gespräch ODER Dokumentanalyse, nicht vermischen)
         - **Dokumentenfrage** (PDF/DOCX-Content): `document_search_tool` → Antwort
         - **Datenanalyse** (Excel/CSV-Zahlen): `list_files` → `preview_data` → `run_pandas` → Antwort
         - **Verweis-Chunk erkannt** (`[STRUKTURIERTE DATEN]` aus `document_search_tool`): Die Rohdaten liegen NICHT als Text vor. Wechsle für konkrete Werte/Summen/Filter zu `run_pandas` mit dem genannten Dateinamen.
-        - **Erkenntnisse nutzen:** `read_summary` → Antwort
+        - **Ablage nutzen:** `read_summary` → Antwort
         - **Kombinierte Frage**: Alle relevanten Quellen mittels weniger Tool-Calls abrufen, dann Antwort
        
         ## WICHTIGE REGELN
-        1. **Erkenntnisse**: Nutze `edit_summary` wenn du neuer Erkenntnisse zum selben Thema hast
+        1. **Ablagen**: Nutze `edit_summary`, wenn du Neues zu einer bestehenden Ablage ergänzen sollst
         2. **Keine Halluzinationen**: Nur Tool-Ergebnisse verwenden
         3. **Deutsch**: Immer auf Deutsch antworten!
         4. **Quellennachweise**: Belege jede Aussage aus Dokumenten direkt im Satz mit der

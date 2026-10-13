@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Check,
   Copy,
+  Database,
   FileSearch,
   FileText,
   Globe,
@@ -36,10 +37,12 @@ const TOOL_META: Record<string, { label: string; icon: ReactNode }> = {
   list_files: { label: "Dateiauflistung", icon: <FileText className="size-4" /> },
   preview_data: { label: "Datenvorschau", icon: <FileSearch className="size-4" /> },
   run_pandas: { label: "Datenanalyse", icon: <BarChart3 className="size-4" /> },
-  list_summaries: { label: "Analyseauflistung", icon: <List className="size-4" /> },
-  read_summary: { label: "Analyseabruf", icon: <Table className="size-4" /> },
-  write_summary: { label: "Analyseerstellung", icon: <FileText className="size-4" /> },
-  edit_summary: { label: "Analysebearbeitung", icon: <FileText className="size-4" /> },
+  sql_schema: { label: "Datenbank-Schema", icon: <Database className="size-4" /> },
+  sql_query: { label: "Datenbankabfrage", icon: <Database className="size-4" /> },
+  list_summaries: { label: "Ablagen auflisten", icon: <List className="size-4" /> },
+  read_summary: { label: "Ablage lesen", icon: <Table className="size-4" /> },
+  write_summary: { label: "Ablage speichern", icon: <FileText className="size-4" /> },
+  edit_summary: { label: "Ablage bearbeiten", icon: <FileText className="size-4" /> },
 };
 
 function toolMeta(name: string) {

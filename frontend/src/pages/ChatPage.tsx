@@ -6,7 +6,7 @@ import { uid } from "@/lib/utils";
 import { Composer, ATTACH_ACCEPT } from "@/components/chat/Composer";
 import { Message, type SourceInfo, type ToolCall, type ToolResult } from "@/components/chat/Message";
 import { useSessions } from "@/context/SessionsContext";
-import { useStt } from "@/hooks/useStt";
+import { useStt, type SttMode } from "@/hooks/useStt";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { consumeChatStream, type ChatStreamEvent } from "@/lib/sse";
 import type {
@@ -135,9 +135,12 @@ export function ChatPage() {
   const selectedModel =
     [chosenModel, defaultModel].find((r) => models.some((m) => m.ref === r)) ?? "";
   const activeModel = models.find((m) => m.ref === selectedModel);
+  // Gesperrt nur, wenn der Admin zusätzliches Knowledge nicht erlaubt hat (sonst: Modell-Wissen + eigene Auswahl)
   const knowledgeLocked = Boolean(
-    activeModel?.knowledge_locked || activeModel?.config?.knowledge_ids?.length,
+    activeModel?.knowledge_locked ||
+      (activeModel?.config?.knowledge_ids?.length && activeModel.config.allow_extra_knowledge === false),
   );
+  const baseKnowledge = activeModel?.knowledge_base ?? [];
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -554,7 +557,19 @@ export function ChatPage() {
     void sendMessage(message);
   };
 
+  const [sttConfig, setSttConfig] = useState<{ available: boolean; mode: SttMode }>({
+    available: true,
+    mode: "stream",
+  });
+  useEffect(() => {
+    api
+      .get<{ available: boolean; mode: SttMode }>("/api/stt/config")
+      .then(setSttConfig)
+      .catch(() => undefined);
+  }, []);
+
   const stt = useStt({
+    mode: sttConfig.mode,
     onText: (text) => setInput(text),
     onFinal: (text) => {
       setInput("");
@@ -566,6 +581,8 @@ export function ChatPage() {
   const toggleMic = async () => {
     try {
       if (stt.recording) stt.stop();
+      else if (stt.transcribing) return;
+      else if (!sttConfig.available) toast.error("Die Spracheingabe ist nicht eingerichtet (Administration › Tools).");
       else await stt.start();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -589,10 +606,12 @@ export function ChatPage() {
       selectedKnowledge={selectedKnowledge}
       onSelectKnowledge={changeKnowledge}
       knowledgeLocked={knowledgeLocked}
+      baseKnowledge={baseKnowledge}
       models={models}
       selectedModel={selectedModel}
       onSelectModel={changeModel}
       recording={stt.recording}
+      transcribing={stt.transcribing}
       onToggleMic={toggleMic}
       textareaRef={textareaRef}
     />
@@ -638,9 +657,9 @@ export function ChatPage() {
       <div className="mx-auto w-full max-w-5xl shrink-0 px-4 pb-4 pt-2">
         {composer}
       </div>
-      {stt.recording ? (
+      {stt.recording || stt.transcribing ? (
         <span className="sr-only" aria-live="polite">
-          Aufnahme läuft
+          {stt.recording ? "Aufnahme läuft" : "Wird transkribiert"}
         </span>
       ) : null}
     </div>

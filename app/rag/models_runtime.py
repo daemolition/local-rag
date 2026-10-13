@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -37,7 +37,6 @@ import time
 from dataclasses import dataclass
 from logging import getLogger
 
-import requests
 
 from app.utils.device import onnx_providers, torch_device
 
@@ -173,52 +172,21 @@ def _connection(spec: ModelSpec) -> dict:
     return conn
 
 
-def _post(url: str, key: str, payload: dict, what: str) -> requests.Response:
-    headers = {"Authorization": f"Bearer {key}"} if key else {}
-    last: Exception | None = None
-    for attempt in range(3):
-        try:
-            resp = requests.post(
-                url, json=payload, headers=headers, timeout=HTTP_TIMEOUT, allow_redirects=False
-            )
-        except requests.exceptions.RequestException as e:
-            last = e
-        else:
-            if 300 <= resp.status_code < 400:
-                raise ModelLoadError(f"{what}: Weiterleitung wird nicht verfolgt (HTTP {resp.status_code})")
-            if resp.status_code in (401, 403):
-                raise ModelLoadError(f"{what}: Zugriff verweigert (HTTP {resp.status_code}), API-Key prüfen")
-            if resp.status_code < 500:
-                return resp
-            last = RuntimeError(f"HTTP {resp.status_code}")
-        time.sleep(0.5 * (attempt + 1))
-    raise ModelLoadError(f"{what}: {last}")
-
-
 class EndpointEmbedder(_Embedder):
+    """Embedding ueber eine Connection (OpenAI-kompatibel, TEI oder Infinity, siehe app/rag/endpoints.py)."""
+
     def __init__(self, spec: ModelSpec):
         self.spec = spec
-        conn = _connection(spec)
-        self._url = f"{conn['base_url']}/embeddings"
-        self._key = conn["api_key"]
+        self._conn = _connection(spec)
         self.dimension  # Probe: Erreichbarkeit, Modellname und Dimension pruefen  # noqa: B018
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
-        out: list[list[float]] = []
-        for i in range(0, len(texts), EMBED_BATCH):
-            batch = texts[i : i + EMBED_BATCH]
-            resp = _post(self._url, self._key, {"model": self.spec.model, "input": batch}, "Embedding-Endpoint")
-            if resp.status_code != 200:
-                raise ModelLoadError(f"Embedding-Endpoint: HTTP {resp.status_code}: {resp.text[:200]}")
-            try:
-                rows = sorted(resp.json()["data"], key=lambda r: r["index"])
-                vectors = [list(map(float, r["embedding"])) for r in rows]
-            except (KeyError, ValueError, TypeError):
-                raise ModelLoadError("Embedding-Endpoint: unerwartete Antwort (kein OpenAI-Format)") from None
-            if len(vectors) != len(batch):
-                raise ModelLoadError("Embedding-Endpoint: Anzahl der Vektoren passt nicht zur Anfrage")
-            out.extend(vectors)
-        return out
+        from app.rag import endpoints
+
+        try:
+            return endpoints.embed(self._conn, self.spec.model, texts)
+        except endpoints.EndpointError as e:
+            raise ModelLoadError(str(e)) from None
 
     def embed_query(self, text):
         return self._embed([text])[0]
@@ -278,47 +246,20 @@ class FastEmbedReranker(_Reranker):
 
 
 class EndpointReranker(_Reranker):
-    """``POST {base_url}/rerank`` (Jina/vLLM/TEI-Format)."""
+    """Reranking ueber eine Connection (OpenAI-/Jina-Format, TEI oder Infinity)."""
 
     def __init__(self, spec: ModelSpec):
         self.spec = spec
-        conn = _connection(spec)
-        self._base = conn["base_url"]
-        self._key = conn["api_key"]
+        self._conn = _connection(spec)
         self.score("Test", ["Test"])  # Probe: Erreichbarkeit und Modellname
 
-    def _urls(self) -> list[str]:
-        urls = [f"{self._base}/rerank"]
-        if self._base.endswith("/v1"):  # TEI & Co. bieten /rerank ohne /v1
-            urls.append(f"{self._base[:-3]}/rerank")
-        return urls
-
     def score(self, query, texts):
-        if not texts:
-            return []
-        payload = {
-            "model": self.spec.model,
-            "query": query,
-            "documents": [t[:MAX_RERANK_CHARS] for t in texts],
-        }
-        resp = None
-        for url in self._urls():
-            resp = _post(url, self._key, payload, "Rerank-Endpoint")
-            if resp.status_code != 404:
-                break
-        if resp is None or resp.status_code != 200:
-            raise ModelLoadError(f"Rerank-Endpoint: HTTP {getattr(resp, 'status_code', '?')}: {getattr(resp, 'text', '')[:200]}")
+        from app.rag import endpoints
+
         try:
-            body = resp.json()
-            rows = body["results"] if isinstance(body, dict) else body
-            scores = [None] * len(texts)
-            for row in rows:
-                scores[int(row["index"])] = float(row.get("relevance_score", row.get("score")))
-        except (KeyError, ValueError, TypeError, IndexError):
-            raise ModelLoadError("Rerank-Endpoint: unerwartete Antwort") from None
-        if any(s is None for s in scores):
-            raise ModelLoadError("Rerank-Endpoint: nicht zu jedem Text kam ein Score zurück")
-        return scores
+            return endpoints.rerank(self._conn, self.spec.model, query, texts)
+        except endpoints.EndpointError as e:
+            raise ModelLoadError(str(e)) from None
 
 
 # --------------------------------------------------------------------------

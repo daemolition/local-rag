@@ -9,7 +9,7 @@ from app.tools.custom_tools import CustomTools
 
 
 @pytest.fixture
-def tools(tmp_path):
+def tools(tmp_path, worker):
     data = tmp_path / "data"
     (data / "knowledge_2").mkdir(parents=True)
     (data / "knowledge_3").mkdir()
@@ -91,3 +91,31 @@ def test_unknown_file_types_are_not_listed(tools):
     (data / "bild.png").write_bytes(b"x")
     use_scope(data, ("", "."))
     assert t.list_files() == ["umsatz.csv"]
+
+
+def test_other_knowledge_files_cannot_be_read_by_the_code(tools):
+    t, data = tools
+    use_scope(data, ("", "."))  # nur die flache Wurzel
+    out = t.run_pandas("umsatz.csv", "result = pd.read_csv('/x/geheim.csv')")
+    assert out.startswith("FEHLER") and "blockiert" in out
+
+
+def test_without_a_worker_there_is_no_fallback(tools, monkeypatch):
+    from app.toolworker import client as worker_client
+
+    t, _ = tools
+
+    def down(*a, **k):
+        raise ConnectionError("weg")
+
+    worker_client.set_override(worker_client.ToolWorkerClient("http://x:1", "t", down))
+    out = t.run_pandas("umsatz.csv", "result = 1")
+    assert out.startswith("FEHLER: Codeausführung nicht verfügbar") and "x:1" not in out
+
+
+def test_exec_is_gone_from_the_app():
+    import inspect
+
+    from app.tools import custom_tools
+
+    assert "exec(" not in inspect.getsource(custom_tools.CustomTools.run_pandas)

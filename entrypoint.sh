@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Local Document RAG - Docker"
+echo "Open Knowledge UI - Docker"
 echo "================================"
 
 # Alembic Migration

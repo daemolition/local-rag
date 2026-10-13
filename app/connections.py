@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -37,6 +37,7 @@ from app.settings_service import SettingsService
 
 logger = getLogger(__name__)
 
+CONNECTION_KINDS = ("llm", "tei", "infinity")
 THINKING_LEVELS = ("none", "low", "medium", "high", "max")
 
 # key -> (Typ, Minimum, Maximum)
@@ -94,6 +95,7 @@ def _connection_dict(c: Connection, with_key: bool = False) -> dict:
         "name": c.name,
         "base_url": c.base_url,
         "enabled": bool(c.enabled),
+        "kind": c.kind or "llm",
         "has_key": bool(c.api_key),
     }
     if with_key:
@@ -137,10 +139,18 @@ def get_connection(connection_id: int, with_key: bool = False) -> dict | None:
         db.close()
 
 
-def create_connection(name: str, base_url: str, api_key: str, enabled: bool = True) -> dict:
+def check_kind(kind: str) -> str:
+    if kind not in CONNECTION_KINDS:
+        raise ValueError(f"Typ muss eines von {', '.join(CONNECTION_KINDS)} sein")
+    return kind
+
+
+def create_connection(name: str, base_url: str, api_key: str, enabled: bool = True, kind: str = "llm") -> dict:
+    check_kind(kind)
     db = get_db_service().get_session()
     try:
         c = Connection(
+            kind=kind,
             name=name.strip(),
             base_url=normalize_base_url(base_url),
             api_key=(api_key or "").strip(),
@@ -162,6 +172,7 @@ def update_connection(
     base_url: str | None = None,
     api_key: str | None = None,
     enabled: bool | None = None,
+    kind: str | None = None,
 ) -> dict | None:
     """Aktualisiert Felder; ``api_key=None`` oder leer laesst den Key unveraendert."""
     db = get_db_service().get_session()
@@ -177,6 +188,8 @@ def update_connection(
             c.api_key = api_key.strip()
         if enabled is not None:
             c.enabled = enabled
+        if kind is not None:
+            c.kind = check_kind(kind)
         db.commit()
         return _connection_dict(c)
     except Exception:
@@ -262,6 +275,7 @@ def _config_dict(m: ModelConfig) -> dict:
         "web_search": bool(m.web_search),
         "params": json.loads(m.params) if m.params else {},
         "knowledge_ids": json.loads(m.knowledge_ids) if m.knowledge_ids else None,
+        "allow_extra_knowledge": bool(m.allow_extra_knowledge) if m.allow_extra_knowledge is not None else True,
         "ref": make_clone_ref(m.id)
         if m.is_clone
         else make_base_ref(m.connection_id, m.base_model),
@@ -311,6 +325,8 @@ def _apply(m: ModelConfig, data: dict) -> None:
         m.replace_prompt = bool(data["replace_prompt"])
     if "params" in data:
         m.params = json.dumps(sanitize_params(data["params"]))
+    if "allow_extra_knowledge" in data:
+        m.allow_extra_knowledge = bool(data["allow_extra_knowledge"])
     if "knowledge_ids" in data:
         ids = data["knowledge_ids"]
         m.knowledge_ids = (
@@ -382,6 +398,7 @@ def clone_model(ref: str, name: str) -> dict | None:
             m.system_prompt = source["system_prompt"]
             m.replace_prompt = source["replace_prompt"]
             m.web_search = source.get("web_search", False)
+            m.allow_extra_knowledge = source.get("allow_extra_knowledge", True)
             m.params = json.dumps(source["params"])
             m.knowledge_ids = (
                 json.dumps(source["knowledge_ids"]) if source["knowledge_ids"] else None

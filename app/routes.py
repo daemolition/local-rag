@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -15,14 +15,12 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-import io
 import json
 import logging
 import os
 import queue
 import threading
 
-import openai
 from flask import (
     Blueprint,
     Response,
@@ -36,7 +34,9 @@ from flask import (
 )
 
 from app import compaction, resources_ready, wait_for_resources
-from app.agent.document_agent import DocumentAgent
+from app.pii_session import PIISession, StreamDemasker, mask_conversation, set_session, short_reason
+from app.utils.pii_filter_client import PIIFilterUnavailable
+from app.agent.document_agent import CONVERSATION_ONLY_HINT, DocumentAgent, select_tools
 from app.tools.web_access import build_web_search_tool, pii_client
 from app.access import accessible_knowledge_ids, can_use_model
 from app.auth import auth_required_api, current_user
@@ -349,7 +349,8 @@ def chat():
     user = current_user()
     # Knowledge, das das Modell selbst mitbringt (vom Admin kuratiert): wer das
     # Modell nutzen darf, darf es durchsuchen. Sonst gelten die Rechte des Nutzers.
-    model_locked = False
+    model_base: set[int] | None = None  # Knowledge, das das Modell mitbringt (Basis jeder Suche)
+    model_allows_extra = True
     resolved = None
     try:
         resolved = resolve_model(model_ref)
@@ -364,10 +365,9 @@ def chat():
             web_tool = build_web_search_tool()
             if web_tool:
                 tools.append(web_tool)
-        agent = get_agent(resolved, tools)
         if resolved.knowledge_ids:
-            knowledge_ids = list(resolved.knowledge_ids)
-            model_locked = True
+            model_base = set(resolved.knowledge_ids)
+            model_allows_extra = resolved.allow_extra_knowledge
     except ModelUnavailableError as e:
         message = (
             f"{e} Bitte in der Administration eine Verbindung anlegen und ein Standardmodell wählen."
@@ -384,59 +384,50 @@ def chat():
     summary_text, history_rows = db.get_history(final_session_id)
     message_list = compaction.history_messages(history_rows, summary_text)
 
-    # User-Nachricht durch PII-Filter schicken (vor LLM-Call)
-    pii_filter = pii_client()  # None, wenn nicht eingerichtet oder abgeschaltet
-    pii_filter_enabled = pii_filter is not None
-
-    filtered_user_message = user_message
-    pii_mapping = []  # Mapping für spätere Demaskierung der Antwort speichern
-
-    if pii_filter and pii_filter_enabled:
-        try:
-            from app.utils.pii_filter_client import PIIFilterResult
-
-            result: PIIFilterResult = pii_filter.filter_text(user_message)
-            if result.error:
-                logger.warning(
-                    f"PII-Filter Fehler: {result.error} - verwende Original-Nachricht"
-                )
-            elif result.filtered != result.original:
-                logger.info(f"PII-Filter: {len(result.mapping)} Entitäten maskiert")
-                filtered_user_message = result.filtered
-                pii_mapping = result.mapping  # Mapping für Demaskierung merken
-        except Exception as e:
-            logger.warning(f"PII-Filter Exception: {e} - verwende Original-Nachricht")
+    # PII-Filter: None, wenn nicht eingerichtet oder abgeschaltet. Maskiert wird weiter unten der
+    # GANZE Kontext (Zusammenfassung, Verlauf, neue Frage) in einem Aufruf, nach der Compaction.
+    pii_filter = pii_client()
+    pii_mapping = []  # Mapping fuer die Demaskierung der Antwort
 
     # Hinweis auf Chat-Anhaenge (nur fuer den Agent, wird nicht gespeichert),
     # damit er die Dokumentsuche auch tatsaechlich darauf anwendet.
-    agent_user_message = filtered_user_message
     attached = db.list_session_attachments(final_session_id, status="ready")
+    hints = ""
     if attached:
         names = ", ".join(f"„{a.filename}“" for a in attached)
-        agent_user_message += (
+        hints += (
             f"\n\n[Hinweis: Der Nutzer hat in diesem Chat folgende Dateien "
             f"angehängt: {names}. Ihr Inhalt ist über document_search_tool "
             f"durchsuchbar.]"
         )
 
-    message_list.append({"role": "user", "content": agent_user_message})
+    message_list.append({"role": "user", "content": user_message})
 
     logger.info(f"[DEBUG] Messages an Agent: {len(message_list)} Nachrichten")
-
-    input_data = {"messages": message_list}
 
     # Durchsuchte Collections dieses Requests: gewaehlte Knowledge-Bereiche plus
     # (falls vorhanden) die Anhaenge dieser Session.
     from app.knowledge import list_knowledge
 
     all_knowledge = list_knowledge()
-    if not model_locked:
-        # Nie Collections aus dem Request ungeprueft uebernehmen.
-        readable = accessible_knowledge_ids(user, "read")
+    # Nie Collections aus dem Request ungeprueft uebernehmen.
+    readable = accessible_knowledge_ids(user, "read")
+    wanted = (
+        {int(i) for i in knowledge_ids if str(i).lstrip("-").isdigit()} if knowledge_ids is not None else None
+    )
+    if model_base is not None:
+        # Das Modell-Knowledge ist die Basis (wer das Modell nutzen darf, darf es durchsuchen, auch
+        # ohne eigene Freigabe). Dazu kommt, was der Nutzer selbst waehlt und lesen darf.
+        extra = (wanted & readable) if (wanted is not None and model_allows_extra) else set()
+        allowed = model_base | extra
+        all_knowledge = [k for k in all_knowledge if k["id"] in allowed]
+    else:
         all_knowledge = [k for k in all_knowledge if k["id"] in readable]
-    if knowledge_ids is not None:
-        wanted = {int(i) for i in knowledge_ids if str(i).lstrip("-").isdigit()}
-        all_knowledge = [k for k in all_knowledge if k["id"] in wanted]
+        if wanted is not None:
+            all_knowledge = [k for k in all_knowledge if k["id"] in wanted]
+    # SQL-Quellen haben keine Collection und keine Dateien: eigener Weg ueber die SQL-Werkzeuge
+    sql_knowledge = [k for k in all_knowledge if k.get("kind") == "sql"]
+    all_knowledge = [k for k in all_knowledge if k.get("kind") != "sql"]
     from app.ingest.index_doc import index_path, inline_hint
     from app.knowledge import knowledge_paths
     from app.rag import model_settings
@@ -471,6 +462,7 @@ def chat():
             for k in all_knowledge
             if k.get("kind") == "external" and k.get("source_config")
         ),
+        sql_sources=tuple((k["id"], k["name"], k["source_config"]) for k in sql_knowledge if k.get("source_config")),
         # jedes Knowledge wird mit dem Modell abgefragt, mit dem es indexiert wurde
         specs=tuple(
             (k["collection_name"], json.dumps(model_settings.knowledge_spec(k).to_dict()))
@@ -480,7 +472,27 @@ def chat():
     # Kleines Inhaltsverzeichnis gleich mitgeben ("zuerst lesen"), grosses nur per Werkzeug.
     hint = inline_hint(scope.indexes)
     if hint:
-        message_list[-1]["content"] += hint
+        hints += hint
+    has_sql = bool(scope.sql_sources)
+    if has_sql:
+        from app.toolworker import config as worker_config
+
+        names = ", ".join(f"„{name}“" for _id, name, _cfg in scope.sql_sources)
+        hints += "\n\n" + worker_config.sql_prompt().replace("{sources}", names)
+
+    # Ohne Wissen und ohne Anhaenge gibt es nichts zu durchsuchen: dann bekommt der Agent keine
+    # Wissens-Werkzeuge und beantwortet/fasst nur aus dem Gespraech zusammen.
+    has_knowledge = bool(scope.collections or scope.externals or scope.data_dirs or attached)
+    tools = select_tools(tools, has_knowledge, has_sql)
+    if not has_knowledge and not has_sql:
+        message_list[-1]["content"] += CONVERSATION_ONLY_HINT
+    try:
+        agent = get_agent(resolved, tools)
+    except ModelUnavailableError as e:
+        return Response(
+            f"data: {json.dumps({'error': str(e)})}\n\n",
+            mimetype="text/event-stream",
+        )
 
     # Automatische Compaction: Eingabe-Budget = num_ctx - max_tokens, Zusammenfassen ab 95 %.
     compaction_note = None
@@ -495,17 +507,50 @@ def chat():
             history, compaction_note = compaction.fit_history(
                 history_rows,
                 summary_text,
-                new_message["content"],
+                new_message["content"] + hints,
                 overhead,
                 budget,
                 cfg,
                 lambda: compaction.summary_llm(resolved, budget),
                 lambda text, through: db.set_session_summary(final_session_id, text, through),
+                # Mit PII-Filter sieht auch das Zusammenfassungs-Modell nur maskierten Text
+                mask_many=(lambda texts: mask_conversation(pii_filter, texts)) if pii_filter else None,
+                unmask=(lambda text, mapping: pii_filter.demask(text, mapping)) if pii_filter else None,
             )
             message_list = history + [new_message]
-            input_data = {"messages": message_list}
+    except PIIFilterUnavailable:
+        pass  # der Maskierungsschritt unten meldet es dem Nutzer
     except Exception as e:  # nie am Chat scheitern lassen: ohne Compaction weiter
         logger.warning(f"Compaction fehlgeschlagen: {e}")
+
+    # PII-Filter, fail-closed: der GANZE Kontext (Zusammenfassung, Verlauf, neue Frage) wird in einem
+    # Aufruf maskiert, der Dienst vergibt dabei eindeutige Platzhalter. Ist er nicht erreichbar oder
+    # zerstoert er die Struktur, geht NICHTS ans Modell; der Nutzer bekommt eine Fehlermeldung.
+    if pii_filter:
+        try:
+            masked, pii_mapping = mask_conversation(pii_filter, [m["content"] for m in message_list])
+            message_list = [{"role": m["role"], "content": t} for m, t in zip(message_list, masked)]
+            if pii_mapping:
+                logger.info(f"PII-Filter: {len(pii_mapping)} Entitäten im Kontext maskiert")
+        except PIIFilterUnavailable as e:
+            logger.warning(f"PII-Filter nicht verfügbar ({e}) - Nachricht wird nicht gesendet")
+            return Response(
+                "data: "
+                + json.dumps(
+                    {
+                        "error": "Der PII-Filter ist nicht erreichbar. Die Nachricht wurde nicht "
+                        "gesendet, damit keine personenbezogenen Daten ungeschützt das System "
+                        f"verlassen ({short_reason(e)}). Bitte den Administrator informieren oder den PII-Filter "
+                        "unter Administration › Tools prüfen."
+                    }
+                )
+                + "\n\n",
+                mimetype="text/event-stream",
+            )
+    # Alle Platzhalter dieses Requests (Kontext, Werkzeug-Ergebnisse, Antwort) liegen in einer Sitzung
+    pii_session = PIISession(pii_filter, pii_mapping)
+    message_list[-1]["content"] += hints  # Hinweise (Anhaenge, Inhaltsverzeichnis) sind kein Nutzertext
+    input_data = {"messages": message_list}
 
     def generate():
         result_queue = queue.Queue()
@@ -516,7 +561,9 @@ def chat():
         cancel_event.clear()
 
         # Mapping für Demaskierung in Closure verfügbar machen
-        demask_context = {"mapping": pii_mapping}
+        # Live-Demaskierung der gestreamten Antwort und des Reasonings
+        token_demasker = StreamDemasker(pii_session)
+        reasoning_demasker = StreamDemasker(pii_session)
 
         async def run_agent_async():
             nonlocal full_response
@@ -527,6 +574,7 @@ def chat():
                 # Scope im Kontext der Agent-Loop setzen; asyncio und die
                 # LangChain-Executors reichen ihn an die Tool-Aufrufe weiter.
                 set_scope(scope)
+                set_session(pii_session)
 
                 async for event in agent.astream_events(input_data, version="v2"):
                     if cancel_event.is_set():
@@ -628,17 +676,19 @@ def chat():
                 msg_type, msg_data = result_queue.get()
 
                 if msg_type == "done":
+                    # Zurueckgehaltene Reste der Live-Demaskierung ausgeben
+                    for rest, key in ((reasoning_demasker.flush(), "reasoning"), (token_demasker.flush(), "token")):
+                        if rest:
+                            yield f"data: {json.dumps({key: rest})}\n\n"
                     # Antwort demaskieren bevor sie gespeichert wird
                     db = get_db_service()
                     demasked_response = msg_data
-                    if demask_context["mapping"] and pii_filter:
+                    if pii_session.pairs() and pii_filter:
                         try:
-                            demasked_response = pii_filter.demask(
-                                msg_data, demask_context["mapping"]
-                            )
+                            demasked_response = pii_session.unmask(msg_data)
                             if demasked_response != msg_data:
                                 logger.info(
-                                    f"PII-Demaskierung: {len(demask_context['mapping'])} Platzhalter ersetzt"
+                                    f"PII-Demaskierung: {len(pii_session.pairs())} Platzhalter ersetzt"
                                 )
                         except Exception as e:
                             logger.warning(f"PII-Demaskierung fehlgeschlagen: {e}")
@@ -651,11 +701,9 @@ def chat():
                     saved_assistant = demasked_response
                     if full_reasoning:
                         reasoning_text = full_reasoning.strip()
-                        if demask_context["mapping"] and pii_filter:
+                        if pii_session.pairs() and pii_filter:
                             try:
-                                reasoning_text = pii_filter.demask(
-                                    reasoning_text, demask_context["mapping"]
-                                )
+                                reasoning_text = pii_session.unmask(reasoning_text)
                             except Exception as e:
                                 logger.warning(
                                     f"PII-Demaskierung (Reasoning) fehlgeschlagen: {e}"
@@ -677,13 +725,20 @@ def chat():
                     break
 
                 elif msg_type == "reasoning_done":
+                    rest = reasoning_demasker.flush()
+                    if rest:
+                        yield f"data: {json.dumps({'reasoning': rest})}\n\n"
                     yield f"data: {json.dumps({'reasoning_done': True})}\n\n"
 
                 elif msg_type == "reasoning":
-                    yield f"data: {json.dumps({'reasoning': msg_data})}\n\n"
+                    out = reasoning_demasker.feed(msg_data)
+                    if out:
+                        yield f"data: {json.dumps({'reasoning': out})}\n\n"
 
                 elif msg_type == "token":
-                    yield f"data: {json.dumps({'token': msg_data})}\n\n"
+                    out = token_demasker.feed(msg_data)
+                    if out:
+                        yield f"data: {json.dumps({'token': out})}\n\n"
 
                 elif msg_type == "tool_start":
                     yield f"data: {json.dumps({'tool_start': msg_data})}\n\n"
@@ -730,35 +785,36 @@ def stop_chat():
     return jsonify({"success": True})
 
 
+@bp.route("/api/stt/config", methods=["GET"])
+@auth_required_api
+def stt_config_route():
+    """Ob und wie die Spracheingabe laeuft (``stream`` live, ``upload`` aufnehmen und senden)."""
+    from app import stt_config
+
+    return jsonify(stt_config.client_config())
+
+
 @bp.route("/api/stt", methods=["POST"])
 @auth_required_api
 def stt():
-    """Wandelt ein aufgenommenes Audio-Blob in Text um (OpenAI-kompatibles STT)."""
-    if "audio" not in request.files:
+    """Wandelt eine Aufnahme in Text um (OpenAI-kompatibler Standard ``/audio/transcriptions``)."""
+    from app import stt_config
+
+    audio_file = request.files.get("audio")
+    if audio_file is None or not audio_file.filename:
         return jsonify({"error": "Keine Audiodatei"}), 400
-
-    audio_file = request.files["audio"]
-    if not audio_file or audio_file.filename == "":
+    audio = audio_file.read(stt_config.MAX_AUDIO_BYTES + 1)
+    if not audio:
         return jsonify({"error": "Leere Audiodatei"}), 400
+    if len(audio) > stt_config.MAX_AUDIO_BYTES:
+        return jsonify({"error": "Die Aufnahme ist zu groß (höchstens 25 MB)"}), 413
 
-    db = get_db_service()
-    settings = SettingsService(db.get_session())
-
-    base_url = settings.get("STT_BASEURL", "http://localhost:11434/v1")
-    api_key = settings.get("STT_API_KEY", "ollama")
-    model = settings.get("STT_MODEL", "whisper-1")
-
+    cfg = stt_config.load()
     try:
-        audio_bytes = audio_file.read()
-        file_obj = io.BytesIO(audio_bytes)
-        file_obj.name = audio_file.filename or "recording.webm"
-
-        client = openai.OpenAI(base_url=base_url, api_key=api_key)
-        transcript = client.audio.transcriptions.create(model=model, file=file_obj)
-        return jsonify({"text": transcript.text})
-    except Exception as e:
-        logger.exception("STT Transkription fehlgeschlagen")
-        return jsonify({"error": str(e)}), 500
+        text = stt_config.transcribe(cfg, audio, audio_file.filename)
+    except stt_config.TranscriptionError as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify({"text": text})
 
 
 # =============================================================================

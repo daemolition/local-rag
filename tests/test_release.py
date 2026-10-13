@@ -11,7 +11,7 @@ release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 
 PYPROJECT = '''[project]
-name = "local-document-rag"
+name = "open-knowledge-ui"
 version = "0.1.0"
 dependencies = ["x[y]>=1.0"]
 
@@ -39,7 +39,7 @@ version = "0.1.0"
 source = { registry = "https://pypi.org/simple" }
 
 [[package]]
-name = "local-document-rag"
+name = "open-knowledge-ui"
 version = "0.1.0"
 source = { virtual = "." }
 '''
@@ -127,7 +127,7 @@ def test_write_version_changes_only_the_projects_own_entries(repo):
     assert lock["packages"]["node_modules/dep"]["version"] == "0.1.0"  # Fremdpaket unberuehrt
     uv = (repo / "uv.lock").read_text()
     assert 'name = "other"\nversion = "0.1.0"' in uv
-    assert 'name = "local-document-rag"\nversion = "0.2.0"' in uv
+    assert 'name = "open-knowledge-ui"\nversion = "0.2.0"' in uv
     assert release.current_version(repo) == "0.2.0"
     # Formatierung bleibt: nur die Versionen unterscheiden sich
     assert (repo / "frontend" / "package.json").read_text() == PACKAGE_JSON.replace("0.1.0", "0.2.0")

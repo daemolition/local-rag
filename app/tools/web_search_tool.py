@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -159,29 +159,36 @@ def create_web_search_tool(
 
         start_time = time.time()
 
-        # Query durch PII-Filter schicken (PII-Werte entfernen, nicht durch Platzhalter ersetzen)
+        # Mit PII-Filter wird die Query vor dem Versand maskiert. Schlaegt das fehl, wird NICHT
+        # unmaskiert gesucht: die Suche verlaesst das System, die Maskierung ist ihr Zweck.
         search_query = query
         if pii_filter_client:
-            try:
-                import re
+            import re
 
+            from app.utils.pii_filter_client import mapping_pairs
+
+            try:
                 filter_result = pii_filter_client.filter_text(query)
-                if filter_result.mapping:
-                    # PII-Werte direkt aus Query entfernen (nicht durch [NAME_1] ersetzen)
-                    for value in filter_result.mapping.values():
-                        if value and value in search_query:
-                            search_query = search_query.replace(value, "")
-                    # Mehrfach-Leerzeichen bereinigen
-                    search_query = re.sub(r"\s+", " ", search_query).strip()
-                    logger.info(f"Query PII-bereinigt: '{query}' → '{search_query}'")
-                elif not filter_result.error:
-                    # Kein PII gefunden → originale Query verwenden
-                    search_query = query
             except Exception as e:
-                logger.warning(
-                    f"PII-Filter für Web-Suche fehlgeschlagen: {e} - verwende Original-Query"
+                logger.warning(f"PII-Filter für Web-Suche fehlgeschlagen: {e}")
+                filter_result = None
+            if filter_result is None or filter_result.error:
+                return (
+                    "FEHLER: Die Suche wurde abgebrochen, weil die Suchanfrage nicht maskiert "
+                    "werden konnte (PII-Filter nicht erreichbar). Beantworte die Frage ohne Websuche."
                 )
-                search_query = query
+            pairs = mapping_pairs(filter_result.mapping)
+            if pairs:
+                # PII-Werte direkt aus der Query entfernen (nicht durch [NAME_1] ersetzen)
+                for _placeholder, value in pairs:
+                    search_query = search_query.replace(value, "")
+                search_query = re.sub(r"\s+", " ", search_query).strip()
+                logger.info(f"Query PII-bereinigt: '{query}' → '{search_query}'")
+            elif filter_result.filtered != query:
+                # Einseitiger Dienst ohne Mapping: den maskierten Text suchen, nie das Original
+                search_query = filter_result.filtered
+            if not search_query.strip():
+                return "FEHLER: Die Suchanfrage bestand nur aus personenbezogenen Angaben und wurde nicht gesendet."
 
         phase_logger.log_phase(
             Phase.TOOL_EXECUTION, f"Tool: web_search | Query: {search_query[:100]}"

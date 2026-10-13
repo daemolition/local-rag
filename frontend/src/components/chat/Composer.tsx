@@ -23,10 +23,12 @@ interface ComposerProps {
   onSelectKnowledge: (ids: number[] | null) => void;
   // Das gewählte Modell bringt eigenes Knowledge mit: Auswahl hier wirkungslos.
   knowledgeLocked: boolean;
+  baseKnowledge?: { id: number; name: string }[];
   models: ModelEntry[];
   selectedModel: string;
   onSelectModel: (ref: string) => void;
   recording: boolean;
+  transcribing?: boolean;
   onToggleMic: () => void;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   placeholder?: string;
@@ -91,10 +93,12 @@ export function Composer({
   selectedKnowledge,
   onSelectKnowledge,
   knowledgeLocked,
+  baseKnowledge,
   models,
   selectedModel,
   onSelectModel,
   recording,
+  transcribing = false,
   onToggleMic,
   textareaRef,
   placeholder = "Frag etwas zu deinem Wissen…",
@@ -210,11 +214,12 @@ export function Composer({
           >
             Knowledge vom Modell
           </span>
-        ) : knowledge.length > 0 ? (
+        ) : knowledge.length > 0 || (baseKnowledge?.length ?? 0) > 0 ? (
           <KnowledgePicker
             knowledge={knowledge}
             selectedIds={selectedKnowledge}
             onChange={onSelectKnowledge}
+            base={baseKnowledge}
           />
         ) : null}
 
@@ -228,9 +233,10 @@ export function Composer({
               recording && "animate-pulse text-red-600",
             )}
             onClick={onToggleMic}
-            title={recording ? "Aufnahme stoppen" : "Spracheingabe"}
+            disabled={transcribing}
+            title={transcribing ? "Wird transkribiert …" : recording ? "Aufnahme stoppen" : "Spracheingabe"}
           >
-            <Mic className="size-5" />
+            {transcribing ? <Loader2 className="size-5 animate-spin" /> : <Mic className="size-5" />}
           </Button>
           <Button
             type="submit"

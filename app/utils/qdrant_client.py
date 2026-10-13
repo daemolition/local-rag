@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -26,7 +26,7 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 
 
 def get_qdrant_client(
-    collection_name: str = "local_rag",
+    collection_name: str = "open_knowledge_ui",
     custom_host: Optional[str] = None,
     custom_port: Optional[int] = None,
     api_key: Optional[str] = None,
@@ -35,7 +35,7 @@ def get_qdrant_client(
     Erstellt einen Qdrant-Client fuer einen laufenden Qdrant-Server.
 
     Args:
-        collection_name: Name der Collection (default: "local_rag")
+        collection_name: Name der Collection (default: "open_knowledge_ui")
         custom_host: Optionaler custom Host (ueberschreibt Settings)
         custom_port: Optionaler custom Port (ueberschreibt Settings)
         api_key: Optionaler API-Key fuer gesicherte Qdrant-Instanz
@@ -98,7 +98,7 @@ def test_connection(client: QdrantClient, timeout: int = 5) -> tuple[bool, str]:
 
 
 def get_collection_info(
-    client: QdrantClient, collection_name: str = "local_rag"
+    client: QdrantClient, collection_name: str = "open_knowledge_ui"
 ) -> Optional[dict]:
     """
     Holt Informationen ueber eine Collection.

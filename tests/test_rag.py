@@ -344,7 +344,7 @@ def with_scope(scope):
 
 
 def test_default_scope_is_the_standard_collection():
-    assert retrieval.get_scope().collections == ("local_rag",)
+    assert retrieval.get_scope().collections == ("open_knowledge_ui",)
 
 
 def test_each_collection_searches_with_its_own_profile(db, retriever, client):

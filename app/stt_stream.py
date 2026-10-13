@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -49,7 +49,7 @@ sock = Sock()
 _STOP_JOIN_TIMEOUT_S = 15.0
 
 
-def _build_stream_url(base_url: str) -> str:
+def _build_stream_url(base_url: str) -> str:  # noqa: D401 - bleibt fuer bestehende Aufrufer
     """Wandelt STT_BASEURL (z.B. http://parakeet:5001/v1) in die Parakeet-WS-URL um.
 
     Gleiche Umwandlung wie im openDox-`ParakeetStreamBackend`-Client:
@@ -61,6 +61,13 @@ def _build_stream_url(base_url: str) -> str:
     if not path.endswith("/audio/stream"):
         path = path.rstrip("/") + "/audio/stream"
     return urllib.parse.urlunparse((scheme, parsed.netloc, path, "", "", ""))
+
+
+def _connect_upstream(url: str, api_key: str):
+    """Verbindung zum Streaming-Dienst; ein gesetzter API-Key geht als Bearer-Header mit."""
+    return websocket.create_connection(
+        url, timeout=10, header=[f"Authorization: Bearer {api_key}"] if api_key else []
+    )
 
 
 @sock.route("/ws/stt-stream")
@@ -75,10 +82,11 @@ def stt_stream(ws):
     db = get_db_service()
     settings = SettingsService(db.get_session())
     base_url = settings.get("STT_BASEURL", "http://parakeet:5001/v1")
+    api_key = settings.get("STT_API_KEY", "") or ""
     stream_url = _build_stream_url(base_url)
 
     try:
-        upstream = websocket.create_connection(stream_url, timeout=10)
+        upstream = _connect_upstream(stream_url, api_key)
     except Exception as e:
         logger.warning("STT-Stream: Verbindung zu Parakeet fehlgeschlagen: %s", e)
         try:

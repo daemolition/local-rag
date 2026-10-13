@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -74,6 +74,8 @@ class ResolvedModel:
     knowledge_ids: tuple[int, ...] | None
     # Websuche-Werkzeug zugeschaltet (greift nur, wenn SearXNG und PII-Filter eingerichtet sind)
     web_search: bool = False
+    # Nutzer duerfen zusaetzlich eigenes Knowledge waehlen; sonst durchsucht das Modell nur sein eigenes
+    allow_extra_knowledge: bool = True
 
     def signature(self) -> str:
         payload = json.dumps(
@@ -198,8 +200,8 @@ def list_models(force: bool = False) -> dict:
     errors: list[dict] = []
 
     for conn in store.list_connections():
-        if not conn["enabled"]:
-            continue
+        if not conn["enabled"] or conn.get("kind", "llm") != "llm":
+            continue  # TEI/Infinity liefern Embeddings und Reranker, keine Chat-Modelle
         full = store.get_connection(conn["id"], with_key=True)
         try:
             remote = fetch_remote_models(full, force=force)
@@ -244,7 +246,7 @@ def list_models(force: bool = False) -> dict:
             )
 
     from app.llm.factory import global_chat_defaults
-    from app.tools.web_access import web_search_available
+    from app.tools.web_access import web_search_available, web_search_masked
 
     return {
         "models": models,
@@ -256,6 +258,8 @@ def list_models(force: bool = False) -> dict:
         "default": default_model_ref(),
         # Websuche pro Modell ist nur zuschaltbar, wenn SearXNG UND der PII-Filter eingerichtet sind
         "web_search_available": web_search_available(),
+        # maskiert der PII-Filter die Suchanfragen? (sonst Warnhinweis im Konfig-Dialog)
+        "web_search_masked": web_search_masked(),
     }
 
 
@@ -334,6 +338,7 @@ def resolve_model(ref: str | None = None) -> ResolvedModel:
         replace_prompt=cfg["replace_prompt"] if cfg else False,
         knowledge_ids=tuple(cfg["knowledge_ids"]) if cfg and cfg["knowledge_ids"] else None,
         web_search=bool(cfg and cfg.get("web_search")),
+        allow_extra_knowledge=bool(cfg.get("allow_extra_knowledge", True)) if cfg else True,
     )
 
 

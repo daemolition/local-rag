@@ -31,7 +31,7 @@ export function EditSummaryPage() {
     setSaving(true);
     try {
       await api.put(`/api/summaries/${encoded}`, { content });
-      toast.success("Summary gespeichert");
+      toast.success("Ablage gespeichert");
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -48,7 +48,7 @@ export function EditSummaryPage() {
             className="mb-2 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
-            Zurück zu meinen Summaries
+            Zurück zu Meine Ablagen
           </Link>
           <h1 className="text-xl font-semibold">{filename}</h1>
         </div>

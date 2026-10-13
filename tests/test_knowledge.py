@@ -9,7 +9,7 @@ def test_default_knowledge_is_seeded_once(db):
     items = knowledge.list_knowledge()
     assert [k["name"] for k in items] == ["Standard"]
     assert items[0]["is_default"] is True
-    assert items[0]["collection_name"] == "local_rag"
+    assert items[0]["collection_name"] == "open_knowledge_ui"
     assert knowledge.get_knowledge(None)["id"] == items[0]["id"]
 
 

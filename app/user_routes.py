@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -59,7 +59,7 @@ def _admins_only():
         return jsonify({"error": "Keine Berechtigung"}), 403
     return None
 
-COLLECTION_NAME = "local_rag"
+COLLECTION_NAME = "open_knowledge_ui"
 
 
 @user_bp.route("/documents")
@@ -629,41 +629,37 @@ def _test_llm(settings: SettingsService) -> dict:
 
 
 def _test_stt(settings: SettingsService) -> dict:
-    """STT Endpunkt testen (OpenAI-compatible /v1/models oder /v1/audio/speech)."""
-    base_url = (settings.get("STT_BASEURL") or "").rstrip("/")
-    api_key = settings.get("STT_API_KEY") or ""
-    model = settings.get("STT_MODEL") or ""
+    """Spracheingabe testen: echte Transkription einer Sekunde Stille (beweist Adresse, Modell
+    und Key) und, ob zusaetzlich Live-Streaming (``/audio/stream``) angeboten wird."""
+    from app import stt_config
 
-    if not base_url:
-        return {"success": False, "error": "STT_BASEURL ist nicht gesetzt"}
+    cfg = stt_config.SttConfig(
+        base_url=(settings.get("STT_BASEURL") or "").strip().rstrip("/"),
+        model=(settings.get("STT_MODEL") or "").strip(),
+        api_key=settings.get("STT_API_KEY") or "",
+        mode="auto",
+    )
+    if not cfg.base_url:
+        return {"success": False, "error": "Es ist keine Adresse eingetragen"}
 
-    models_url = base_url.rstrip("/").rstrip("v1").rstrip("/") + "/v1/models"
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-
+    upload_ok, upload_error = True, ""
     try:
-        resp = requests.get(models_url, headers=headers, timeout=10)
-        if resp.status_code != 200:
-            return {
-                "success": False,
-                "error": f"HTTP {resp.status_code} von {models_url}",
-                "details": resp.text[:300],
-            }
-        data = resp.json()
-        models = [m.get("id", "?") for m in data.get("data", [])]
-        ok = True
-        message = f"Verbindung OK. {len(models)} Modell(e) verfügbar."
-        details = ", ".join(models[:15])
-        if model and models and model not in models:
-            ok = False
-            message = (
-                f"Verbindung OK, aber das konfigurierte Modell '{model}' "
-                "wurde nicht in der Modellliste gefunden."
-            )
-        return {"success": ok, "message": message, "details": details}
-    except requests.exceptions.Timeout:
-        return {"success": False, "error": f"Timeout (10s) bei {models_url}"}
-    except requests.exceptions.RequestException as e:
-        return {"success": False, "error": f"Verbindung fehlgeschlagen: {e}"}
+        stt_config.transcribe(cfg, stt_config.silent_wav(), "test.wav", timeout=30)
+    except stt_config.TranscriptionError as e:
+        upload_ok, upload_error = False, str(e)
+    stream_ok = stt_config.probe_stream(cfg.base_url, cfg.api_key)
+
+    if not upload_ok and not stream_ok:
+        return {"success": False, "error": upload_error or "Der Dienst antwortet nicht"}
+    parts = []
+    parts.append("Aufnehmen & senden: ok" if upload_ok else f"Aufnehmen & senden: {upload_error}")
+    parts.append("Live-Streaming: verfügbar" if stream_ok else "Live-Streaming: nicht angeboten")
+    mode = "stream" if stream_ok else "upload"
+    return {
+        "success": upload_ok or stream_ok,
+        "message": f"Automatisch gewählt: {'Live-Streaming' if mode == 'stream' else 'Aufnehmen & senden'}",
+        "details": " · ".join(parts),
+    }
 
 
 def _test_embedding(settings: SettingsService) -> dict:
@@ -737,48 +733,66 @@ def _test_search(settings: SettingsService) -> dict:
     return {"success": False, "error": last_error or "SearXNG nicht erreichbar"}
 
 
+PII_TEST_TEXT = "Bitte schreibe Max Mustermann (max.mustermann@example.com) eine kurze Antwort."
+
+
 def _test_pii_filter(settings: SettingsService) -> dict:
-    """PII-Filter Service testen (mit Test-Text)."""
+    """PII-Filter testen: echte Maskierung eines Beispieltexts mit erfundenen Daten und Pruefung
+    des Vertrags (docs/sanitizer-api.md): Text veraendert, Mapping erkannt, Demaskierung stimmt."""
+    from app.utils.pii_filter_client import PIIFilterClient, mapping_pairs, parse_response
+
     url = settings.get("PII_FILTER_URL") or ""
     api_key = settings.get("PII_FILTER_API_KEY") or ""
 
     if not url:
-        return {"success": False, "error": "PII_FILTER_URL ist nicht gesetzt"}
+        return {"success": False, "error": "Es ist keine Adresse eingetragen"}
 
-    test_text = "Test-Text ohne PII für Verbindungsprüfung."
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        resp = requests.post(
-            url,
-            json={"text": test_text},
-            headers=headers,
-            timeout=10,
-        )
-        if resp.status_code in (401, 403):
-            return {
-                "success": False,
-                "error": f"API-Key ungültig oder fehlt (HTTP {resp.status_code})",
-                "details": resp.text[:300],
-            }
-        if resp.status_code != 200:
-            return {
-                "success": False,
-                "error": f"HTTP {resp.status_code} von {url}",
-                "details": resp.text[:300],
-            }
-        # Wenn der Service antwortet, ist die Verbindung OK
-        return {
-            "success": True,
-            "message": "PII-Filter Service erreichbar.",
-            "details": f"Status: {resp.status_code}",
-        }
+        resp = requests.post(url, json={"text": PII_TEST_TEXT}, headers=headers, timeout=10)
     except requests.exceptions.Timeout:
         return {"success": False, "error": f"Timeout (10s) bei {url}"}
     except requests.exceptions.RequestException as e:
         return {"success": False, "error": f"Verbindung fehlgeschlagen: {e}"}
+
+    if resp.status_code in (401, 403):
+        return {
+            "success": False,
+            "error": f"API-Key ungültig oder fehlt (HTTP {resp.status_code})",
+            "details": resp.text[:300],
+        }
+    if resp.status_code != 200:
+        return {"success": False, "error": f"HTTP {resp.status_code} von {url}", "details": resp.text[:300]}
+    try:
+        data = resp.json()
+    except ValueError:
+        return {"success": False, "error": "Die Antwort ist kein JSON (siehe Anforderungen an den Dienst)"}
+    if not isinstance(data, dict):
+        return {"success": False, "error": "Die Antwort muss ein JSON-Objekt mit „filtered“ sein"}
+
+    _original, filtered, mapping = parse_response(data, PII_TEST_TEXT)
+    pairs = mapping_pairs(mapping)
+    facts = []
+    problems = []
+    if filtered == PII_TEST_TEXT:
+        problems.append("Der Beispieltext kam unverändert zurück: der Dienst hat nichts erkannt oder das Feld „filtered“ fehlt")
+    else:
+        facts.append("Text wird maskiert")
+    if pairs:
+        facts.append(f"{len(pairs)} Wert(e) im Mapping")
+        if PIIFilterClient("-").demask(filtered, mapping) == PII_TEST_TEXT:
+            facts.append("Demaskierung stimmt")
+        else:
+            problems.append("Die Demaskierung ergibt nicht den Originaltext (Platzhalter nicht eindeutig oder Mapping unvollständig)")
+    elif filtered != PII_TEST_TEXT:
+        problems.append("Kein Mapping in der Antwort: Antworten des Modells können nicht demaskiert werden (die Websuche funktioniert trotzdem)")
+    result = {"details": " · ".join(facts + problems)}
+    if filtered == PII_TEST_TEXT:
+        return {"success": False, "error": problems[0], **result}
+    return {"success": True, "message": "PII-Filter erreichbar" + (" mit Hinweisen" if problems else " und vertragsgemäß"), **result}
 
 
 # =============================================================================

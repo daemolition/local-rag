@@ -4,7 +4,7 @@
 #  Defaults to the NVIDIA GPU image (CUDA 12.4.1 + cuDNN) so the container
 #  uses the GPU whenever the host provides one. To build a CPU-only image
 #  (smaller, no CUDA base):
-#    docker build --build-arg DEVICE=cpu -t local-document-rag-parakeet:cpu .
+#    docker build --build-arg DEVICE=cpu -t open-knowledge-ui-parakeet:cpu .
 #  The GPU build still works on CPU-only hosts — onnxruntime falls back to
 #  CPUExecutionProvider automatically — but the image is larger.
 

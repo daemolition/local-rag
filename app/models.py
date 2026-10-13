@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-SQLAlchemy Models für Local Document RAG (Single-User)
+SQLAlchemy Models für Open Knowledge UI (Single-User)
 """
 
 from datetime import datetime
@@ -29,6 +29,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     false,
+    true,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -107,7 +108,7 @@ class Knowledge(Base):
     """Knowledge-Bereich: eigene Qdrant-Collection mit eigener Ingestion-Konfiguration.
 
     Der Standard-Bereich (``is_default``) nutzt die urspruengliche Collection
-    ``local_rag`` und die urspruenglichen Datei-Ordner.
+    ``open_knowledge_ui`` und die urspruenglichen Datei-Ordner.
     """
 
     __tablename__ = "knowledge"
@@ -122,7 +123,7 @@ class Knowledge(Base):
     # Modell, mit dem die Vektoren entstanden (JSON, siehe app/rag/models_runtime.py), und
     # Signatur aus Modell + Chunk-Einstellungen + Parser/Splitter-Version.
     embedding_spec = Column(Text)
-    # 'local' (eigene Collection) oder 'external' (fremder Vektorspeicher, nur lesen)
+    # 'local' (eigene Collection), 'external' (fremder Vektorspeicher, nur lesen) oder 'sql' (SQL-Datenbank, nur lesen)
     kind = Column(String(20), nullable=False, default="local", server_default="local")
     # externe Quelle: JSON mit URL, Key, Collection, Vektornamen, Feldzuordnung
     source_config = Column(Text)
@@ -150,6 +151,8 @@ class Connection(Base):
     base_url = Column(String(500), nullable=False)
     api_key = Column(Text)
     enabled = Column(Boolean, nullable=False, default=True)
+    # 'llm' (OpenAI-kompatibel), 'tei' (Text Embeddings Inference) oder 'infinity' (Embedding/Rerank)
+    kind = Column(String(20), nullable=False, default="llm", server_default="llm")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def __repr__(self):
@@ -178,6 +181,8 @@ class ModelConfig(Base):
     replace_prompt = Column(Boolean, nullable=False, default=False)
     params = Column(Text)  # JSON-Objekt
     knowledge_ids = Column(Text)  # JSON-Liste oder NULL
+    # Nutzer duerfen zusaetzlich eigenes Knowledge waehlen (an: Modell-Knowledge ist die Basis)
+    allow_extra_knowledge = Column(Boolean, nullable=False, default=True, server_default=true())
     # Websuche (SearXNG) als Werkzeug; standardmaessig aus
     web_search = Column(Boolean, nullable=False, default=False)
     # Fuer jeden angemeldeten Nutzer nutzbar (ohne Freigabe).

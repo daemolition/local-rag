@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -283,11 +283,15 @@ def fit_history(
     cfg: dict,
     llm_factory,
     persist,
+    mask_many=None,
+    unmask=None,
 ) -> tuple[list[dict], dict | None]:
     """Liefert den Verlauf fuers Modell (ohne die neue Frage) und ggf. Angaben zur Compaction.
 
     ``rows``: Nachrichten nach der gespeicherten Zusammenfassung (``role``, ``content``, ``id``).
     ``llm_factory()`` baut das Zusammenfassungs-Modell, ``persist(summary, through_id)`` speichert.
+    Mit ``mask_many(texts) -> (maskierte Texte, Mapping)`` und ``unmask(text, Mapping)`` (PII-Filter)
+    sieht das Zusammenfassungs-Modell nur maskierten Text; gespeichert wird der zurueckuebersetzte Klartext.
     """
     rows = list(rows)
 
@@ -320,7 +324,14 @@ def fit_history(
 
     old, kept = rows[:cut], rows[cut:]
     older = [{"role": "user" if r.role == "user" else "assistant", "content": clean_history_text(r.content)} for r in old]
-    new_summary = summarize(llm_factory(), cfg, older, summary)
+    if mask_many:
+        texts = ([summary] if summary else []) + [m["content"] for m in older]
+        masked, mapping = mask_many(texts)
+        previous = masked[0] if summary else None
+        older = [{**m, "content": t} for m, t in zip(older, masked[1 if summary else 0 :])]
+        new_summary = unmask(summarize(llm_factory(), cfg, older, previous), mapping)
+    else:
+        new_summary = summarize(llm_factory(), cfg, older, summary)
     persist(new_summary, old[-1].id)
     result = history_messages(kept, new_summary)
     if total(result) > budget.trigger:  # einzelne riesige Nachricht

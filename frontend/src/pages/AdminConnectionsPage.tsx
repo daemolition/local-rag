@@ -101,24 +101,33 @@ export function AdminConnectionsPage() {
         ) : items.length === 0 ? (
           <p className="text-muted-foreground">Noch keine Connections.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 2xl:grid-cols-3">
             {items.map((c) => (
               <Card key={c.id}>
-                <CardContent className="flex flex-wrap items-center gap-3 p-4">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
-                    <Plug className="size-5 text-muted-foreground" />
+                <CardContent className="flex items-center gap-2.5 p-3">
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-muted">
+                    <Plug className="size-4 text-muted-foreground" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{c.name}</p>
-                    <p className="truncate text-sm text-muted-foreground">
+                    <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
+                      <span className="truncate">{c.name}</span>
+                      {c.kind !== "llm" ? (
+                        <span className="shrink-0 rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {c.kind === "tei" ? "TEI" : "Infinity"}
+                        </span>
+                      ) : null}
+                      <KeyRound
+                        className={`size-3 shrink-0 ${c.has_key ? "text-muted-foreground" : "text-muted-foreground/40"}`}
+                        aria-label={c.has_key ? "API-Key gesetzt" : "Kein API-Key"}
+                      >
+                        <title>{c.has_key ? "API-Key gesetzt" : "Kein API-Key"}</title>
+                      </KeyRound>
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground" title={c.base_url}>
                       {c.base_url}
                     </p>
-                    <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                      <KeyRound className="size-3" />
-                      {c.has_key ? "API-Key gesetzt" : "Kein API-Key"}
-                    </p>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-0.5">
                     <Switch
                       checked={c.enabled}
                       onCheckedChange={(v) => void toggle(c, v)}

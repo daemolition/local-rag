@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -29,6 +29,7 @@ from langchain_qdrant import FastEmbedSparse
 
 from app.llm.local_llm import VisionLLM
 from app.retrieval import MultiCollectionRetriever
+from app.sqlsource.tools import SqlTools
 from app.tools.custom_tools import CustomTools
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ def load_resources(
         data_dir=data_dir,
         summaries_dir=summaries_dir,
     )
-    tools = custom_tools.get_tools()
+    tools = custom_tools.get_tools() + SqlTools().get_tools()
 
     app.extensions["sparse_embeddings"] = sparse_embeddings
     app.extensions["llm"] = llm

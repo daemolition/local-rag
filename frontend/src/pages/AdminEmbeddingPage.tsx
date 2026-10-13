@@ -94,10 +94,10 @@ function ModelEditor({
       return;
     }
     api
-      .get<string[]>(`/api/admin/embedding/remote-models?connection_id=${spec.connection_id}`)
+      .get<string[]>(`/api/admin/embedding/remote-models?connection_id=${spec.connection_id}&capability=${kind}`)
       .then(setRemote)
       .catch(() => setRemote([]));
-  }, [spec.source, spec.connection_id]);
+  }, [spec.source, spec.connection_id, kind]);
 
   const test = async () => {
     setTesting(true);

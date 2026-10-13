@@ -15,16 +15,29 @@ import { Switch } from "@/components/ui/switch";
 import { api, errorMessage } from "@/lib/api";
 import type { Connection } from "@/lib/types";
 
-const PRESETS = [
-  { label: "OpenAI", url: "https://api.openai.com/v1" },
-  { label: "LiteLLM", url: "http://localhost:4000/v1" },
-  { label: "Ollama", url: "http://localhost:11434/v1" },
-  { label: "vLLM", url: "http://localhost:8000/v1" },
+type Kind = Connection["kind"];
+
+const KINDS: { value: Kind; label: string; hint: string }[] = [
+  { value: "llm", label: "OpenAI-kompatibel", hint: "Chat-Modelle (LiteLLM, vLLM, Ollama, OpenAI). Claude und andere Anbieter laufen über LiteLLM." },
+  { value: "tei", label: "Text Embeddings Inference", hint: "HuggingFace TEI für Embedding oder Reranking (ein Modell je Server, auch auf ARM)." },
+  { value: "infinity", label: "Infinity", hint: "Infinity-Server für Embedding und Reranking (mehrere Modelle je Server)." },
 ];
+
+const PRESETS: Record<Kind, { label: string; url: string }[]> = {
+  llm: [
+    { label: "OpenAI", url: "https://api.openai.com/v1" },
+    { label: "LiteLLM", url: "http://localhost:4000/v1" },
+    { label: "Ollama", url: "http://localhost:11434/v1" },
+    { label: "vLLM", url: "http://localhost:8000/v1" },
+  ],
+  tei: [{ label: "TEI", url: "http://localhost:8080" }],
+  infinity: [{ label: "Infinity", url: "http://localhost:7997" }],
+};
 
 export interface ConnectionValues {
   name: string;
   base_url: string;
+  kind: Kind;
   // Leer beim Bearbeiten = gespeicherten Key behalten.
   api_key: string;
   enabled: boolean;
@@ -51,6 +64,7 @@ export function ConnectionDialog({
   onSubmit,
 }: ConnectionDialogProps) {
   const [name, setName] = useState("");
+  const [kind, setKind] = useState<Kind>("llm");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -60,6 +74,7 @@ export function ConnectionDialog({
   useEffect(() => {
     if (!open) return;
     setName(connection?.name ?? "");
+    setKind(connection?.kind ?? "llm");
     setBaseUrl(connection?.base_url ?? "");
     setApiKey("");
     setEnabled(connection?.enabled ?? true);
@@ -71,7 +86,7 @@ export function ConnectionDialog({
     try {
       const res = await api.post<{ success: boolean; message: string }>(
         "/api/connections/test",
-        { id: connection?.id, base_url: baseUrl, api_key: apiKey },
+        { id: connection?.id, kind, base_url: baseUrl, api_key: apiKey },
       );
       setTest({ state: "ok", message: res.message });
     } catch (e) {
@@ -82,7 +97,7 @@ export function ConnectionDialog({
   const submit = async () => {
     setBusy(true);
     try {
-      await onSubmit({ name, base_url: baseUrl, api_key: apiKey, enabled });
+      await onSubmit({ name, kind, base_url: baseUrl, api_key: apiKey, enabled });
       onOpenChange(false);
     } finally {
       setBusy(false);
@@ -99,12 +114,34 @@ export function ConnectionDialog({
             {connection ? "Connection bearbeiten" : "Neue Connection"}
           </DialogTitle>
           <DialogDescription>
-            Jeder OpenAI-kompatible Endpunkt: LiteLLM, vLLM, Ollama, OpenAI.
-            Claude und andere Anbieter laufen über LiteLLM.
+            {KINDS.find((k) => k.value === kind)?.hint}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Typ</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {KINDS.map((k) => (
+                <button
+                  key={k.value}
+                  type="button"
+                  onClick={() => {
+                    setKind(k.value);
+                    setTest({ state: "idle" });
+                  }}
+                  className={`rounded-full border px-3 py-1 text-sm ${
+                    kind === k.value
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border-base text-muted-foreground hover:bg-hover"
+                  }`}
+                >
+                  {k.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="conn-name">Name</Label>
             <Input
@@ -125,11 +162,11 @@ export function ConnectionDialog({
                 setBaseUrl(e.target.value);
                 setTest({ state: "idle" });
               }}
-              placeholder="https://host:4000/v1"
+              placeholder={kind === "llm" ? "https://host:4000/v1" : "http://host:8080"}
               spellCheck={false}
             />
             <div className="flex flex-wrap gap-1.5">
-              {PRESETS.map((p) => (
+              {PRESETS[kind].map((p) => (
                 <button
                   key={p.label}
                   type="button"

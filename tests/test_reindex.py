@@ -58,9 +58,9 @@ def test_reindex_builds_a_new_collection_and_swaps(db, qd, no_enrichment):
     reindex.reindex_knowledge(default_kb(), qd, FakeSparse())
 
     kb = default_kb()
-    assert kb["collection_name"] == "local_rag_g1"
-    assert not qd.collection_exists("local_rag")
-    after = scroll_all(qd, "local_rag_g1")
+    assert kb["collection_name"] == "open_knowledge_ui_g1"
+    assert not qd.collection_exists("open_knowledge_ui")
+    after = scroll_all(qd, "open_knowledge_ui_g1")
     assert len(after) == len(before)
     assert {p.payload["file_group_id"] for p in after} == {p.payload["file_group_id"] for p in before}
     assert json.loads(kb["embedding_spec"]) == NEW.to_dict() and kb["embedding_dimension"] == 7
@@ -72,8 +72,8 @@ def test_a_second_reindex_numbers_the_generation_up(db, qd, no_enrichment):
     ingest_two(qd)
     reindex.reindex_knowledge(default_kb(), qd, FakeSparse())
     reindex.reindex_knowledge(default_kb(), qd, FakeSparse())
-    assert default_kb()["collection_name"] == "local_rag_g2"
-    assert not qd.collection_exists("local_rag_g1")
+    assert default_kb()["collection_name"] == "open_knowledge_ui_g2"
+    assert not qd.collection_exists("open_knowledge_ui_g1")
 
 
 def test_restart_keeps_the_renamed_default_knowledge(db, qd, no_enrichment):
@@ -95,9 +95,9 @@ def test_failure_keeps_the_old_index_active(db, qd, no_enrichment, monkeypatch):
     with pytest.raises(RuntimeError):
         reindex.reindex_knowledge(default_kb(), qd, FakeSparse())
 
-    assert default_kb()["collection_name"] == "local_rag"
+    assert default_kb()["collection_name"] == "open_knowledge_ui"
     assert len(scroll_all(qd)) == before
-    assert [c.name for c in qd.get_collections().collections].count("local_rag_g1") == 0
+    assert [c.name for c in qd.get_collections().collections].count("open_knowledge_ui_g1") == 0
 
 
 def test_job_records_the_error_on_the_knowledge(db, qd, no_enrichment, monkeypatch):
@@ -126,7 +126,7 @@ def test_documents_without_markdown_are_reparsed_or_rebuilt_from_chunks(db, qd, 
 
     reindex.reindex_knowledge(default_kb(), qd, FakeSparse())
 
-    points = scroll_all(qd, "local_rag_g1")
+    points = scroll_all(qd, "open_knowledge_ui_g1")
     by_file = {}
     for p in points:
         by_file.setdefault(p.payload["filename"], []).append(p)
@@ -219,7 +219,7 @@ def test_reindex_keeps_uploader_and_upload_date(db, qd, no_enrichment):
     s.close()
     model_settings.save_specs(NEW)
     reindex.reindex_knowledge(default_kb(), qd, FakeSparse())
-    payload = scroll_all(qd, "local_rag_g1")[0].payload
+    payload = scroll_all(qd, "open_knowledge_ui_g1")[0].payload
     assert payload["uploaded_by"] == ed["id"]
     assert payload["uploaded_at"].startswith(stamp.date().isoformat())
     assert payload["file_type"] == "md" and payload["knowledge_id"] == default_kb()["id"]

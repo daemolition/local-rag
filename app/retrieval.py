@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -45,7 +45,7 @@ from app.vector.collections import USER_UPLOADS_COLLECTION
 
 logger = getLogger(__name__)
 
-DEFAULT_COLLECTION = "local_rag"
+DEFAULT_COLLECTION = "open_knowledge_ui"
 
 
 @dataclass(frozen=True)
@@ -83,6 +83,8 @@ class RetrievalScope:
     warnings: list = field(default_factory=list, compare=False)
     # Nutzer des Requests: bestimmt den Ordner der Analysen (Werkzeuge des Modells)
     user_id: int | None = field(default=None, compare=False)
+    # SQL-Quellen: (Knowledge-ID, Name, JSON der Konfiguration inkl. Passwort; bleibt im Prozess)
+    sql_sources: tuple[tuple[int, str, str], ...] = field(default=(), compare=False)
 
 
 _scope: ContextVar[RetrievalScope | None] = ContextVar("retrieval_scope", default=None)

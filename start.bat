@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title Local Document RAG - Windows
+title Open Knowledge UI - Windows
 
 echo ==========================================
-echo  Local Document RAG - Windows
+echo  Open Knowledge UI - Windows
 echo ==========================================
 echo.
 

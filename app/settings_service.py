@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -47,6 +47,7 @@ class SettingsService:
             "STT_MODEL",
             "STT_BASEURL",
             "STT_API_KEY",
+            "STT_MODE",
         ],
         "embedding": [
             "EMBEDDING_SOURCE",
@@ -70,6 +71,12 @@ class SettingsService:
             "SEARCH_SEARXNG_URL",
             "SEARCH_SEARXNG_CATEGORIES",
             "SEARCH_SEARXNG_ENABLED",
+        ],
+        "tools": [
+            "TOOL_WORKER_URL",
+            "PANDAS_TIMEOUT_S",
+            "PANDAS_MAX_MEMORY_MB",
+            "PANDAS_MAX_OUTPUT_CHARS",
         ],
         "pii_filter": [
             "PII_FILTER_URL",
@@ -151,6 +158,11 @@ class SettingsService:
         "QDRANT_HOST",
         "QDRANT_PORT",
         "QDRANT_API_KEY",
+        # Eigene Karte unter Administration > Tools.
+        "TOOL_WORKER_URL",
+        "PANDAS_TIMEOUT_S",
+        "PANDAS_MAX_MEMORY_MB",
+        "PANDAS_MAX_OUTPUT_CHARS",
         # Die Websuche wird pro Modell zugeschaltet (Modelle > Konfigurieren).
         "SEARCH_SEARXNG_ENABLED",
         "SECRET_KEY",
@@ -175,6 +187,7 @@ class SettingsService:
         "STT_MODEL": "Speech-to-Text Modell (z.B. nemo-parakeet-tdt-0.6b-v3)",
         "STT_BASEURL": "STT API URL (z.B. OpenAI-compatible Whisper Endpoint)",
         "STT_API_KEY": "API Key für STT Endpoint",
+        "STT_MODE": "Betriebsart der Spracheingabe: auto, stream (live) oder upload (aufnehmen und senden)",
         "EMBEDDING_SOURCE": 'Quelle: "local" (ONNX/fastembed) oder "endpoint"',
         "EMBEDDING_MODEL": "Embedding Modell Name",
         "EMBEDDING_ENDPOINT": "URL für externen Embedding-Service",

@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -147,6 +147,11 @@ class DatabaseService:
             "STT_MODEL": ("stt", "nemo-parakeet-tdt-0.6b-v3", "STT Modell"),
             "STT_BASEURL": ("stt", "http://parakeet:5001/v1", "STT API URL"),
             "STT_API_KEY": ("stt", "ollama", "STT API Key", True),
+            "STT_MODE": (
+                "stt",
+                "auto",
+                "Betriebsart der Spracheingabe: auto, stream (live, Parakeet) oder upload (aufnehmen und senden, OpenAI-Standard)",
+            ),
             "EMBEDDING_SOURCE": ("embedding", "local", "Quelle: local oder endpoint"),
             "EMBEDDING_MODEL": (
                 "embedding",
@@ -233,12 +238,22 @@ class DatabaseService:
             ),
             "PII_FILTER_API_KEY": ("pii_filter", "", "API-Key des PII-Filters", True),
             "PII_FILTER_ENABLED": ("pii_filter", "true", "PII-Filter aktivieren (true/false)"),
+            "SEARCH_ALLOW_UNMASKED": (
+                "search",
+                "false",
+                "Websuche auch ohne aktiven PII-Filter erlauben (Suchanfragen gehen dann unmaskiert raus)",
+            ),
         }
 
         from app.compaction import SETTINGS as compaction_settings
 
         for key, default, description in compaction_settings:
             all_settings[key] = ("llm", default, description)
+
+        from app.toolworker.config import SETTINGS as tool_worker_settings
+
+        for key, default, description in tool_worker_settings:
+            all_settings[key] = ("tools", default, description)
 
         for key, config in all_settings.items():
             if len(config) == 4:

@@ -101,8 +101,21 @@ export interface Knowledge {
   stale?: boolean;
   last_reindex_error?: string | null;
   // 'external' = fremder Vektorspeicher, nur lesen
-  kind?: "local" | "external";
-  source_config?: ExternalSource;
+  kind?: "local" | "external" | "sql";
+  source_config?: ExternalSource | SqlSource;
+}
+
+export interface SqlSource {
+  dialect: "postgresql" | "mysql" | "mssql" | "sqlite";
+  host: string;
+  instance?: string;
+  port: number;
+  database: string;
+  user: string;
+  has_password: boolean;
+  schema: string;
+  tables: string[];
+  blocked_columns: Record<string, string[]>;
 }
 
 export interface ExternalAccess {
@@ -150,6 +163,8 @@ export interface Connection {
   name: string;
   base_url: string;
   enabled: boolean;
+  // llm = OpenAI-kompatibel, tei = Text Embeddings Inference, infinity = Infinity (Embedding/Rerank)
+  kind: "llm" | "tei" | "infinity";
   // Der Key selbst wird nie ausgeliefert.
   has_key: boolean;
 }
@@ -176,6 +191,8 @@ export interface ModelConfig {
   web_search: boolean;
   params: ModelParams;
   knowledge_ids: number[] | null;
+  // Nutzer dürfen zusätzlich eigenes Knowledge wählen (Standard an); aus = nur Modell-Knowledge
+  allow_extra_knowledge?: boolean;
   ref: string;
 }
 
@@ -192,6 +209,8 @@ export interface ModelEntry {
   // Nur für Admins; Nutzer bekommen stattdessen knowledge_locked.
   config?: ModelConfig | null;
   knowledge_locked?: boolean;
+  // Knowledge, das das Modell mitbringt (immer Teil der Suche)
+  knowledge_base?: { id: number; name: string }[];
 }
 
 export interface ModelsResponse {
@@ -200,6 +219,8 @@ export interface ModelsResponse {
   default: string;
   // Websuche pro Modell nur zuschaltbar, wenn SearXNG und PII-Filter eingerichtet sind
   web_search_available?: boolean;
+  // true: der PII-Filter maskiert Suchanfragen; false: sie gehen unmaskiert raus (Warnhinweis)
+  web_search_masked?: boolean;
   // Compaction-Einstellungen (Prozentwerte) für die Budget-Anzeige im Modell-Dialog
   compaction?: { enabled: boolean; headroom_percent: number; keep_percent: number; output_reserve_percent: number };
   // Standardwerte, die gelten, wenn ein Modell einen Parameter leer lässt

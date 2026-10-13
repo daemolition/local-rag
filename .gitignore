@@ -25,7 +25,7 @@ app/data/*.db-journal
 data/
 .claude/
 .docs/
-docs/
+docs/superpowers/
 
 # Generierte React-SPA (Vite-Build -> app/static/).
 # Neu bauen mit: cd frontend && npm run build

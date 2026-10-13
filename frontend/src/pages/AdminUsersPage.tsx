@@ -414,36 +414,41 @@ export function AdminUsersPage() {
                   {users.map((u) => (
                     <div
                       key={u.id}
-                      className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 transition-colors last:border-0 hover:bg-hover/40"
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-base px-3 py-1.5 transition-colors last:border-0 hover:bg-hover/40"
                     >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {u.display_name}{" "}
-                          <span className="font-normal text-muted-foreground">
-                            ({u.username})
-                          </span>
-                          {u.id === me?.id ? (
-                            <span className="ml-2 text-xs text-muted-foreground">du</span>
-                          ) : null}
-                        </p>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {u.auth_source && u.auth_source !== "local" ? (
-                            <Badge variant="outline" className="mr-1">
-                              {SOURCE_LABEL[u.auth_source]}
-                            </Badge>
-                          ) : null}
-                          <Badge variant={u.role === "admin" ? "default" : "secondary"}>
-                            {ROLE_LABEL[u.role]}
+                      <p className="min-w-0 max-w-full shrink truncate text-sm font-medium sm:max-w-[16rem]">
+                        {u.display_name}{" "}
+                        <span className="font-normal text-muted-foreground">({u.username})</span>
+                        {u.id === me?.id ? (
+                          <span className="ml-2 text-xs text-muted-foreground">du</span>
+                        ) : null}
+                      </p>
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                        {u.auth_source && u.auth_source !== "local" ? (
+                          <Badge variant="outline">{SOURCE_LABEL[u.auth_source]}</Badge>
+                        ) : null}
+                        <Badge variant={u.role === "admin" ? "default" : "secondary"}>
+                          {ROLE_LABEL[u.role]}
+                        </Badge>
+                        {!u.is_active ? <Badge variant="destructive">gesperrt</Badge> : null}
+                        {u.group_ids.slice(0, 3).map((id) => (
+                          <Badge key={id} variant="outline">
+                            {groupNames.get(id) ?? "?"}
                           </Badge>
-                          {!u.is_active ? <Badge variant="destructive">gesperrt</Badge> : null}
-                          {u.group_ids.map((id) => (
-                            <Badge key={id} variant="outline">
-                              {groupNames.get(id) ?? "?"}
-                            </Badge>
-                          ))}
-                        </div>
+                        ))}
+                        {u.group_ids.length > 3 ? (
+                          <Badge
+                            variant="outline"
+                            title={u.group_ids
+                              .slice(3)
+                              .map((id) => groupNames.get(id) ?? "?")
+                              .join(", ")}
+                          >
+                            +{u.group_ids.length - 3}
+                          </Badge>
+                        ) : null}
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex shrink-0 items-center">
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -483,7 +488,7 @@ export function AdminUsersPage() {
                     {groups.map((g) => (
                       <div
                         key={g.id}
-                        className="flex flex-wrap items-center gap-3 border-b border-border-base px-4 py-3 transition-colors last:border-0 hover:bg-hover/40"
+                        className="flex flex-wrap items-center gap-3 border-b border-border-base px-3 py-1.5 transition-colors last:border-0 hover:bg-hover/40"
                       >
                         <UsersIcon className="size-4 shrink-0 text-muted-foreground" />
                         <div className="min-w-0 flex-1">

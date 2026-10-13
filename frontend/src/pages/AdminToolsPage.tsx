@@ -7,14 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { CompactionCard } from "@/components/CompactionCard";
+import { ToolWorkerCard } from "@/components/ToolWorkerCard";
 import { api, errorMessage } from "@/lib/api";
 
 interface ToolsOverview {
-  stt: { base_url: string; model: string; has_key: boolean };
-  search: { url: string; categories: string };
+  stt: { base_url: string; model: string; mode: string; has_key: boolean };
+  search: { url: string; categories: string; allow_unmasked: boolean };
   pii: { url: string; enabled: boolean; has_key: boolean };
   web_search_available: boolean;
+  web_search_masked: boolean;
 }
 
 type Kind = "stt" | "search" | "pii";
@@ -79,16 +83,16 @@ function ToolCard({
 
 export function AdminToolsPage() {
   const [data, setData] = useState<ToolsOverview | null>(null);
-  const [stt, setStt] = useState({ base_url: "", model: "", api_key: "" });
-  const [search, setSearch] = useState({ url: "", categories: "general" });
+  const [stt, setStt] = useState({ base_url: "", model: "", mode: "auto", api_key: "" });
+  const [search, setSearch] = useState({ url: "", categories: "general", allow_unmasked: false });
   const [pii, setPii] = useState({ url: "", enabled: true, api_key: "" });
   const [testing, setTesting] = useState<Kind | null>(null);
   const [saving, setSaving] = useState(false);
 
   const apply = (d: ToolsOverview) => {
     setData(d);
-    setStt({ base_url: d.stt.base_url, model: d.stt.model, api_key: "" });
-    setSearch({ url: d.search.url, categories: d.search.categories });
+    setStt({ base_url: d.stt.base_url, model: d.stt.model, mode: d.stt.mode || "auto", api_key: "" });
+    setSearch({ url: d.search.url, categories: d.search.categories, allow_unmasked: d.search.allow_unmasked });
     setPii({ url: d.pii.url, enabled: d.pii.enabled, api_key: "" });
   };
 
@@ -140,15 +144,15 @@ export function AdminToolsPage() {
         <div>
           <h1 className="text-xl font-semibold">Tools</h1>
           <p className="text-sm text-muted-foreground">
-            Zusatzdienste für Spracheingabe und Websuche. Die Websuche schaltest du je Modell
-            zu (Modelle › Konfigurieren), sie ist nur mit aktivem PII-Filter möglich.
+            Zusatzdienste für Spracheingabe und Websuche sowie die automatische Compaction des Chat-Kontexts. Die Websuche schaltest du je Modell
+            zu (Modelle › Konfigurieren). Sie läuft mit aktivem PII-Filter maskiert, ohne Filter nur mit deiner ausdrücklichen Freigabe.
           </p>
         </div>
 
         <ToolCard
           icon={<Mic className="size-4" />}
           title="Spracheingabe"
-          hint="OpenAI-kompatibler Speech-to-Text-Dienst (z. B. Parakeet) für den Mikrofon-Knopf im Chat."
+          hint="Speech-to-Text für den Mikrofon-Knopf im Chat. Parakeet schreibt live ins Feld; Whisper und jeder andere OpenAI-kompatible Dienst (vLLM, speaches, OpenAI, Groq …) funktionieren über Aufnehmen & senden."
           badge={
             <Badge variant={data.stt.base_url ? "secondary" : "outline"}>
               {data.stt.base_url ? "eingerichtet" : "nicht eingerichtet"}
@@ -161,15 +165,30 @@ export function AdminToolsPage() {
             <Input
               value={stt.base_url}
               onChange={(e) => setStt({ ...stt, base_url: e.target.value })}
-              placeholder="http://parakeet:5001/v1"
+              placeholder="http://parakeet:5001/v1 oder http://whisper:8000/v1"
             />
           </Field>
           <Field label="Modell">
             <Input
               value={stt.model}
               onChange={(e) => setStt({ ...stt, model: e.target.value })}
-              placeholder="nemo-parakeet-tdt-0.6b-v3"
+              placeholder="nemo-parakeet-tdt-0.6b-v3 oder whisper-large-v3"
             />
+          </Field>
+          <Field
+            label="Betriebsart"
+            hint="Automatisch: Live-Streaming, wenn der Dienst es anbietet, sonst Aufnehmen & senden."
+          >
+            <Select value={stt.mode} onValueChange={(v) => setStt({ ...stt, mode: v })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Automatisch</SelectItem>
+                <SelectItem value="stream">Live-Streaming (Parakeet)</SelectItem>
+                <SelectItem value="upload">Aufnehmen & senden (Whisper & Co.)</SelectItem>
+              </SelectContent>
+            </Select>
           </Field>
           <Field
             label="API-Key"
@@ -187,7 +206,7 @@ export function AdminToolsPage() {
         <ToolCard
           icon={<ShieldCheck className="size-4" />}
           title="PII-Filter"
-          hint="Maskiert personenbezogene Daten in Anfragen, bevor sie das System verlassen (entityguard)."
+          hint="Maskiert personenbezogene Daten in Anfragen, bevor sie das System verlassen. Jeder Dienst mit der unten beschriebenen Schnittstelle funktioniert (entityguard ist ein Beispiel)."
           badge={
             <Badge variant={data.pii.url && data.pii.enabled ? "secondary" : "outline"}>
               {data.pii.url && data.pii.enabled ? "aktiv" : "aus"}
@@ -218,7 +237,7 @@ export function AdminToolsPage() {
             <div>
               <Label className="text-sm">PII-Filter verwenden</Label>
               <p className="text-xs text-muted-foreground">
-                Aus: Nachrichten gehen ungefiltert ans Modell und die Websuche ist nicht verfügbar.
+                Aus: Nachrichten gehen ungefiltert ans Modell; die Websuche braucht dann die Freigabe „Auch ohne PII-Filter erlauben“.
               </p>
             </div>
             <Switch
@@ -226,6 +245,27 @@ export function AdminToolsPage() {
               onCheckedChange={(v) => setPii({ ...pii, enabled: v })}
             />
           </div>
+          <details className="rounded-lg border border-border-base px-3 py-2 text-xs text-muted-foreground sm:col-span-2">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">
+              Anforderungen an den Dienst
+            </summary>
+            <div className="mt-2 space-y-2">
+              <p>
+                Die App sendet <code>POST &lt;Adresse&gt;</code> mit JSON und erwartet <code>200</code> mit dem
+                maskierten Text und, für das Zurückübersetzen der Antwort, einem Mapping. Optional kommt der Key als
+                <code> Authorization: Bearer …</code>.
+              </p>
+              <pre className="overflow-x-auto rounded bg-surface-muted p-2">{`Anfrage:  {"text": "Schreibe Max Mustermann"}
+Antwort:  {"filtered": "Schreibe [NAME_1]",
+           "mapping": {"[NAME_1]": "Max Mustermann"}}`}</pre>
+              <p>
+                Platzhalter müssen im Text eindeutig sein. Ein Dienst ohne <code>mapping</code> funktioniert für die
+                Websuche, die Antworten des Modells lassen sich dann aber nicht zurückübersetzen. Nicht-200 gilt als
+                Fehler. Die ganze Beschreibung steht in <code>docs/sanitizer-api.md</code>. „Testen“ prüft all das
+                mit erfundenen Daten.
+              </p>
+            </div>
+          </details>
         </ToolCard>
 
         <ToolCard
@@ -235,9 +275,11 @@ export function AdminToolsPage() {
           badge={
             <Badge variant={data.web_search_available ? "secondary" : "outline"}>
               {data.web_search_available
-                ? "bereit"
+                ? data.web_search_masked
+                  ? "bereit (maskiert)"
+                  : "bereit, ohne Maskierung"
                 : data.search.url
-                  ? "braucht PII-Filter"
+                  ? "braucht PII-Filter oder Freigabe"
                   : "nicht eingerichtet"}
             </Badge>
           }
@@ -257,6 +299,19 @@ export function AdminToolsPage() {
               onChange={(e) => setSearch({ ...search, categories: e.target.value })}
             />
           </Field>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border-base px-3 py-2 sm:col-span-2">
+            <div>
+              <Label className="text-sm">Auch ohne PII-Filter erlauben</Label>
+              <p className="text-xs text-muted-foreground">
+                Ohne aktiven PII-Filter gehen Suchanfragen unmaskiert an SearXNG und von dort an Suchmaschinen.
+                Zuschalten musst du die Websuche weiterhin je Modell.
+              </p>
+            </div>
+            <Switch
+              checked={search.allow_unmasked}
+              onCheckedChange={(v) => setSearch({ ...search, allow_unmasked: v })}
+            />
+          </div>
         </ToolCard>
 
         <div className="flex justify-end">
@@ -265,6 +320,9 @@ export function AdminToolsPage() {
             Speichern
           </Button>
         </div>
+
+        <CompactionCard />
+        <ToolWorkerCard />
       </div>
     </div>
   );

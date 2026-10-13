@@ -179,7 +179,7 @@ def test_api_changes_refresh_the_index(app, db, qd):
     from app.vector.collections import ensure_collection
 
     kb = default_kb()
-    ensure_collection(qd, "local_rag", 7)
+    ensure_collection(qd, "open_knowledge_ui", 7)
     app.extensions["client"] = qd
     add_doc(db, kb, "Bericht.pdf", "# Bericht", fg="22222222-bbbb")
     index_doc.refresh_index(kb["id"])

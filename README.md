@@ -1,4 +1,4 @@
-# Local Document RAG
+# Open Knowledge UI
 
 Ein Open-Source-RAG für eigene Dokumente, gebaut auf **Qualität** und volle Kontrolle über Einlesen und Suche. Die Oberfläche ist ein Chat im Stil von ChatGPT bzw. Langdock: Fragen stellen, Antworten mit Quellen bekommen, Dateien direkt anhängen. Alles läuft lokal, Modelle und Daten bleiben bei dir.
 
@@ -6,7 +6,7 @@ Ein Open-Source-RAG für eigene Dokumente, gebaut auf **Qualität** und volle Ko
 
 ## Was es kann
 
-- **Chat mit Quellen** (SSE-Streaming, Spracheingabe per Parakeet). Dateien lassen sich anhängen und sind nur in diesem Chat durchsuchbar.
+- **Chat mit Quellen** (SSE-Streaming, Spracheingabe per Parakeet oder Whisper). Dateien lassen sich anhängen und sind nur in diesem Chat durchsuchbar.
 - **Knowledge-Bereiche**: pro Bereich eine eigene Qdrant-Collection mit Upload, Dokumentliste, Vektoransicht und eigenem Retrieval-Profil.
 - **Markdown-first-Einlesen**: PDF, DOCX, DOC, ODT und MD werden mit Docling zu Markdown (Überschriften, Tabellen, Bildbeschreibungen per Vision-LLM), gespeichert und an den Überschriften zerlegt. Das gespeicherte Markdown ist in der Oberfläche einsehbar und die Grundlage zum Neu-Indexieren.
 - **Tabellen als CSV**: Tabellen aus Dokumenten und CSV/Excel-Dateien werden nicht in den Vektorindex gepresst, sondern vom Modell per Pandas ausgewertet (richtige Summen statt geratener Zahlen).
@@ -16,7 +16,7 @@ Ein Open-Source-RAG für eigene Dokumente, gebaut auf **Qualität** und volle Ko
 - **Mehrbenutzer**: Rollen (`admin`, `editor`, `user`), Gruppen und Freigaben für Knowledge und Modelle. Chats sind pro Nutzer privat.
 - **Beliebige LLMs**: OpenAI-kompatible Verbindungen (LiteLLM, vLLM, Ollama, OpenAI) mit Modellliste, eigenem Prompt, Parametern und angehängtem Knowledge pro Modell.
 - **Externe Quellen**: Ein fremder Qdrant lässt sich als Knowledge anbinden (nur lesen, live abgefragt, mit dem Embedding-Modell der Quelle) und wie jedes Knowledge freigeben und an Modelle hängen.
-- Optional: Websuche über SearXNG, die du pro Modell zuschaltest (Standard aus, nur mit eingerichtetem PII-Filter/entityguard).
+- Optional: Websuche über SearXNG, die du pro Modell zuschaltest (Standard aus). Mit PII-Filter werden Suchanfragen vorher maskiert; ohne Filter nur nach ausdrücklicher Freigabe.
 
 Details zu Änderungen: [`CHANGELOG.md`](./CHANGELOG.md). Architektur und Konventionen für Entwickler: [`AGENTS.md`](./AGENTS.md).
 
@@ -79,6 +79,14 @@ Danach in dieser Reihenfolge:
 3. **Administration › Einlesen & Modelle**: Embedding- und Reranking-Modell prüfen (der Standard funktioniert ohne Eingriff, beim ersten Start werden die Modelle heruntergeladen).
 4. **Knowledge**: Dokumente hochladen und einlesen, dann im Chat fragen.
 
+### SQL-Datenbanken als Knowledge
+
+Admins binden PostgreSQL, MySQL/MariaDB, SQL Server oder SQLite an (*Knowledge › SQL-Datenbank*). Das Modell fragt Schema und Daten live und nur lesend ab, nichts wird kopiert; mit PII-Filter werden Ergebnisse maskiert. Dafür läuft der zusätzliche Dienst `tool-worker-sql`. Einrichtung und Sicherheit: [`docs/sql-knowledge.md`](./docs/sql-knowledge.md).
+
+### Tool-Worker (Pandas-Auswertungen)
+
+Auswertungen von CSV/Excel (`run_pandas`) laufen nicht in der App, sondern im eigenen Container `tool-worker` (nicht als root, nur lesender Datenzugriff, kein Ausgang nach außen). Setze dafür in der `.env` ein Token, z. B. `TOOL_WORKER_TOKEN=$(openssl rand -hex 32)`. Ohne laufenden Worker funktioniert der Chat weiter, nur die Pandas-Auswertung meldet „Codeausführung nicht verfügbar“. Details: [`docs/tool-worker-api.md`](./docs/tool-worker-api.md).
+
 ## Modelle und Hardware
 
 - **Gerät:** Die App wählt automatisch CUDA (NVIDIA), MPS (Apple Silicon) oder CPU; `RAG_DEVICE` erzwingt eines davon. Die Wahl steht auf der Seite *Einlesen & Modelle*.
@@ -114,12 +122,24 @@ cd frontend && npm run build                # Produktions-Build nach app/static/
 - Migrationen: `alembic revision --autogenerate -m "..."`, `alembic upgrade head`. Eine bestehende Datenbank ohne Migrationsstand markierst du mit `alembic stamp head`.
 - Releases: `scripts/release.py` (Version, Changelog, Tag). Beiträge siehe [`CONTRIBUTING.md`](./CONTRIBUTING.md), Sicherheitsmeldungen siehe [`SECURITY.md`](./SECURITY.md).
 
+## Governance und Nachweise
+
+Selbstauskunft mit Fundstellen und ehrlich benannten Lücken (keine Zertifizierung, keine Rechtsberatung):
+
+- [`docs/audit-checklist-open-knowledge-ui.md`](./docs/audit-checklist-open-knowledge-ui.md): Security, Datenschutz, Lizenz, Projekt-Health
+- [`docs/data-mapping.md`](./docs/data-mapping.md): Datenflüsse, Aufbewahrung, Betroffenenrechte (Start für VVT/DSFA)
+- [`docs/rahmenwerke.md`](./docs/rahmenwerke.md): Einordnung für SOC 2, NIS2, ISO 27001, CRA, DSGVO
+- [`docs/sanitizer-api.md`](./docs/sanitizer-api.md): Schnittstelle des PII-Filters (mit OpenAPI-Datei und Beispiel-Adapter)
+- [`docs/tool-worker-api.md`](./docs/tool-worker-api.md): Tool-Worker (isolierte Codeausführung), Sicherheitsmodell und Grenzen
+- [`docs/sql-knowledge.md`](./docs/sql-knowledge.md): SQL-Datenbanken als Knowledge (Einrichtung, Sicherheit, PII, Grenzen)
+- [`SECURITY.md`](./SECURITY.md), [`CONTRIBUTING.md`](./CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
+
 ## Betrieb
 
 - **Qdrant**: Server-Modus, `QDRANT_HOST`/`QDRANT_PORT` (Standard `localhost:6333`). Zum Umziehen auf einen anderen Server gibt es `scripts/manage_qdrant.py`.
 - **Websuche**: `searxng/settings.yml` muss das Format `json` zulassen und `server.limiter: false` setzen. Den mitgelieferten `secret_key` für den Betrieb ersetzen (`openssl rand -hex 32`). SearXNG-URL und PII-Filter stellst du unter *Administration › Tools* ein; die Websuche selbst schaltest du je Modell unter *Modelle › Konfigurieren › Werkzeuge* zu. Sie lässt sich nur aktivieren, wenn der PII-Filter eingerichtet ist.
-- **PII-Filter**: `PII_FILTER_URL` leer oder `PII_FILTER_ENABLED=false` schaltet ihn ab; dann ist auch die Websuche nicht verfügbar. Das Modell für Bildbeschreibungen wählst du unter *Einlesen & Modelle*.
-- **Sprache**: Der Mic-Button streamt PCM per WebSocket (`/ws/stt-stream`) an Parakeet; `STT_BASEURL` ist in Docker vorbelegt.
+- **PII-Filter**: Jeder Dienst, der die [Sanitizer-API](./docs/sanitizer-api.md) spricht, funktioniert (entityguard ist die Referenz, ein Adapter für eigene Erkenner liegt in `docs/examples/`). `PII_FILTER_URL` leer oder `PII_FILTER_ENABLED=false` schaltet ihn ab; die Websuche läuft dann nur mit der Freigabe *Tools › Websuche › Auch ohne PII-Filter erlauben* (Suchanfragen gehen unmaskiert hinaus). Ist ein Filter eingerichtet und nicht erreichbar, wird nichts unmaskiert gesendet: der Chat zeigt eine Fehlermeldung, die Websuche bricht ab. Das Modell für Bildbeschreibungen wählst du unter *Einlesen & Modelle*.
+- **Sprache**: Der Mic-Button kennt zwei Betriebsarten, die unter *Administration › Tools › Spracheingabe* eingestellt werden (Standard *Automatisch*): **Live-Streaming** (PCM per WebSocket `/ws/stt-stream` an Parakeet, der Text erscheint beim Sprechen; `STT_BASEURL` ist in Docker vorbelegt) und **Aufnehmen & senden** für jeden OpenAI-kompatiblen Dienst (`POST <Adresse>/audio/transcriptions`), z. B. Whisper über speaches/faster-whisper-server, vLLM, OpenAI oder Groq: Adresse, Modell (z. B. `whisper-large-v3`) und Key eintragen, der Text kommt nach dem Stoppen. *Automatisch* nimmt Streaming, wenn der Dienst `/audio/stream` anbietet, sonst Aufnehmen & senden. „Testen“ schickt eine Sekunde Stille und zeigt, was der Dienst kann. Das Mikrofon braucht HTTPS oder localhost.
 
 ### Fehlersuche
 

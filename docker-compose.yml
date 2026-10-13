@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: local-document-rag
-    container_name: local-document-rag
+    image: open-knowledge-ui
+    container_name: open-knowledge-ui
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -15,6 +15,8 @@ services:
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
       - QDRANT_PORT=${QDRANT_PORT:-6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      # Zugang zum Tool-Worker (fuehrt Pandas-Code isoliert aus), z. B. openssl rand -hex 32
+      - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (z. B. openssl rand -hex 32)}
     volumes:
       # Alle App-Daten (uploads, archiv, images, summaries, data) liegen im
       # einzelnen app-data-Volume als Subdirs von /app/data. Fruehere Bind-
@@ -29,7 +31,9 @@ services:
       # und die Docling-Modelle bleiben ueber Neustarts und Rebuilds erhalten.
       - hf-cache:/root/.cache/huggingface
     networks:
-      - local-rag-network
+      - open-knowledge-ui-network
+      - tool-worker-net
+      - sql-worker-net
     # GPU fuer Embedding, Reranking und Docling (braucht NVIDIA Container Toolkit).
     # Ohne GPU diesen Block entfernen und mit --build-arg TORCH_BACKEND=cpu bauen;
     # die App faellt ohne GPU automatisch auf die CPU zurueck.
@@ -52,9 +56,71 @@ services:
       retries: 3
       start_period: 40s
 
+  # Fuehrt Pandas-Code isoliert aus: kein Ausgang nach aussen, Daten nur lesend, nicht als root.
+  # Die App laeuft auch ohne ihn; "run_pandas" meldet dann "Codeausfuehrung nicht verfuegbar".
+  # Siehe docs/tool-worker-api.md
+  tool-worker:
+    build:
+      context: .
+      dockerfile: tool_worker/Dockerfile
+    image: open-knowledge-ui-tool-worker
+    container_name: open-knowledge-ui-tool-worker
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 4g
+    cpus: 2
+    environment:
+      - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (z. B. openssl rand -hex 32)}
+      - TOOL_WORKER_DATA_DIR=/data
+      - TOOL_WORKER_ROLE=pandas
+    volumes:
+      - app-data:/data:ro
+    networks:
+      - tool-worker-net
+
+  # Fragt SQL-Datenbanken lesend ab (Knowledge "SQL-Datenbank"). Als einziger Dienst mit Ausgang zu den
+  # Datenbankzielen; ohne Zugriff auf Daten, Postgres oder Qdrant der App. docs/tool-worker-api.md
+  tool-worker-sql:
+    build:
+      context: .
+      dockerfile: tool_worker/Dockerfile
+    image: open-knowledge-ui-tool-worker
+    container_name: open-knowledge-ui-tool-worker-sql
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (z. B. openssl rand -hex 32)}
+      - TOOL_WORKER_ROLE=sql
+      - TOOL_WORKER_SQLITE_DIR=/sqlite
+    volumes:
+      # SQLite-Dateien, die als Quelle dienen duerfen (nur lesend); Ordner anlegen oder SQL_SQLITE_DIR setzen
+      - ${SQL_SQLITE_DIR:-./sql-data}:/sqlite:ro
+    networks:
+      - sql-worker-net
+
   searxng:
     image: docker.io/searxng/searxng:latest
-    container_name: local-document-rag-searxng
+    container_name: open-knowledge-ui-searxng
     restart: unless-stopped
     ports:
       - "8081:8080"
@@ -63,31 +129,32 @@ services:
     environment:
       - SEARXNG_BASE_URL=http://localhost:8081/
     networks:
-      - local-rag-network
+      - open-knowledge-ui-network
 
+  # Referenz-Sanitizer (optional): jeder Dienst nach docs/sanitizer-api.md kann ihn ersetzen
   entityguard:
     image: ghcr.io/s2a-open-technologies/entityguard:latest-cpu 
-    container_name: local-document-rag-entityguard
+    container_name: open-knowledge-ui-entityguard
     restart: always
     ports:
       - "8082:9500"
     volumes:
       - entityguard-data:/app/data
     networks:
-      - local-rag-network
+      - open-knowledge-ui-network
 
   parakeet:
     build:
       context: ./parakeet
       args:
         DEVICE: gpu
-    image: local-document-rag-parakeet
-    container_name: local-document-rag-parakeet
+    image: open-knowledge-ui-parakeet
+    container_name: open-knowledge-ui-parakeet
     restart: unless-stopped
     environment:
       - PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
     networks:
-      - local-rag-network
+      - open-knowledge-ui-network
     deploy:
       resources:
         reservations:
@@ -103,7 +170,7 @@ services:
   # bzw. durch Streichen der "ports"-Zeilen.
   postgres:
     image: postgres:17
-    container_name: local-document-rag-postgres
+    container_name: open-knowledge-ui-postgres
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-rag}
@@ -114,7 +181,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
-      - local-rag-network
+      - open-knowledge-ui-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -124,12 +191,12 @@ services:
 
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: local-document-rag-qdrant
+    container_name: open-knowledge-ui-qdrant
     restart: unless-stopped
     volumes:
       - qdrant:/qdrant/storage
     networks:
-      - local-rag-network
+      - open-knowledge-ui-network
     healthcheck:
       # Das offizielle qdrant-Image enthaelt kein wget/curl, nur bash - daher
       # TCP-Connect-Check statt HTTP-Request (wget schlug bisher immer mit
@@ -142,7 +209,14 @@ services:
       start_period: 10s
 
 networks:
-  local-rag-network:
+  open-knowledge-ui-network:
+    driver: bridge
+  # Nur App und Tool-Worker; "internal" = kein Weg nach aussen (Compose-Ebene, siehe docs/tool-worker-api.md)
+  tool-worker-net:
+    driver: bridge
+    internal: true
+  # App und SQL-Worker; normales Bridge-Netz (mit Ausgang), damit der Worker Datenbanken erreicht
+  sql-worker-net:
     driver: bridge
 
 volumes:

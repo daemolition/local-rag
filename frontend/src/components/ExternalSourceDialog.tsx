@@ -116,7 +116,7 @@ export function ExternalSourceDialog({
     if (!open) return;
     setFacts(null);
     setApiKey("");
-    const src = existing?.source_config;
+    const src = existing?.source_config as ExternalSource | undefined;
     setName(existing?.name ?? "");
     setDescription(existing?.description ?? "");
     setUrl(src?.url ?? "");
@@ -242,7 +242,7 @@ export function ExternalSourceDialog({
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={existing?.source_config?.has_key ? "•••••••• (leer = behalten)" : "optional"}
+                placeholder={(existing?.source_config as ExternalSource | undefined)?.has_key ? "•••••••• (leer = behalten)" : "optional"}
               />
             </div>
             <div className="space-y-1">

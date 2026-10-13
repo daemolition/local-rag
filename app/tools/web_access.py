@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,8 +18,9 @@
 Websuche und PII-Filter aus den aktuellen Einstellungen.
 
 Die Websuche (SearXNG) ist ein Werkzeug, das pro Modell zugeschaltet wird (Modelle >
-Konfigurieren). Sie steht nur zur Verfuegung, wenn SearXNG UND ein aktiver PII-Filter
-eingerichtet sind: Suchanfragen verlassen das System, deshalb werden sie vorher maskiert.
+Konfigurieren). Sie steht zur Verfuegung, wenn SearXNG eingerichtet ist UND entweder ein aktiver
+PII-Filter (Suchanfragen verlassen das System und werden vorher maskiert) oder der Admin die
+Suche ausdruecklich ohne Maskierung erlaubt hat (``SEARCH_ALLOW_UNMASKED``, Standard aus).
 Alles wird bei jedem Aufruf frisch aus den Einstellungen gelesen.
 """
 
@@ -43,6 +44,7 @@ def _settings() -> dict:
             "pii_url": (s.get("PII_FILTER_URL") or "").strip(),
             "pii_key": s.get("PII_FILTER_API_KEY") or "",
             "pii_enabled": s.get_bool("PII_FILTER_ENABLED", True),
+            "allow_unmasked": s.get_bool("SEARCH_ALLOW_UNMASKED", False),
         }
     finally:
         session.close()
@@ -61,20 +63,31 @@ def pii_client():
     return _clients[key]
 
 
+def _masking_active(cfg: dict) -> bool:
+    return bool(cfg["pii_url"] and cfg["pii_enabled"])
+
+
 def web_search_available() -> bool:
+    """SearXNG ist eingerichtet und die Suche ist maskiert oder ausdruecklich unmaskiert erlaubt."""
     cfg = _settings()
-    return bool(cfg["searxng_url"] and cfg["pii_url"] and cfg["pii_enabled"])
+    return bool(cfg["searxng_url"] and (_masking_active(cfg) or cfg["allow_unmasked"]))
+
+
+def web_search_masked() -> bool:
+    """Werden Suchanfragen vor dem Versand durch den PII-Filter maskiert?"""
+    cfg = _settings()
+    return bool(cfg["searxng_url"] and _masking_active(cfg))
 
 
 def build_web_search_tool():
-    """Das Websuche-Werkzeug oder ``None``, wenn SearXNG bzw. der PII-Filter fehlt."""
+    """Das Websuche-Werkzeug oder ``None``, wenn SearXNG fehlt bzw. weder Maskierung noch Freigabe da ist."""
     cfg = _settings()
-    if not (cfg["searxng_url"] and cfg["pii_url"] and cfg["pii_enabled"]):
+    if not (cfg["searxng_url"] and (_masking_active(cfg) or cfg["allow_unmasked"])):
         return None
     from app.tools.web_search_tool import create_web_search_tool
 
     return create_web_search_tool(
         searxng_url=cfg["searxng_url"],
         default_categories=cfg["categories"],
-        pii_filter_client=pii_client(),
+        pii_filter_client=pii_client(),  # None ohne aktiven PII-Filter: Anfrage geht unmaskiert raus
     )

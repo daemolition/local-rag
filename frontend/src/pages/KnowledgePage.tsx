@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FileText, Layers, NotebookText, Plug, Plus } from "lucide-react";
+import { Database, FileText, Layers, NotebookText, Plug, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ExternalSourceDialog } from "@/components/ExternalSourceDialog";
+import { SqlSourceDialog } from "@/components/SqlSourceDialog";
 import { KnowledgeDialog } from "@/components/KnowledgeDialog";
 import { useAuth } from "@/context/AuthContext";
 import { api, errorMessage } from "@/lib/api";
@@ -16,6 +17,7 @@ export function KnowledgePage() {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [externalOpen, setExternalOpen] = useState(false);
+  const [sqlOpen, setSqlOpen] = useState(false);
   const { hasRole } = useAuth();
 
   const load = useCallback(() => {
@@ -42,7 +44,7 @@ export function KnowledgePage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-5xl space-y-6 p-6">
+      <div className="w-full space-y-6 p-6">
         <div className="flex flex-col items-start justify-between gap-4 border-b border-border-base pb-4 sm:flex-row sm:items-center">
           <div>
             <h1 className="text-2xl font-semibold">Knowledge</h1>
@@ -58,6 +60,12 @@ export function KnowledgePage() {
                 Externe Quelle
               </Button>
             ) : null}
+            {hasRole("admin") ? (
+              <Button variant="secondary" onClick={() => setSqlOpen(true)}>
+                <Database className="size-4" />
+                SQL-Datenbank
+              </Button>
+            ) : null}
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="size-4" />
               Neues Knowledge
@@ -68,7 +76,7 @@ export function KnowledgePage() {
         {loading ? (
           <p className="text-muted-foreground">Lade…</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {items.map((k) => (
               <Link key={k.id} to={`/knowledge/${k.id}`} className="block">
                 <Card className="h-full p-4 transition-colors hover:bg-surface-subtle">
@@ -82,6 +90,7 @@ export function KnowledgePage() {
                         <span className="text-xs text-muted-foreground">
                           {k.is_default ? "Standard · " : ""}
                           {k.kind === "external" ? "extern · " : ""}
+                          {k.kind === "sql" ? "SQL · " : ""}
                           {k.is_public ? "öffentlich" : "privat"}
                           {k.can_write ? "" : " · nur lesen"}
                         </span>
@@ -93,7 +102,7 @@ export function KnowledgePage() {
                     <div className="flex gap-4 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <FileText className="size-3.5" />
-                        {k.kind === "external" ? "Fremder Vektorspeicher" : `${k.document_count} Dokumente`}
+                        {k.kind === "external" ? "Fremder Vektorspeicher" : k.kind === "sql" ? "SQL-Datenbank (nur lesend)" : `${k.document_count} Dokumente`}
                       </span>
                       <span className="flex items-center gap-1">
                         <Layers className="size-3.5" />
@@ -113,6 +122,7 @@ export function KnowledgePage() {
         onOpenChange={setExternalOpen}
         onSaved={load}
       />
+      <SqlSourceDialog open={sqlOpen} onOpenChange={setSqlOpen} onSaved={load} />
       <KnowledgeDialog
         open={createOpen}
         onOpenChange={setCreateOpen}

@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -115,7 +115,7 @@ def init_resources(app, preload=False):
         _resources_ready.set()
         return
 
-    collection_name = "local_rag"
+    collection_name = "open_knowledge_ui"
     _qdrant_client = get_qdrant_client(collection_name=collection_name)
 
     # Collections mit bekannter Dimension sofort anlegen (schnell; Dense + HNSW, BM25 mit IDF;
@@ -126,7 +126,7 @@ def init_resources(app, preload=False):
 
     try:
         for kb in list_knowledge():
-            if kb["embedding_dimension"] and kb.get("kind") != "external":
+            if kb["embedding_dimension"] and kb.get("kind") not in ("external", "sql"):
                 ensure_collection(_qdrant_client, kb["collection_name"], kb["embedding_dimension"])
     except Exception as e:
         logger.warning(f"Knowledge-Collections konnten nicht angelegt werden: {e}")
@@ -194,7 +194,7 @@ def _load_resources_sync(app, settings_dict):
         load_resources(
             app=app,
             qdrant_client=_qdrant_client,
-            collection_name="local_rag",
+            collection_name="open_knowledge_ui",
             **settings_dict,
         )
     except Exception as e:

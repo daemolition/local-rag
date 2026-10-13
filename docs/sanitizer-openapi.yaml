@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: Sanitizer-API (PII-Filter) v1
+  version: "1.0"
+  description: >
+    Schnittstelle, die ein Maskierungsdienst für die App erfüllen muss. Beschreibung und Regeln:
+    docs/sanitizer-api.md. Der Pfad ist frei wählbar (die App ruft die eingetragene Adresse direkt auf).
+paths:
+  /sanitize:
+    post:
+      summary: Text maskieren
+      security:
+        - bearer: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SanitizeRequest"
+      responses:
+        "200":
+          description: Maskierter Text, optional mit Mapping.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SanitizeResponse"
+        "401":
+          description: API-Key fehlt oder ist falsch.
+        "403":
+          description: Zugriff verweigert.
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  schemas:
+    SanitizeRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          example: Schreibe Max Mustermann (max@example.com) eine Antwort.
+        language:
+          type: string
+          example: de
+    SanitizeResponse:
+      type: object
+      required: [filtered]
+      properties:
+        filtered:
+          type: string
+          description: Text mit Platzhaltern. Ein leerer String ist erlaubt.
+          example: Schreibe [NAME_1] ([EMAIL_1]) eine Antwort.
+        mapping:
+          type: object
+          description: Platzhalter zu Originalwert. Ohne Mapping ist keine Demaskierung möglich.
+          additionalProperties:
+            type: string
+          example:
+            "[NAME_1]": Max Mustermann
+            "[EMAIL_1]": max@example.com

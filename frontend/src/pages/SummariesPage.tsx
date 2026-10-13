@@ -29,7 +29,7 @@ export function SummariesPage() {
     if (!deleteTarget) return;
     try {
       await api.del(`/api/summaries/${encodeURIComponent(deleteTarget.filename)}`);
-      toast.success("Summary gelöscht");
+      toast.success("Ablage gelöscht");
       setSummaries((s) => s.filter((x) => x.filename !== deleteTarget.filename));
     } catch (e) {
       toast.error(errorMessage(e));
@@ -41,9 +41,9 @@ export function SummariesPage() {
   return (
     <div className="space-y-6 p-6">
       <div className="border-b border-border-base pb-4">
-        <h1 className="mb-1 text-2xl font-semibold">Meine Summary-Dateien</h1>
+        <h1 className="mb-1 text-2xl font-semibold">Meine Ablagen</h1>
         <p className="text-muted-foreground">
-          Markdown-Dateien im Summaries-Verzeichnis
+          Gespeicherte Markdown-Dateien aus deinen Chats
         </p>
       </div>
 
@@ -53,10 +53,10 @@ export function SummariesPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <FileText className="mx-auto mb-4 size-16 text-muted-foreground" />
-            <h2 className="mb-2 text-lg font-semibold">Noch keine Summaries</h2>
+            <h2 className="mb-2 text-lg font-semibold">Noch keine Ablagen</h2>
             <p className="text-muted-foreground">
-              Summary-Dateien werden automatisch beim Speichern von Analysen
-              erstellt.
+              Eine Ablage entsteht, wenn du im Chat darum bittest, etwas abzulegen,
+              z. B. eine Zusammenfassung des Gesprächs.
             </p>
           </CardContent>
         </Card>
@@ -121,7 +121,7 @@ export function SummariesPage() {
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(o) => !o && setDeleteTarget(null)}
-        title="Summary löschen?"
+        title="Ablage löschen?"
         description={deleteTarget?.filename}
         confirmLabel="Löschen"
         destructive

@@ -38,6 +38,7 @@ interface ModelConfigDialogProps {
   model: ModelEntry | null;
   knowledge: Knowledge[];
   webSearchAvailable?: boolean;
+  webSearchMasked?: boolean;
   paramDefaults?: ModelsResponse["param_defaults"];
   compaction?: ModelsResponse["compaction"];
   onOpenChange: (open: boolean) => void;
@@ -48,6 +49,7 @@ export function ModelConfigDialog({
   model,
   knowledge,
   webSearchAvailable = false,
+  webSearchMasked = false,
   paramDefaults,
   compaction,
   onOpenChange,
@@ -61,6 +63,7 @@ export function ModelConfigDialog({
   const [params, setParams] = useState<Record<string, string>>({});
   const [thinking, setThinking] = useState(DEFAULT_THINKING);
   const [knowledgeIds, setKnowledgeIds] = useState<number[]>([]);
+  const [allowExtra, setAllowExtra] = useState(true);
   const [busy, setBusy] = useState(false);
   // Eingabe-Budget = Kontext − Ausgabe; Compaction ab (100 − Luft) % davon
   const budgetInfo = (() => {
@@ -98,6 +101,7 @@ export function ModelConfigDialog({
     setParams(p);
     setThinking(cfg?.params?.thinking ?? DEFAULT_THINKING);
     setKnowledgeIds(cfg?.knowledge_ids ?? []);
+    setAllowExtra(cfg?.allow_extra_knowledge ?? true);
   }, [model]);
 
   const save = async () => {
@@ -116,6 +120,7 @@ export function ModelConfigDialog({
           thinking: thinking === DEFAULT_THINKING ? "" : thinking,
         },
         knowledge_ids: knowledgeIds,
+        allow_extra_knowledge: allowExtra,
       });
       toast.success("Modell gespeichert");
       onSaved();
@@ -188,7 +193,7 @@ export function ModelConfigDialog({
                 </Label>
                 <p className="text-xs text-muted-foreground">
                   Standardmäßig wird dein Prompt an den Basis-Prompt angehängt. Der
-                  enthält die Tool-Anweisungen (Dokumentsuche, Pandas, Analysen).
+                  enthält die Tool-Anweisungen (Dokumentsuche, Pandas, Ablagen).
                   Ersetzt du ihn, musst du diese selbst beschreiben.
                 </p>
               </div>
@@ -205,8 +210,10 @@ export function ModelConfigDialog({
                 </Label>
                 <p className="text-xs text-muted-foreground">
                   {webSearchAvailable
-                    ? "Das Modell darf im Web recherchieren. Suchanfragen werden vorher durch den PII-Filter maskiert."
-                    : "Nicht verfügbar: Dafür müssen SearXNG und der PII-Filter unter Administration › Tools eingerichtet sein."}
+                    ? webSearchMasked
+                      ? "Das Modell darf im Web recherchieren. Suchanfragen werden vorher durch den PII-Filter maskiert."
+                      : "Das Modell darf im Web recherchieren. Achtung: Ohne PII-Filter gehen Suchanfragen unmaskiert an SearXNG und die Suchmaschinen."
+                    : "Nicht verfügbar: Dafür muss SearXNG unter Administration › Tools eingerichtet sein, dazu ein PII-Filter oder die Freigabe „Auch ohne PII-Filter erlauben“."}
                 </p>
               </div>
               <Switch
@@ -273,9 +280,19 @@ export function ModelConfigDialog({
           <section className="space-y-2">
             <h3 className="text-sm font-semibold">Knowledge</h3>
             <p className="text-xs text-muted-foreground">
-              Mit Auswahl durchsucht dieses Modell immer genau diese Bereiche.
-              Ohne Auswahl gilt die Auswahl im Chat.
+              Dieses Wissen durchsucht das Modell immer. Ohne Auswahl gilt die Auswahl im Chat.
             </p>
+            {knowledgeIds.length > 0 ? (
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-border-base px-3 py-2 text-sm">
+                <span>
+                  Nutzer dürfen zusätzliches eigenes Knowledge wählen
+                  <span className="block text-xs text-muted-foreground">
+                    Aus: Das Modell durchsucht nur das Wissen oben (z. B. für einen kuratierten Fach-Assistenten).
+                  </span>
+                </span>
+                <Switch checked={allowExtra} onCheckedChange={setAllowExtra} />
+              </label>
+            ) : null}
             {knowledge.length === 0 ? (
               <p className="text-sm text-muted-foreground">Kein Knowledge vorhanden.</p>
             ) : (

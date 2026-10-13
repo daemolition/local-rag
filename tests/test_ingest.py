@@ -186,7 +186,7 @@ def put_file(name="v.md", text=DOC, folder="data/files"):
     return path
 
 
-def scroll_all(qd, collection="local_rag"):
+def scroll_all(qd, collection="open_knowledge_ui"):
     points, _ = qd.scroll(collection, limit=200, with_payload=True, with_vectors=False)
     return sorted((p for p in points if p.payload.get("type") == "document_chunk"), key=lambda p: p.payload["chunk_index"])
 
@@ -399,7 +399,7 @@ def test_markdown_respects_knowledge_access_and_role(app, db):
     access.add_grant("knowledge", private["id"], "user", owner["id"], "read")
 
     assert stranger.get(f"/api/documents/{doc.id}/markdown").status_code == 404  # kein Zugriff
-    assert plain.get(f"/api/documents/{doc.id}/markdown").status_code == 403  # Rolle
+    assert plain.get(f"/api/documents/{doc.id}/markdown").status_code == 404  # kein Zugriff, auch als Benutzer
     assert client_for(app, owner).get(f"/api/documents/{doc.id}/markdown").status_code == 200
     assert client_for(app, {"id": 1}).get(f"/api/documents/{doc.id}/markdown").status_code == 200
 
@@ -496,18 +496,18 @@ def test_tables_become_csv_files_and_references_in_the_markdown(db, qd, no_enric
     assert "[TABELLE 3" not in md and "Links" in md  # Layout-Tabelle: kein CSV, Text bleibt
 
 
-def test_table_files_get_reference_chunks_and_are_readable_by_the_pandas_tool(db, qd, no_enrichment, tmp_path):
+def test_table_files_get_reference_chunks_and_are_readable_by_the_pandas_tool(db, qd, no_enrichment, tmp_path, worker):
     from app import retrieval
     from app.retrieval import RetrievalScope
     from app.tools.custom_tools import CustomTools
 
     ingest_docx(qd, make_docx_with_tables(tmp_path))
-    refs, _ = qd.scroll("local_rag", limit=100, with_payload=True, with_vectors=False)
+    refs, _ = qd.scroll("open_knowledge_ui", limit=100, with_payload=True, with_vectors=False)
     ref_names = {p.payload["filename"] for p in refs if p.payload.get("type") == "data_reference"}
     assert len(ref_names) == 2 and all("--tabelle-" in n for n in ref_names)
 
     paths = knowledge.knowledge_paths(knowledge.get_knowledge(None))
-    retrieval.set_scope(RetrievalScope(("local_rag",), None, data_dirs=((paths.name_prefix, str(paths.data_dir)),)))
+    retrieval.set_scope(RetrievalScope(("open_knowledge_ui",), None, data_dirs=((paths.name_prefix, str(paths.data_dir)),)))
     tools = CustomTools(llm=None, retriever=None, data_dir=str(paths.data_dir))
     name = sorted(ref_names)[1]
     assert name in tools.list_files()
@@ -543,7 +543,7 @@ def test_deleting_the_document_removes_its_csvs_and_reference_chunks(app, db, qd
 
     assert list(Path("./data").glob("*--tabelle-*.csv")) == []
     assert other.exists()  # fremde CSVs bleiben
-    refs, _ = qd.scroll("local_rag", limit=100, with_payload=True, with_vectors=False)
+    refs, _ = qd.scroll("open_knowledge_ui", limit=100, with_payload=True, with_vectors=False)
     assert not [p for p in refs if "--tabelle-" in p.payload.get("filename", "")]
     assert scroll_all(qd) == []
 
@@ -658,7 +658,8 @@ def test_data_file_can_be_previewed_and_downloaded_but_not_outside_the_folder(db
 
     assert c.get("/api/data-files/geheim.txt").status_code == 404  # keine strukturierte Datei
     assert c.get("/api/data-files/..%2Fapp.db").status_code == 404
-    assert client_for(flask_app, add_user(db, "bob", "user")).get("/api/data-files/umsatz.csv").status_code == 403
+    # Rolle "Benutzer" darf lesen, was ihr gehoert oder freigegeben/oeffentlich ist (hier: oeffentlicher Standard)
+    assert client_for(flask_app, add_user(db, "bob", "user")).get("/api/data-files/umsatz.csv").status_code == 200
 
 
 def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):

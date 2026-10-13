@@ -45,7 +45,7 @@ export function LoginPage() {
           <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-primary">
             <FileText className="size-8 text-primary-text" />
           </div>
-          <h1 className="text-2xl font-bold">Document RAG</h1>
+          <h1 className="text-2xl font-bold">Open Knowledge UI</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Intelligente Dokumentenanalyse
           </p>

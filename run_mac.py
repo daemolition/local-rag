@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -77,7 +77,7 @@ def start_services() -> bool:
 
 def main():
     print("=" * 50)
-    print(" Local Document RAG - macOS Mode")
+    print(" Open Knowledge UI - macOS Mode")
     print("=" * 50)
     for key, value in SERVICE_DEFAULTS.items():
         os.environ.setdefault(key, value)

@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -49,7 +49,7 @@ def _profile_error(e: ProfileError):
 
 
 @rag_bp.route("/retrieval/profiles", methods=["GET"])
-@require_role("editor")
+@require_role("user")
 def profiles_list():
     return jsonify(profiles.list_profiles())
 
@@ -79,7 +79,7 @@ def profiles_delete(profile_id):
 
 
 @rag_bp.route("/retrieval/defaults", methods=["GET"])
-@require_role("editor")
+@require_role("user")
 def profile_defaults():
     """Startwerte fuer ein neues Profil (das Standardprofil) und der Standard-Prompt."""
     return jsonify({"config": profiles.default_config(), "prompt": profiles.DEFAULT_QUERY_PROMPT})
@@ -91,7 +91,7 @@ def profile_defaults():
 
 
 @rag_bp.route("/knowledge/<int:knowledge_id>/retrieval-profile", methods=["PUT"])
-@require_role("editor")
+@require_role("user")
 def knowledge_set_profile(knowledge_id):
     """Wechselt das Profil eines Knowledge (``profile_id: null`` = Standard).
     Wirkt sofort; die gespeicherten Vektoren bleiben unveraendert."""
@@ -110,7 +110,7 @@ def knowledge_set_profile(knowledge_id):
 
 
 @rag_bp.route("/retrieval/test", methods=["POST"])
-@require_role("editor")
+@require_role("user")
 def retrieval_test():
     """Fuehrt die Pipeline mit einem Profil aus und liefert Treffer plus Ablaufprotokoll.
 
@@ -127,7 +127,9 @@ def retrieval_test():
     user = current_user()
     readable = accessible_knowledge_ids(user, "read")
     wanted = data.get("knowledge_ids") or sorted(readable)
-    targets = [k for k in list_knowledge() if k["id"] in readable and k["id"] in set(wanted)]
+    targets = [
+        k for k in list_knowledge() if k["id"] in readable and k["id"] in set(wanted) and k.get("kind") != "sql"
+    ]
     if not targets:
         return _error("Kein lesbares Knowledge ausgewählt", 400)
 

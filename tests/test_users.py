@@ -141,7 +141,7 @@ def test_old_style_session_cookie_is_no_longer_valid(app):
         # (Rolle -> Status) wird unten pro Rolle geprueft
         ("get", "/api/connections", {"user": 403, "editor": 403, "admin": 200}),
         ("get", "/api/admin/tools", {"user": 403, "editor": 403, "admin": 200}),
-        ("post", "/api/knowledge", {"user": 403, "editor": 400, "admin": 400}),
+        ("post", "/api/knowledge", {"user": 400, "editor": 400, "admin": 400}),  # jede Rolle legt eigenes Knowledge an (ohne Name: 400)
         ("get", "/api/knowledge", {"user": 200, "editor": 200, "admin": 200}),
         ("get", "/api/models", {"user": 200, "editor": 200, "admin": 200}),
         ("get", "/api/sessions", {"user": 200, "editor": 200, "admin": 200}),
@@ -188,7 +188,12 @@ def test_normal_user_sees_models_without_prompts_or_config(app, db, monkeypatch)
         if m["connection_name"] == "C"
     }
     assert "hidden" not in mine  # versteckte Modelle bleiben verborgen
-    assert mine["m"]["knowledge_locked"] is True
+    # Modell-Knowledge ist die Basis; eigene Auswahl bleibt erlaubt (Standard), die Basis wird mitgeliefert
+    assert mine["m"]["knowledge_locked"] is False
+    assert [k["id"] for k in mine["m"]["knowledge_base"]] == [1]
+    store.save_model_config(ref, {"allow_extra_knowledge": False})
+    locked = {m["model_id"]: m for m in c.get("/api/models").json["models"] if m["connection_name"] == "C"}
+    assert locked["m"]["knowledge_locked"] is True  # Admin hat zusaetzliches Knowledge ausgeschaltet
 
     admin, _ = login(app, "admin", "admin")
     assert "GEHEIM" in admin.get("/api/models").get_data(as_text=True)

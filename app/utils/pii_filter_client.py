@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,6 +23,50 @@ from typing import Optional
 import requests
 
 logger = getLogger(__name__)
+
+
+FILTERED_KEYS = ("filtered", "sanitized_text", "result", "text")
+MAPPING_KEYS = ("mapping", "entities", "detected", "pii_detected")
+
+
+def _first_present(data: dict, keys: tuple):
+    """Wert des ersten vorhandenen Schluessels (auch leer: ein leerer Text ist eine gueltige Antwort)."""
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
+
+
+def parse_response(data, text: str) -> tuple[str, str, object]:
+    """Liest die Antwort eines Sanitizer-Dienstes (siehe docs/sanitizer-api.md).
+
+    Returns:
+        ``(original, filtered, mapping)``. Ohne gefilterten Text in der Antwort gilt der Eingabetext
+        (nichts maskiert), ohne Mapping ``{}``.
+    """
+    if not isinstance(data, dict):
+        return text, text, {}
+    filtered = _first_present(data, FILTERED_KEYS)
+    original = data.get("original") or data.get("input") or text
+    mapping = _first_present(data, MAPPING_KEYS)
+    return original, text if filtered is None else str(filtered), mapping if mapping is not None else {}
+
+
+def mapping_pairs(mapping) -> list[tuple[str, str]]:
+    """``[(Platzhalter, Original), ...]`` aus dem Mapping (dict oder Liste von Objekten)."""
+    if isinstance(mapping, dict):
+        items = mapping.items()
+    elif isinstance(mapping, list):
+        items = [
+            (e.get("placeholder"), e.get("original")) for e in mapping if isinstance(e, dict)
+        ]
+    else:
+        return []
+    return [(str(p), str(o)) for p, o in items if p and o]
+
+
+class PIIFilterUnavailable(Exception):
+    """Der eingerichtete PII-Filter hat nicht geantwortet oder einen Fehler gemeldet."""
 
 
 class PIIFilterResult:
@@ -79,21 +123,14 @@ class PIIFilterClient:
 
         result = text
 
-        if isinstance(mapping, dict):
-            for placeholder, original in mapping.items():
-                if placeholder and original:
-                    result = result.replace(placeholder, original)
-        else:
-            for entry in mapping:
-                placeholder = entry.get("placeholder")
-                original = entry.get("original")
-
-                if placeholder and original:
-                    result = result.replace(placeholder, original)
+        for placeholder, original in mapping_pairs(mapping):
+            result = result.replace(placeholder, original)
 
         return result
 
-    def filter_text(self, text: str) -> PIIFilterResult:
+    def filter_text(
+        self, text: str, timeout: Optional[float] = None, extra: Optional[dict] = None
+    ) -> PIIFilterResult:
         """
         Sendet Text an PII-Filter-Service und erhält maskierte Version zurück.
 
@@ -111,7 +148,7 @@ class PIIFilterClient:
 
         try:
             # Request-Body vorbereiten
-            json_body = {"text": text}
+            json_body = {"text": text, **(extra or {})}
 
             headers = {"Content-Type": "application/json"}
             # API Key als Bearer-Token, nur wenn vorhanden
@@ -122,7 +159,7 @@ class PIIFilterClient:
                 url,
                 json=json_body,
                 headers=headers,
-                timeout=self.timeout,
+                timeout=timeout or self.timeout,
             )
 
             if response.status_code != 200:
@@ -136,36 +173,16 @@ class PIIFilterClient:
 
             data = response.json()
 
-            # Flexibles Parsing: Unterstützt verschiedene Response-Formate
-            # Erwartetes Format: {"original": "...", "filtered": "...", "mapping": [...]}
-            # Mapping: [{"placeholder": "[NAME_1]", "original": "Max Mustermann", "type": "person"}, ...]
-            filtered_text = (
-                data.get("filtered")
-                or data.get("sanitized_text")
-                or data.get("result")
-                or data.get("text")
-                or text
-            )
-
-            original_text = data.get("original") or data.get("input") or text
-
-            # Mapping für Demaskierung (bevorzugt) oder entities (legacy)
-            mapping = (
-                data.get("mapping")
-                or data.get("entities")
-                or data.get("detected")
-                or data.get("pii_detected")
-                or []
-            )
+            original_text, filtered_text, mapping = parse_response(data, text)
 
             return PIIFilterResult(
                 original=original_text, filtered=filtered_text, mapping=mapping
             )
 
         except requests.exceptions.Timeout:
-            logger.warning(f"PII-Filter timeout after {self.timeout}s")
+            logger.warning(f"PII-Filter timeout after {timeout or self.timeout}s")
             return PIIFilterResult(
-                original=text, filtered=text, error=f"Timeout ({self.timeout}s)"
+                original=text, filtered=text, error=f"Timeout ({timeout or self.timeout:g}s)"
             )
 
         except requests.exceptions.RequestException as e:
@@ -175,3 +192,22 @@ class PIIFilterClient:
         except Exception as e:
             logger.error(f"PII-Filter unexpected error: {e}")
             return PIIFilterResult(original=text, filtered=text, error=str(e))
+
+
+def mask_or_fail(client: "PIIFilterClient", text: str) -> tuple[str, object]:
+    """Maskiert ``text`` oder wirft ``PIIFilterUnavailable`` (fail-closed).
+
+    Returns:
+        ``(Text fuer das Modell, Mapping zum Zuruecksetzen der Antwort)``; ohne erkannte Werte der
+        unveraenderte Text und ein leeres Mapping.
+    """
+    try:
+        result = client.filter_text(text)
+    except Exception as e:  # filter_text faengt selbst, das hier ist das Sicherheitsnetz
+        raise PIIFilterUnavailable(type(e).__name__) from None
+    if result.error:
+        raise PIIFilterUnavailable(result.error)
+    if result.filtered != result.original:
+        return result.filtered, result.mapping
+    return text, []
+

@@ -15,20 +15,31 @@ interface KnowledgePickerProps {
   // null = alle Bereiche durchsuchen
   selectedIds: number[] | null;
   onChange: (ids: number[] | null) => void;
+  // Knowledge, das das Modell mitbringt: immer dabei, nicht abwählbar. Dann gilt: nichts gewählt = nur das.
+  base?: { id: number; name: string }[];
 }
 
 export function KnowledgePicker({
   knowledge,
   selectedIds,
   onChange,
+  base = [],
 }: KnowledgePickerProps) {
-  const effective =
+  const baseIds = new Set(base.map((b) => b.id));
+  const own = knowledge.filter((k) => !baseIds.has(k.id));
+  const hasBase = base.length > 0;
+  const effective = hasBase
+    ? (selectedIds ?? []).filter((id) => own.some((k) => k.id === id))
+    :
     selectedIds === null
       ? knowledge.map((k) => k.id)
       : selectedIds.filter((id) => knowledge.some((k) => k.id === id));
 
-  const label =
-    effective.length === knowledge.length
+  const label = hasBase
+    ? effective.length === 0
+      ? "Modell-Wissen"
+      : `Modell + ${effective.length}`
+    : effective.length === knowledge.length
       ? "Alle Knowledge"
       : effective.length === 0
         ? "Kein Knowledge"
@@ -40,7 +51,7 @@ export function KnowledgePicker({
     const next = checked
       ? [...new Set([...effective, id])]
       : effective.filter((x) => x !== id);
-    onChange(next.length === knowledge.length ? null : next);
+    onChange(!hasBase && next.length === knowledge.length ? null : next);
   };
 
   return (
@@ -61,7 +72,14 @@ export function KnowledgePicker({
       <DropdownMenuContent align="start" className="w-64">
         <DropdownMenuLabel>Wissen für diese Antwort</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {knowledge.map((k) => (
+        {base.map((b) => (
+          <DropdownMenuCheckboxItem key={`base-${b.id}`} checked disabled>
+            <span className="truncate">{b.name}</span>
+            <span className="ml-2 shrink-0 text-xs text-muted-foreground">vom Modell</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+        {hasBase && own.length > 0 ? <DropdownMenuSeparator /> : null}
+        {(hasBase ? own : knowledge).map((k) => (
           <DropdownMenuCheckboxItem
             key={k.id}
             checked={effective.includes(k.id)}

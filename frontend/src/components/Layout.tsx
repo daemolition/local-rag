@@ -71,7 +71,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-4 py-3.5">
         <Sparkles className="size-5 shrink-0" />
-        <span className="text-sm font-semibold">Local RAG</span>
+        <span className="text-sm font-semibold">Open Knowledge UI</span>
       </div>
 
       <div className="space-y-0.5 px-2">
@@ -92,16 +92,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <FolderOpen className="size-4" />
           Meine Uploads
         </NavLink>
-        {hasRole("editor") ? (
-          <NavLink
-            to="/knowledge"
-            onClick={onNavigate}
-            className={({ isActive }) => itemClass(isActive)}
-          >
-            <NotebookText className="size-4" />
-            Knowledge
-          </NavLink>
-        ) : null}
+        <NavLink
+          to="/knowledge"
+          onClick={onNavigate}
+          className={({ isActive }) => itemClass(isActive)}
+        >
+          <NotebookText className="size-4" />
+          Knowledge
+        </NavLink>
       </div>
 
       <p className="px-5 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -157,7 +155,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           className={({ isActive }) => itemClass(isActive)}
         >
           <Library className="size-4" />
-          Analysen
+          Meine Ablagen
         </NavLink>
         {user ? (
           <button
@@ -235,7 +233,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <Menu className="size-5" />
             </Button>
-            <span className="font-semibold">Local RAG</span>
+            <span className="font-semibold">Open Knowledge UI</span>
             <div className="ml-auto flex items-center gap-2">
               <IngestionBadge />
             </div>

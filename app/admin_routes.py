@@ -1,4 +1,4 @@
-# Local Document RAG - A privacy-focused, local RAG system
+# Open Knowledge UI - A privacy-focused, self-hosted RAG system
 # Copyright (C) 2026 Christopher Abanilla
 #
 # This program is free software: you can redistribute it and/or modify
@@ -63,9 +63,12 @@ def connections_create():
     except registry.RemoteModelsError as e:
         return _error(str(e), 400)
 
-    created = store.create_connection(
-        name, base_url, data.get("api_key") or "", bool(data.get("enabled", True))
-    )
+    try:
+        created = store.create_connection(
+            name, base_url, data.get("api_key") or "", bool(data.get("enabled", True)), kind=data.get("kind") or "llm"
+        )
+    except ValueError as e:
+        return _error(str(e), 400)
     registry.clear_caches()
     return jsonify(created), 201
 
@@ -104,6 +107,7 @@ def connections_update(connection_id):
         base_url=base_url,
         api_key=data.get("api_key"),
         enabled=data.get("enabled"),
+        kind=data.get("kind"),
     )
     if not updated:
         return _error("Connection nicht gefunden", 404)
@@ -139,9 +143,16 @@ def connections_test():
         if stored and store.normalize_base_url(stored["base_url"]) == base_url:
             api_key = stored["api_key"]
 
-    result = registry.test_connection(
-        {"id": int(connection_id or 0), "base_url": base_url, "api_key": api_key}
-    )
+    kind = data.get("kind") or "llm"
+    if kind not in store.CONNECTION_KINDS:
+        return _error("Unbekannter Typ", 400)
+    connection = {"id": int(connection_id or 0), "kind": kind, "base_url": base_url, "api_key": api_key}
+    if kind == "llm":
+        result = registry.test_connection(connection)
+    else:  # TEI / Infinity: Erreichbarkeit und beide APIs wirklich pruefen
+        from app.rag import endpoints
+
+        result = endpoints.test_connection(connection)
     return jsonify(result), 200 if result["success"] else 502
 
 
@@ -169,9 +180,16 @@ def models_list():
         # Prompts, Parameter und Knowledge-Zuordnung sind Admin-Sache; Nutzer
         # brauchen nur Namen und Referenz fuers Dropdown. Das Flag
         # ``knowledge_locked`` sagt dem Chat, ob die Knowledge-Auswahl greift.
+        from app.knowledge import list_knowledge
+
+        names = {k["id"]: k["name"] for k in list_knowledge()}
         for m in result["models"]:
             cfg = m.pop("config", None)
-            m["knowledge_locked"] = bool(cfg and cfg["knowledge_ids"])
+            ids = (cfg or {}).get("knowledge_ids") or []
+            # Modell-Knowledge ist immer die Basis; gesperrt ist die Auswahl nur, wenn der Admin
+            # zusaetzliches Knowledge nicht erlaubt hat.
+            m["knowledge_locked"] = bool(ids) and not (cfg or {}).get("allow_extra_knowledge", True)
+            m["knowledge_base"] = [{"id": i, "name": names[i]} for i in ids if i in names]
             m["customized"] = False
         result["errors"] = []
     return jsonify(result)
@@ -187,8 +205,9 @@ def models_config_save():
 
         if not web_search_available():
             return _error(
-                "Die Websuche braucht einen eingerichteten PII-Filter und SearXNG "
-                "(Administration › Allgemein). Suchanfragen verlassen das System und werden vorher maskiert.",
+                "Die Websuche braucht SearXNG (Administration › Tools) und entweder einen aktiven "
+                "PII-Filter oder die ausdrückliche Freigabe „Auch ohne PII-Filter erlauben“. "
+                "Suchanfragen verlassen das System.",
                 400,
             )
     try:
@@ -492,12 +511,19 @@ def embedding_test():
 @require_role("admin")
 def embedding_remote_models():
     """Modell-IDs einer Connection (fuer die Auswahl bei Quelle "Endpoint")."""
+    from app.rag import endpoints
+
     conn = store.get_connection(request.args.get("connection_id", type=int) or 0, with_key=True)
     if not conn:
         return _error("Connection nicht gefunden", 404)
     try:
-        return jsonify(registry.fetch_remote_models(conn))
-    except registry.RemoteModelsError as e:
+        if conn.get("kind", "llm") == "llm":
+            return jsonify(registry.fetch_remote_models(conn))
+        wanted = request.args.get("capability")  # embedding | reranker: nur passende Modelle
+        return jsonify(
+            [m["id"] for m in endpoints.describe(conn) if not wanted or wanted in m["capabilities"]]
+        )
+    except (registry.RemoteModelsError, endpoints.EndpointError) as e:
         return _error(str(e), 502)
 
 
@@ -520,7 +546,7 @@ class _FormSettings:
 def _tools_overview() -> dict:
     from app.database_service import get_db_service
     from app.settings_service import SettingsService
-    from app.tools.web_access import web_search_available
+    from app.tools.web_access import web_search_available, web_search_masked
 
     db = get_db_service().get_session()
     try:
@@ -529,11 +555,13 @@ def _tools_overview() -> dict:
             "stt": {
                 "base_url": s.get("STT_BASEURL", "") or "",
                 "model": s.get("STT_MODEL", "") or "",
+                "mode": (s.get("STT_MODE", "auto") or "auto"),
                 "has_key": bool(s.get("STT_API_KEY")),
             },
             "search": {
                 "url": s.get("SEARCH_SEARXNG_URL", "") or "",
                 "categories": s.get("SEARCH_SEARXNG_CATEGORIES", "general") or "general",
+                "allow_unmasked": s.get_bool("SEARCH_ALLOW_UNMASKED", False),
             },
             "pii": {
                 "url": s.get("PII_FILTER_URL", "") or "",
@@ -542,6 +570,7 @@ def _tools_overview() -> dict:
             },
             # Die Websuche ist je Modell zuschaltbar, sobald SearXNG und der PII-Filter laufen
             "web_search_available": web_search_available(),
+            "web_search_masked": web_search_masked(),
         }
     finally:
         db.close()
@@ -580,6 +609,13 @@ def tools_save():
             stt = data["stt"] or {}
             values["STT_BASEURL"] = _clean_url(stt.get("base_url"), "Spracheingabe")
             values["STT_MODEL"] = (stt.get("model") or "").strip()
+            if "mode" in stt:
+                from app import stt_config
+
+                mode = str(stt.get("mode") or "auto").strip().lower()
+                if mode not in stt_config.MODES:
+                    raise ValueError("Spracheingabe: Betriebsart muss auto, stream oder upload sein")
+                values["STT_MODE"] = mode
             if stt.get("clear_key"):
                 values["STT_API_KEY"] = ""
             elif (stt.get("api_key") or "").strip():
@@ -588,6 +624,8 @@ def tools_save():
             search = data["search"] or {}
             values["SEARCH_SEARXNG_URL"] = _clean_url(search.get("url"), "Websuche")
             values["SEARCH_SEARXNG_CATEGORIES"] = (search.get("categories") or "general").strip()
+            if "allow_unmasked" in search:
+                values["SEARCH_ALLOW_UNMASKED"] = "true" if search["allow_unmasked"] else "false"
         if "pii" in data:
             pii = data["pii"] or {}
             url = (pii.get("url") or "").strip()
@@ -613,6 +651,10 @@ def tools_save():
             SettingsService(db).set_batch(values)
         finally:
             db.close()
+        if any(k.startswith("STT_") for k in values):
+            from app import stt_config
+
+            stt_config.clear_probe_cache()
     # Ohne PII-Filter darf keine Websuche an Modellen haengen (sie steht dann nicht mehr bereit)
     return jsonify(_tools_overview())
 
@@ -655,7 +697,7 @@ def tools_test():
     finally:
         db.close()
 
-    for field, label in (("base_url", "stt"), ("url", "search")):
+    for field, label in (("base_url", "stt"), ("url", "search"), ("url", "pii")):
         raw = values_in.get(field) if kind == label else None
         if raw:
             try:
@@ -757,3 +799,40 @@ def compaction_save():
         return _error(str(e), 400)
     registry.clear_caches()  # laufende Agenten tragen das alte Budget
     return jsonify(compaction.load_settings())
+
+
+# =============================================================================
+# Tool-Worker (isolierte Codeausfuehrung)
+# =============================================================================
+
+
+def _tool_worker_view():
+    from app.toolworker import config as worker_config
+    from app.toolworker.client import get_client
+
+    sql = get_client("sql").ping()
+    return {
+        **worker_config.view(),
+        **get_client().ping(),
+        "sql_reachable": sql["reachable"],
+        "sql_version": sql["version"],
+    }
+
+
+@admin_bp.route("/admin/tool-worker", methods=["GET"])
+@require_role("admin")
+def tool_worker_overview():
+    return jsonify(_tool_worker_view())
+
+
+@admin_bp.route("/admin/tool-worker", methods=["PUT"])
+@require_role("admin")
+def tool_worker_save():
+    """Speichert Adresse und Limits des Tool-Workers (nur genannte Felder)."""
+    from app.toolworker import config as worker_config
+
+    try:
+        worker_config.save(request.get_json() or {})
+    except worker_config.ConfigError as e:
+        return _error(str(e), 400)
+    return jsonify(_tool_worker_view())

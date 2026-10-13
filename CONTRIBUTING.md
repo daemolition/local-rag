@@ -1,12 +1,12 @@
-# Contributing to Local Document RAG
+# Contributing to Open Knowledge UI
 
 Vielen Dank für dein Interesse, zu diesem Projekt beizutragen!
 
 ## Entwicklungsumgebung einrichten
 
 ```bash
-git clone https://github.com/daemolition/local-document-rag.git
-cd local-document-rag
+git clone https://github.com/daemolition/open-knowledge-ui.git
+cd open-knowledge-ui
 uv sync
 cp env.example .env
 alembic upgrade head
