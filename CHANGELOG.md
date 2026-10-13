@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-13
+
 ### Neu
 
 - **Embedding und Reranking über Text Embeddings Inference (TEI) und Infinity**: Eine Connection hat jetzt einen Typ (*OpenAI-kompatibel*, *Text Embeddings Inference*, *Infinity*; Migration `0026`, bestehende bleiben OpenAI-kompatibel). TEI wird in seinem eigenen Format angesprochen (`/embed` mit `inputs`, `/rerank` mit `texts`, Modell aus `/info`), Infinity über `/embeddings` und `/rerank` mit der Fähigkeitsliste aus `/models`; die Adresse wird mit und ohne `/v1` probiert. Vorher scheiterte der Verbindungstest an TEI (kein `/v1/models`) und der Reranker schickte ein Format, das TEI ablehnt. **„Verbindung testen“** prüft jetzt die APIs wirklich: ein Text wird eingebettet (Dimension) und zwei Texte werden gerankt (Reihenfolge), getrennt für Embedding und Reranker. TEI- und Infinity-Connections erscheinen nicht in der Chat-Modellliste; unter *Einlesen & Modelle* wählst du sie bei „Endpoint“, die Modellliste ist nach Embedding/Reranker gefiltert.
@@ -141,7 +143,8 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
 
-[Unreleased]: https://github.com/daemolition/open-knowledge-ui/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/daemolition/local-document-rag/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/daemolition/local-document-rag/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/daemolition/open-knowledge-ui/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/daemolition/open-knowledge-ui/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/daemolition/open-knowledge-ui/compare/v0.1.0...v0.1.1
