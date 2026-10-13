@@ -1,0 +1,132 @@
+name: Images
+
+# Container-Images fuer amd64 und arm64 nach ghcr.io, wenn ein Release-Tag (vX.Y.Z) gepusht wird.
+# Jede Architektur baut auf einem eigenen nativen Runner (kein QEMU, das waere fuer das App-Image viel zu langsam);
+# danach werden die Teilimages zu einem Multi-Arch-Manifest zusammengefasst.
+#
+#   ghcr.io/<repo>                    :X.Y.Z, :latest       CUDA-Variante, nur amd64 (NVIDIA-GPU)
+#   ghcr.io/<repo>                    :X.Y.Z-cpu, :latest-cpu   CPU-Variante, amd64 und arm64
+#   ghcr.io/<repo>-tool-worker        :X.Y.Z, :latest       Tool-Worker (Pandas und SQL), amd64 und arm64
+#
+# Von Hand starten (Actions > Images > Run workflow) baut mit dem Tag "dev" statt einer Version.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    name: ${{ matrix.image }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: app-cuda, suffix: "", file: Dockerfile, arch: amd64, runner: ubuntu-latest, args: "TORCH_BACKEND=cuda" }
+          - { image: app-cpu, suffix: "", file: Dockerfile, arch: amd64, runner: ubuntu-latest, args: "TORCH_BACKEND=cpu" }
+          - { image: app-cpu, suffix: "", file: Dockerfile, arch: arm64, runner: ubuntu-24.04-arm, args: "TORCH_BACKEND=cpu" }
+          - { image: tool-worker, suffix: "-tool-worker", file: tool_worker/Dockerfile, arch: amd64, runner: ubuntu-latest, args: "" }
+          - { image: tool-worker, suffix: "-tool-worker", file: tool_worker/Dockerfile, arch: arm64, runner: ubuntu-24.04-arm, args: "" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Platz schaffen (das App-Image ist gross)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Name in Kleinbuchstaben
+        run: echo "IMAGE_NAME=${REGISTRY}/${GITHUB_REPOSITORY,,}${{ matrix.suffix }}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bauen und nach Digest pushen
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/${{ matrix.arch }}
+          build-args: ${{ matrix.args }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Digest merken
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: ${{ matrix.image }} Manifest
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # tags: alle Tags des Manifests; %V% wird durch die Version ersetzt
+          - { image: app-cuda, suffix: "", tags: "%V% latest" }
+          - { image: app-cpu, suffix: "", tags: "%V%-cpu latest-cpu" }
+          - { image: tool-worker, suffix: "-tool-worker", tags: "%V% latest" }
+    steps:
+      - name: Version bestimmen
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"; else echo "VERSION=dev" >> "$GITHUB_ENV"; fi
+          echo "IMAGE_NAME=${REGISTRY}/${GITHUB_REPOSITORY,,}${{ matrix.suffix }}" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Manifest erstellen und pushen
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          tags=()
+          for t in ${{ matrix.tags }}; do
+            t="${t//%V%/${VERSION}}"
+            # "latest" nur bei einem echten Release, nie beim Probelauf
+            if [[ "${VERSION}" == "dev" && "${t}" == latest* ]]; then continue; fi
+            tags+=(-t "${IMAGE_NAME}:${t}")
+          done
+          refs=()
+          for f in *; do refs+=("${IMAGE_NAME}@sha256:${f}"); done
+          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
+
+      - name: Pruefen
+        run: |
+          for t in ${{ matrix.tags }}; do
+            t="${t//%V%/${VERSION}}"
+            if [[ "${VERSION}" == "dev" && "${t}" == latest* ]]; then continue; fi
+            docker buildx imagetools inspect "${IMAGE_NAME}:${t}" | grep -E "Name:|Platform:"
+          done

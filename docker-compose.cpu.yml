@@ -1,0 +1,17 @@
+# Ohne NVIDIA-GPU, z. B. ARM-Server (Graviton, Ampere, Raspberry Pi 5) oder ein x86-Host ohne GPU:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
+#
+# Baut App und Spracheingabe als CPU-Variante und entfernt die GPU-Reservierung. Fertige Images gibt es
+# als "<version>-cpu" fuer amd64 und arm64 (siehe README, Abschnitt Plattformen).
+services:
+  rag:
+    build:
+      args:
+        TORCH_BACKEND: cpu
+    deploy: !reset null
+  parakeet:
+    build:
+      args:
+        DEVICE: cpu
+    deploy: !reset null

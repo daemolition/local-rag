@@ -19,6 +19,6 @@ Wir wollen, dass die Mitarbeit an diesem Projekt für alle frei von Belästigung
 
 ## Durchsetzung
 
-Die Maintainer entfernen oder bearbeiten Beiträge, die gegen diesen Kodex verstoßen, und können Personen zeitweise oder dauerhaft ausschließen. Verstöße meldest du privat über ein [GitHub Security Advisory](https://github.com/daemolition/open-knowledge-ui/security/advisories/new) (Draft) oder du schreibst die Maintainer direkt über GitHub an. Meldungen werden vertraulich behandelt.
+Die Maintainer entfernen oder bearbeiten Beiträge, die gegen diesen Kodex verstoßen, und können Personen zeitweise oder dauerhaft ausschließen. Verstöße meldest du privat über ein [GitHub Security Advisory](https://github.com/s2a-open-technologies/Open-Knowledge-UI/security/advisories/new) (Draft) oder du schreibst die Maintainer direkt über GitHub an. Meldungen werden vertraulich behandelt.
 
 Dieser Kodex orientiert sich am [Contributor Covenant](https://www.contributor-covenant.org/de/version/2/1/code_of_conduct/), Version 2.1.

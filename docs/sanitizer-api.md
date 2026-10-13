@@ -78,7 +78,7 @@ Zusammenfassung oder erste Nachricht …
 Nächste Nachricht …
 ```
 
-Der Dienst maskiert den ganzen Text und liefert die Marken **unverändert, genau einmal und in Reihenfolge** zurück; sonst bricht die App ab (fail-closed). Die Marken enthalten bewusst **keine Buchstaben**: Mit einer Buchstabenmarke wie `=====MSG-1=====` hat die deutsche spaCy-NER (EntityGuard) den Teil `MSG-1=====` als Entität erkannt und die Marke zerstört (gemessen mit `de_core_news_lg`); `=====#1=====` übersteht die Erkennung. Dadurch vergibt der Dienst im ganzen Gespräch eindeutige Platzhalter und liefert ein gemeinsames Mapping. Dieselbe Aufgabe löst der [OpenWebUI-Inlet-Filter](./examples/openwebui_inlet_filter.py) für OpenWebUI.
+Der Dienst maskiert den ganzen Text und liefert die Marken **unverändert, genau einmal und in Reihenfolge** zurück; sonst bricht die App ab (fail-closed). Die Marken enthalten bewusst **keine Buchstaben**: Mit einer Buchstabenmarke wie `=====MSG-1=====` hat die deutsche spaCy-NER (EntityGuard) den Teil `MSG-1=====` als Entität erkannt und die Marke zerstört (gemessen mit `de_core_news_lg`); `=====#1=====` übersteht die Erkennung. Dadurch vergibt der Dienst im ganzen Gespräch eindeutige Platzhalter und liefert ein gemeinsames Mapping.
 
 ## Prüfen
 

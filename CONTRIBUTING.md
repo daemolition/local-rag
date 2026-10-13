@@ -5,7 +5,7 @@ Vielen Dank für dein Interesse, zu diesem Projekt beizutragen!
 ## Entwicklungsumgebung einrichten
 
 ```bash
-git clone https://github.com/daemolition/open-knowledge-ui.git
+git clone https://github.com/s2a-open-technologies/Open-Knowledge-UI.git
 cd open-knowledge-ui
 uv sync
 cp env.example .env

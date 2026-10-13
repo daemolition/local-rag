@@ -11,7 +11,7 @@
 
 Wenn du eine Sicherheitslücke findest, **öffne kein öffentliches Issue**.
 
-Bitte melde sie privat an: erstelle ein [GitHub Security Advisory](https://github.com/daemolition/open-knowledge-ui/security/advisories/new) (Draft) oder kontaktiere den Maintainer direkt.
+Bitte melde sie privat an: erstelle ein [GitHub Security Advisory](https://github.com/s2a-open-technologies/Open-Knowledge-UI/security/advisories/new) (Draft) oder kontaktiere den Maintainer direkt.
 
 Du erhältst innerhalb von 72 Stunden eine Bestätigung. Nach der Bestätigung arbeiten wir an einem Fix und veröffentlichen ihn mit einem entsprechenden Advisory.
 

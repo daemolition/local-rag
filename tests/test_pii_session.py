@@ -283,59 +283,6 @@ def test_unreachable_filter_or_destroyed_markers_block_the_whole_chat(app, db, g
     assert agent.inputs == []  # bei Folgefragen ebenso: nichts geht ans Modell
 
 
-# --- OpenWebUI-Inlet-Filter (docs/examples) -------------------------------------------------
-
-
-def load_filter():
-    import importlib.util
-    from pathlib import Path
-
-    path = Path(__file__).resolve().parent.parent / "docs" / "examples" / "openwebui_inlet_filter.py"
-    spec = importlib.util.spec_from_file_location("openwebui_inlet_filter", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_openwebui_filter_masks_the_whole_context_in_one_call_and_restores_the_answer(guard):
-    module = load_filter()
-    flt = module.Filter()
-    flt.valves.api_url = guard
-    body = {
-        "messages": [
-            {"role": "system", "content": "Du hilfst Max Mustermann."},
-            {"role": "user", "content": "Anna Schmidt schreibt an anna@firma.de"},
-            {"role": "assistant", "content": "Verstanden, Anna Schmidt."},
-            {"role": "user", "content": [{"type": "text", "text": "Und Karl Otto?"}, {"type": "image_url", "image_url": {"url": "x"}}]},
-        ]
-    }
-    meta = {}
-    out = flt.inlet(body, meta)
-    sent = json.dumps(out, ensure_ascii=False)
-    assert not any(n in sent for n in NAMES) and "anna@firma.de" not in sent
-    assert len(EntityGuardLike.calls) == 1
-    assert out["messages"][3]["content"][1]["image_url"] == {"url": "x"}  # Bilder bleiben
-    reply = {"messages": [{"role": "assistant", "content": "Ja, [NAME_3] und [NAME_2] sowie [NAME_1] ([EMAIL_1])."}]}
-    restored = flt.outlet(reply, meta)["messages"][0]["content"]
-    assert restored == "Ja, Karl Otto und Anna Schmidt sowie Max Mustermann (anna@firma.de)."
-
-
-def test_openwebui_filter_stops_the_request_when_the_service_fails_or_breaks_the_markers(guard):
-    module = load_filter()
-    flt = module.Filter()
-    flt.valves.api_url = guard
-    body = {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]}
-    EntityGuardLike.mode = "drop_marker"
-    with pytest.raises(Exception, match="Privacy stop"):
-        flt.inlet(body, {})
-    EntityGuardLike.mode = "500"
-    with pytest.raises(Exception, match="Privacy stop"):
-        flt.inlet(body, {})
-    flt.valves.api_url = "http://127.0.0.1:9/x"
-    with pytest.raises(Exception, match="Privacy stop"):
-        flt.inlet(body, {})
-
-
 def test_the_chat_error_names_a_short_reason_and_never_an_internal_address(app, db, monkeypatch):
     agent = setup_chat(app, db, monkeypatch, "http://10.0.0.5:9500/sanitize", ["x"])
     body = client_for(app, add_user(db, "ed", "editor")).post("/chat", json={"message": "Hallo"}).get_data(as_text=True)

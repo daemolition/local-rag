@@ -65,6 +65,63 @@ services:
     ports:
       - "127.0.0.1:5001:5001"
 
+  # Fuehrt Pandas-Code isoliert aus (run_pandas). Auf dem Mac mit Port auf localhost, weil die App nativ
+  # laeuft; ein Netz ohne Ausgang laesst sich mit veroeffentlichtem Port nicht kombinieren. Der Code ist
+  # trotzdem gekapselt (nicht root, Daten nur lesend, Kindprozess mit Limits, Audit-Hook).
+  # run_mac.py legt TOOL_WORKER_TOKEN in der .env an und stellt die Adressen in den Einstellungen ein.
+  tool-worker:
+    build:
+      context: .
+      dockerfile: tool_worker/Dockerfile
+    image: open-knowledge-ui-tool-worker
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 4g
+    environment:
+      - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (run_mac.py macht das)}
+      - TOOL_WORKER_ROLE=pandas
+      - TOOL_WORKER_DATA_DIR=/data
+    volumes:
+      # Datenordner der nativen App (DATA_DIR, Standard ./data), nur lesend
+      - ${DATA_DIR:-./data}:/data:ro
+    ports:
+      - "127.0.0.1:8090:8090"
+
+  # Fragt SQL-Datenbanken lesend ab (Knowledge "SQL-Datenbank"). Datenbanken auf dem Mac erreichst du
+  # ueber host.docker.internal.
+  tool-worker-sql:
+    build:
+      context: .
+      dockerfile: tool_worker/Dockerfile
+    image: open-knowledge-ui-tool-worker
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (run_mac.py macht das)}
+      - TOOL_WORKER_ROLE=sql
+      - TOOL_WORKER_SQLITE_DIR=/sqlite
+    volumes:
+      - ${SQL_SQLITE_DIR:-./sql-data}:/sqlite:ro
+    ports:
+      - "127.0.0.1:8091:8090"
+
 volumes:
   pgdata:
   qdrant:
