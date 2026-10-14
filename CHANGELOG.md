@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-14
+
 ### Geändert
 
 - **Admins sehen Knowledge nicht mehr automatisch.** Bisher sah jeder Admin alle Knowledge, konnte sie lesen, bearbeiten und an Modelle hängen, unabhängig von Freigaben. Jetzt gilt für Admins wie für alle: öffentlich, freigegeben oder selbst angelegt (der Ersteller bekommt weiter automatisch Schreibrecht). Das gilt auch in der Knowledge-Auswahl der Modell-Konfiguration. Modelle nutzen und konfigurieren dürfen Admins weiterhin alle. Folge: Knowledge, das niemandem freigegeben ist (z. B. vom gelöschten Ersteller), kann auch ein Admin nicht mehr öffnen oder sich selbst freigeben; das geht dann nur über die Datenbank.
@@ -206,7 +208,8 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
 
-[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.0...v0.2.1
