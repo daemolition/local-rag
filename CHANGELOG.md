@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-14
+
 ### Behoben
 
 - **„Der PII-Filter ist nicht erreichbar“, obwohl er lief.** Drei Ursachen, an einem echten EntityGuard gemessen. (1) Werkzeug-Ergebnisse (SQL, Dokumenttreffer, Web) liefen mit festen 5 Sekunden zum Filter, nur der Chat-Verlauf bekam ein wachsendes Limit; der Test in der Administration schickte einen Satz und bestand immer. Der Filter braucht für mittlere Texte mal unter 3 Sekunden, kalt oder unter Last aber 17 bis 34 Sekunden. (2) Texte ab etwa 50 000 Zeichen (lange Verläufe, große Ergebnisse) brachten den Dienst zum Absturz, danach lehnte er Verbindungen ab, bis er neu startete. (3) Die Meldung sagte bei jeder Ursache „nicht erreichbar“. Jetzt: Das Zeitlimit wächst für alle Texte mit der Länge (Einstellung *Zeitlimit*, Standard 10 s Grundwert, ein zweiter Versuch mit doppeltem Limit bei Zeitüberschreitung, Verbindungsfehler und 5xx; 4xx wie ein falscher Key wird nicht wiederholt), lange Texte gehen in Stücken von höchstens *Höchstlänge* Zeichen (Standard 12 000) an den Filter und werden verlustfrei mit einheitlichen Platzhaltern zusammengeführt (gemessen: 111 000 Zeichen in 30 Nachrichten in 25 s, ohne Absturz, Namen maskiert, Jahreszahlen lesbar), und die Meldung nennt die Ursache („nicht rechtzeitig geantwortet (Zeitüberschreitung nach 20 s)“, „lehnt die Anmeldung ab (HTTP 401, API-Key prüfen)“, „Fehler geantwortet (HTTP 500)“, „Trennmarken verändert“, erst sonst „nicht erreichbar“) und zeigt keine Adressen. Beide Einstellungen stehen in *Administration › Tools › PII-Filter* (Migration `0035`). Der Test dort prüft jetzt zusätzlich einen Text mit 8000 Zeichen und zeigt beide Antwortzeiten, damit ein zu langsamer Dienst auffällt. Fail-closed bleibt: Ohne maskierten Text geht nichts an das Modell.
@@ -214,7 +216,8 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
 
-[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.1...v0.2.2
