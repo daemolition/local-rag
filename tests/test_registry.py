@@ -29,12 +29,47 @@ def fake_agent(monkeypatch):
     monkeypatch.setattr(registry, "build_chat_llm", lambda *a, **k: ("llm", a, k))
 
 
-def test_compose_prompt_appends_or_replaces():
+def test_compose_prompt_layers_base_then_default_instructions_then_model_extra():
     base = DocumentAgent.SYSTEM_PROMPT
-    assert DocumentAgent.compose_prompt("") == base
-    appended = DocumentAgent.compose_prompt("Sei knapp.")
-    assert appended.startswith(base) and "Sei knapp." in appended
-    assert DocumentAgent.compose_prompt("Nur das.", replace=True) == "Nur das."
+    assert DocumentAgent.compose_prompt("", behavior="") == base
+    full = DocumentAgent.compose_prompt("Sei knapp.", behavior="Antworte formell.")
+    assert full.startswith(base)
+    assert full.index("Antworte formell.") < full.index("Sei knapp.")
+    assert DocumentAgent.compose_prompt("Sei knapp.", behavior="").endswith("Sei knapp.")
+
+
+def test_the_base_prompt_holds_only_tool_and_source_rules():
+    base = DocumentAgent.SYSTEM_PROMPT
+    for must in ("document_search_tool", "run_pandas", "[STRUKTURIERTE DATEN]", "eckigen Klammern", "Keine Halluzinationen", "nie vollständig wieder"):
+        assert must in base
+    # Rolle, Sprache und Stil gehoeren in die Standard-Anweisungen (UI), nicht in den festen Prompt
+    for gone in ("Senior Document AI Analyst", "Immer auf Deutsch", "formell"):
+        assert gone not in base
+
+
+def test_default_instructions_are_stored_editable_and_reach_the_agent(db):
+    from app.agent import behavior
+
+    got = behavior.load()
+    assert got["prompt"] == got["default_prompt"] == behavior.DEFAULT_BEHAVIOR
+    assert "Deutsch" in got["prompt"] and "Ist X da?" in got["prompt"]
+    behavior.save({"prompt": "  Duze den Nutzer.  "})
+    assert behavior.current() == "Duze den Nutzer."
+    assert "Duze den Nutzer." in DocumentAgent.compose_prompt("")
+    behavior.save({"prompt": ""})  # bewusst leer: nur Basis und Zusatz
+    assert DocumentAgent.compose_prompt("") == DocumentAgent.SYSTEM_PROMPT
+    with pytest.raises(behavior.BehaviorConfigError):
+        behavior.save({"prompt": "x" * (behavior.MAX_CHARS + 1)})
+
+
+def test_a_changed_default_instruction_is_not_served_from_the_agent_cache(conn, db, monkeypatch):
+    from app.agent import behavior
+
+    ref = store.make_base_ref(conn["id"], "qwen")
+    resolved = registry.resolve_model(ref)
+    first = registry.get_agent(resolved, [])
+    behavior.save({"prompt": "Neuer Ton."})
+    assert registry.get_agent(resolved, []) is not first
 
 
 def test_resolve_base_model_without_config(conn):
@@ -176,3 +211,32 @@ def test_private_lan_targets_stay_allowed(monkeypatch):
     monkeypatch.setattr(registry.requests, "get", lambda *a, **k: Resp())
     conn = {"id": 1, "base_url": "http://192.168.1.100:10002/v1", "api_key": ""}
     assert registry.fetch_remote_models(conn, force=True) == ["m"]
+
+
+def test_migration_0030_seeds_the_default_instructions_and_drops_replace_prompt(tmp_path):
+    import importlib.util
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import sqlalchemy as sa
+
+    from app.agent import behavior
+
+    spec = importlib.util.spec_from_file_location("m0030", Path("alembic/versions/0030_agent_behavior.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.DEFAULT_BEHAVIOR == behavior.DEFAULT_BEHAVIOR and mod.KEY == behavior.KEY
+
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    env = {**os.environ, "DATABASE_URL": url}
+    run = lambda *a: subprocess.run([sys.executable, "-m", "alembic", *a], env=env, check=True, capture_output=True)  # noqa: E731
+    run("upgrade", "head")
+    eng = sa.create_engine(url)
+    assert "replace_prompt" not in {c["name"] for c in sa.inspect(eng).get_columns("model_configs")}
+    with eng.connect() as c:
+        assert c.execute(sa.text("select value from settings where key='AGENT_BEHAVIOR_PROMPT'")).scalar() == behavior.DEFAULT_BEHAVIOR
+    run("downgrade", "0029")
+    assert "replace_prompt" in {c["name"] for c in sa.inspect(sa.create_engine(url)).get_columns("model_configs")}
+    run("upgrade", "head")

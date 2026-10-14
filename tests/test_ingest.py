@@ -496,15 +496,18 @@ def test_tables_become_csv_files_and_references_in_the_markdown(db, qd, no_enric
     assert "[TABELLE 3" not in md and "Links" in md  # Layout-Tabelle: kein CSV, Text bleibt
 
 
-def test_table_files_get_reference_chunks_and_are_readable_by_the_pandas_tool(db, qd, no_enrichment, tmp_path, worker):
+def test_extracted_tables_have_no_points_of_their_own_but_are_readable_by_the_pandas_tool(db, qd, no_enrichment, tmp_path, worker):
     from app import retrieval
     from app.retrieval import RetrievalScope
     from app.tools.custom_tools import CustomTools
 
     ingest_docx(qd, make_docx_with_tables(tmp_path))
     refs, _ = qd.scroll("open_knowledge_ui", limit=100, with_payload=True, with_vectors=False)
-    ref_names = {p.payload["filename"] for p in refs if p.payload.get("type") == "data_reference"}
-    assert len(ref_names) == 2 and all("--tabelle-" in n for n in ref_names)
+    assert not [p for p in refs if p.payload.get("type") == "data_reference"]  # gehoeren zum Dokument
+    assert {p.payload["filename"] for p in refs} == {"tabellen.docx"} or all("--tabelle-" not in p.payload["filename"] for p in refs)
+    paths0 = knowledge.knowledge_paths(knowledge.get_knowledge(None))
+    ref_names = {f"{paths0.name_prefix}{p.name}" for p in Path(paths0.data_dir).glob("*--tabelle-*.csv")}
+    assert len(ref_names) == 2
 
     paths = knowledge.knowledge_paths(knowledge.get_knowledge(None))
     retrieval.set_scope(RetrievalScope(("open_knowledge_ui",), None, data_dirs=((paths.name_prefix, str(paths.data_dir)),)))
@@ -569,20 +572,48 @@ def test_table_helpers_name_files_uniquely_and_safely():
     assert tables.table_pattern("ab12cd34-0000") == "*--ab12cd34--tabelle-*.csv"
 
 
-def test_reference_chunk_names_origin_and_content_of_extracted_tables(tmp_path):
+def test_reference_chunk_of_a_plain_data_file_describes_columns_and_content(tmp_path):
     import pandas as pd
 
     from app.vector.ingestion import describe_data_file
 
-    path = tmp_path / "umsatz--61acdddf--tabelle-2.csv"
+    path = tmp_path / "umsatz.csv"
     pd.DataFrame({"Monat": ["Jan", "Feb"], "Umsatz": [100.0, 250.5]}).to_csv(path, index=False)
     text = describe_data_file(str(path))
-    assert "Tabelle 2 aus dem Dokument `umsatz`" in text
     assert "`Umsatz`: 100 bis 250.5" in text and "`Monat`: z. B. Jan, Feb" in text
 
-    plain = tmp_path / "preise.csv"
-    pd.DataFrame({"a": [1, 2]}).to_csv(plain, index=False)
-    assert "Herkunft" not in describe_data_file(str(plain))
+
+def test_the_reference_in_the_document_carries_the_column_hints_of_its_table():
+    import pandas as pd
+
+    from app.ingest import tables
+
+    df = pd.DataFrame({"Monat": [f"Monat{i:02d}" for i in range(1, 16)], "Umsatz": [i * 100.0 for i in range(1, 16)]})
+    info = {"name": "knowledge_1/x--ab12cd34--tabelle-2.csv", "rows": 15, "columns": list(df.columns), "frame": df}
+    text = tables.render_reference(info, 2, "")
+    assert "`Umsatz`: 100 bis 1500" in text and "Monat01" in text
+
+
+def test_extracted_tables_get_no_reference_point_and_old_ones_are_removed(db, qd, no_enrichment, tmp_path):
+    from app.vector import ingestion
+
+    folder = tmp_path / "ref"
+    folder.mkdir()
+    (folder / "vertrag--ab12cd34--tabelle-1.csv").write_text("a,b\n1,2\n3,4\n")
+    (folder / "preise.csv").write_text("a,b\n1,2\n3,4\n")
+    deleted = []
+    orig = ingestion.delete_data_reference
+    ingestion.delete_data_reference = lambda col, name: deleted.append(name)
+    try:
+        embeddings = type("E", (), {"embed_documents": lambda self, t: [[0.0] * 7 for _ in t]})()
+        sparse = type("S", (), {"embed_documents": lambda self, t: [type("V", (), {"indices": [1], "values": [1.0]})() for _ in t]})()
+        ensure_collection(qd, "reftest", 7)
+        assert ingestion.index_data_references(embeddings, sparse, "reftest", str(folder), name_prefix="k_1/") == 1
+    finally:
+        ingestion.delete_data_reference = orig
+    assert deleted == ["k_1/vertrag--ab12cd34--tabelle-1.csv"]
+    pts, _ = qd.scroll("reftest", limit=10, with_payload=True, with_vectors=False)
+    assert [p.payload["filename"] for p in pts] == ["k_1/preise.csv"]
 
 
 def test_failing_enrichment_does_not_lose_the_document(db, qd, no_enrichment):

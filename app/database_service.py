@@ -250,6 +250,11 @@ class DatabaseService:
         for key, default, description in compaction_settings:
             all_settings[key] = ("llm", default, description)
 
+        from app.agent.behavior import SETTINGS as behavior_settings
+
+        for key, default, description in behavior_settings:
+            all_settings[key] = ("llm", default, description)
+
         from app.toolworker.config import SETTINGS as tool_worker_settings
 
         for key, default, description in tool_worker_settings:

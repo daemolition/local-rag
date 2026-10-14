@@ -58,7 +58,6 @@ export function ModelConfigDialog({
   const [name, setName] = useState("");
   const [visible, setVisible] = useState(true);
   const [prompt, setPrompt] = useState("");
-  const [replace, setReplace] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [params, setParams] = useState<Record<string, string>>({});
   const [thinking, setThinking] = useState(DEFAULT_THINKING);
@@ -91,7 +90,6 @@ export function ModelConfigDialog({
     setName(model.is_clone ? (cfg?.name ?? model.name) : (cfg?.name ?? ""));
     setVisible(cfg?.visible ?? true);
     setPrompt(cfg?.system_prompt ?? "");
-    setReplace(cfg?.replace_prompt ?? false);
     setWebSearch(cfg?.web_search ?? false);
     const p: Record<string, string> = {};
     for (const f of PARAM_FIELDS) {
@@ -113,7 +111,6 @@ export function ModelConfigDialog({
         name,
         visible,
         system_prompt: prompt,
-        replace_prompt: replace,
         web_search: webSearch && webSearchAvailable,
         params: {
           ...params,
@@ -184,21 +181,12 @@ export function ModelConfigDialog({
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={6}
-              placeholder="Zusätzliche Anweisungen, z. B. Rolle, Tonfall, Fachgebiet…"
+              placeholder="Zusätzliche Anweisungen, z. B. Tonfall und Fachgebiet…"
             />
-            <div className="flex items-start justify-between gap-4 rounded-lg border border-border-base px-3 py-2">
-              <div>
-                <Label htmlFor="mc-replace" className="cursor-pointer">
-                  Basis-Prompt ersetzen
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Standardmäßig wird dein Prompt an den Basis-Prompt angehängt. Der
-                  enthält die Tool-Anweisungen (Dokumentsuche, Pandas, Ablagen).
-                  Ersetzt du ihn, musst du diese selbst beschreiben.
-                </p>
-              </div>
-              <Switch id="mc-replace" checked={replace} onCheckedChange={setReplace} />
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Wird an die Standard-Anweisungen (Seite Modelle) angehängt, z. B. für die Brand Voice dieses Modells.
+              Die Regeln für Werkzeuge und Quellen sind fest eingebaut.
+            </p>
           </section>
 
           <section className="space-y-2">

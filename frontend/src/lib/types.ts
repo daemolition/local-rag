@@ -187,7 +187,6 @@ export interface ModelConfig {
   visible: boolean;
   is_public: boolean;
   system_prompt: string;
-  replace_prompt: boolean;
   web_search: boolean;
   params: ModelParams;
   knowledge_ids: number[] | null;

@@ -507,7 +507,7 @@ def chat():
         budget = compaction.compute_budget(compaction.effective_params(resolved.params), cfg)
         if budget:
             overhead = compaction.estimate_tokens(
-                DocumentAgent.compose_prompt(resolved.system_prompt, resolved.replace_prompt)
+                DocumentAgent.compose_prompt(resolved.system_prompt)
             ) + compaction.tools_tokens(tools)
             new_message = message_list[-1]
             history, compaction_note = compaction.fit_history(

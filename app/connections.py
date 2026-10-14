@@ -271,7 +271,6 @@ def _config_dict(m: ModelConfig) -> dict:
         "visible": bool(m.visible),
         "is_public": bool(m.is_public),
         "system_prompt": m.system_prompt or "",
-        "replace_prompt": bool(m.replace_prompt),
         "web_search": bool(m.web_search),
         "params": json.loads(m.params) if m.params else {},
         "knowledge_ids": json.loads(m.knowledge_ids) if m.knowledge_ids else None,
@@ -321,8 +320,6 @@ def _apply(m: ModelConfig, data: dict) -> None:
         m.web_search = bool(data["web_search"])
     if "system_prompt" in data:
         m.system_prompt = (data["system_prompt"] or "").strip()
-    if "replace_prompt" in data:
-        m.replace_prompt = bool(data["replace_prompt"])
     if "params" in data:
         m.params = json.dumps(sanitize_params(data["params"]))
     if "allow_extra_knowledge" in data:
@@ -396,7 +393,6 @@ def clone_model(ref: str, name: str) -> dict | None:
         )
         if source:
             m.system_prompt = source["system_prompt"]
-            m.replace_prompt = source["replace_prompt"]
             m.web_search = source.get("web_search", False)
             m.allow_extra_knowledge = source.get("allow_extra_knowledge", True)
             m.params = json.dumps(source["params"])

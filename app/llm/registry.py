@@ -70,7 +70,6 @@ class ResolvedModel:
     model_id: str
     params: dict
     system_prompt: str
-    replace_prompt: bool
     knowledge_ids: tuple[int, ...] | None
     # Websuche-Werkzeug zugeschaltet (greift nur, wenn SearXNG und PII-Filter eingerichtet sind)
     web_search: bool = False
@@ -85,7 +84,6 @@ class ResolvedModel:
                 self.model_id,
                 self.params,
                 self.system_prompt,
-                self.replace_prompt,
                 self.web_search,
             ],
             sort_keys=True,
@@ -335,7 +333,6 @@ def resolve_model(ref: str | None = None) -> ResolvedModel:
         model_id=model_id,
         params=cfg["params"] if cfg else {},
         system_prompt=cfg["system_prompt"] if cfg else "",
-        replace_prompt=cfg["replace_prompt"] if cfg else False,
         knowledge_ids=tuple(cfg["knowledge_ids"]) if cfg and cfg["knowledge_ids"] else None,
         web_search=bool(cfg and cfg.get("web_search")),
         allow_extra_knowledge=bool(cfg.get("allow_extra_knowledge", True)) if cfg else True,
@@ -357,9 +354,9 @@ def get_agent(resolved: ResolvedModel, tools: list) -> DocumentAgent:
 
     cfg = compaction.load_settings()
     budget = compaction.compute_budget(compaction.effective_params(resolved.params), cfg)
-    system_prompt = DocumentAgent.compose_prompt(resolved.system_prompt, resolved.replace_prompt)
+    system_prompt = DocumentAgent.compose_prompt(resolved.system_prompt)
     guard = (budget, cfg["prompt"]) if budget else None
-    key = (resolved.ref, resolved.signature(), tuple(sorted(getattr(t, "name", "?") for t in tools)), guard)
+    key = (resolved.ref, resolved.signature(), tuple(sorted(getattr(t, "name", "?") for t in tools)), guard, system_prompt)
     with _lock:
         agent = _agents.get(key)
         if agent is not None:

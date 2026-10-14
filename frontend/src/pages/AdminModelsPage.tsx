@@ -33,6 +33,7 @@ import { AccessDialog } from "@/components/AccessDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ModelConfigDialog } from "@/components/ModelConfigDialog";
 import { AdminLink } from "@/components/AdminNav";
+import { BehaviorCard } from "@/components/BehaviorCard";
 import { api, errorMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AccessInfo, Knowledge, ModelEntry, ModelsResponse } from "@/lib/types";
@@ -146,6 +147,8 @@ export function AdminModelsPage() {
             Aktualisieren
           </Button>
         </div>
+
+        <BehaviorCard />
 
         {data?.errors.map((e) => (
           <div

@@ -212,20 +212,35 @@ def test_settings_api_is_admin_only_and_validates(app, db):
     assert reset.json["prompt"] == compaction.DEFAULT_PROMPT
 
 
+def test_default_instructions_api_is_admin_only_and_resettable(app, db):
+    from app.agent import behavior
+
+    ed = add_user(db, "ed2", "editor")
+    assert client_for(app, ed).get("/api/admin/agent-behavior").status_code == 403
+    assert client_for(app, ed).put("/api/admin/agent-behavior", json={"prompt": "x"}).status_code == 403
+    admin = client_for(app, ADMIN)
+    got = admin.get("/api/admin/agent-behavior").json
+    assert got["prompt"] == got["default_prompt"] == behavior.DEFAULT_BEHAVIOR
+    assert admin.put("/api/admin/agent-behavior", json={"prompt": "x" * 9000}).status_code == 400
+    ok = admin.put("/api/admin/agent-behavior", json={"prompt": "Sprich wie die Marke."})
+    assert ok.status_code == 200 and ok.json["prompt"] == "Sprich wie die Marke." and ok.json["default_prompt"] == behavior.DEFAULT_BEHAVIOR
+    assert admin.put("/api/admin/agent-behavior", json={"prompt": ok.json["default_prompt"]}).json["prompt"] == behavior.DEFAULT_BEHAVIOR
+
+
 def test_agent_is_rebuilt_when_the_budget_changes(db, monkeypatch):
     from app.llm import registry
 
     monkeypatch.setattr(registry, "build_chat_llm", lambda *a, **k: object())
     class FakeAgent(SimpleNamespace):
         @staticmethod
-        def compose_prompt(extra, replace):
+        def compose_prompt(extra):
             return "System"
 
     monkeypatch.setattr(registry, "DocumentAgent", lambda **k: FakeAgent(**k))
     monkeypatch.setattr(registry.DocumentAgent, "compose_prompt", FakeAgent.compose_prompt, raising=False)
     resolved = registry.ResolvedModel(
         ref="r", display_name="r", connection_id=1, base_url="http://127.0.0.1:9/v1", api_key="k",
-        model_id="m", params={"num_ctx": 8000, "max_tokens": 2000}, system_prompt="", replace_prompt=False, knowledge_ids=None,
+        model_id="m", params={"num_ctx": 8000, "max_tokens": 2000}, system_prompt="", knowledge_ids=None,
     )
     registry.clear_caches()
     first = registry.get_agent(resolved, [])

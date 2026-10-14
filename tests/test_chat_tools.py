@@ -62,12 +62,18 @@ def test_the_input_list_is_not_modified():
     assert names(original) == ALL
 
 
-def test_prompt_separates_conversation_summaries_from_document_summaries():
-    prompt = DocumentAgent.SYSTEM_PROMPT
-    assert "Gespräch" in prompt and "KEINE Dokumentsuche" in prompt
-    # die Pflicht zur Dokumentsuche gilt nur noch fuer Dokumente/Wissen
-    assert prompt.index("ZUSAMMENFASSUNG") < prompt.index("starte DIREKT mit `document_search_tool`")
+def test_default_instructions_separate_conversation_summaries_from_document_summaries():
+    from app.agent.behavior import DEFAULT_BEHAVIOR as prompt
+
+    assert "Gespräch" in prompt and "keine Dokumentsuche" in prompt
     assert "FAZIT VORAB" not in prompt
+
+
+def test_default_instructions_answer_targeted_questions_briefly_and_list_only_on_request():
+    from app.agent.behavior import DEFAULT_BEHAVIOR as prompt
+
+    assert "Zähle nie den übrigen Inhalt auf" in prompt and "ausdrücklich eine Übersicht" in prompt
+    assert "nie vollständig wieder" in DocumentAgent.SYSTEM_PROMPT
 
 
 def test_conversation_only_hint_forbids_inventing_documents():

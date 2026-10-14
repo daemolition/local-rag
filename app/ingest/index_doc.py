@@ -247,6 +247,7 @@ def inline_hint(indexes, max_chars: int = INLINE_MAX_CHARS) -> str:
     if not joined or len(joined) > max_chars:
         return ""
     return (
-        "\n\n[Inhaltsverzeichnis des durchsuchbaren Wissens (zur Orientierung, nutze für "
-        f"Details die Suche):\n{joined}]"
+        "\n\n[Inhaltsverzeichnis des durchsuchbaren Wissens. Nur zur Orientierung, nutze für "
+        "Details die Suche. Gib es nicht wieder und zähle seinen Inhalt nicht auf, außer der Nutzer "
+        f"verlangt ausdrücklich eine Übersicht:\n{joined}]"
     )

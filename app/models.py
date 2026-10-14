@@ -181,7 +181,6 @@ class ModelConfig(Base):
     is_clone = Column(Boolean, nullable=False, default=False)
     visible = Column(Boolean, nullable=False, default=True)
     system_prompt = Column(Text)
-    replace_prompt = Column(Boolean, nullable=False, default=False)
     params = Column(Text)  # JSON-Objekt
     knowledge_ids = Column(Text)  # JSON-Liste oder NULL
     # Nutzer duerfen zusaetzlich eigenes Knowledge waehlen (an: Modell-Knowledge ist die Basis)

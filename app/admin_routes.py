@@ -802,6 +802,34 @@ def compaction_save():
 
 
 # =============================================================================
+# Standard-Anweisungen fuer alle Modelle
+# =============================================================================
+
+
+@admin_bp.route("/admin/agent-behavior", methods=["GET"])
+@require_role("admin")
+def agent_behavior_overview():
+    from app.agent import behavior
+
+    return jsonify(behavior.load())
+
+
+@admin_bp.route("/admin/agent-behavior", methods=["PUT"])
+@require_role("admin")
+def agent_behavior_save():
+    """Speichert die Standard-Anweisungen; ein leerer Text heisst: nur Basis-Prompt und Modell-Zusatz."""
+    from app.agent import behavior
+    from app.llm import registry
+
+    try:
+        behavior.save(request.get_json() or {})
+    except behavior.BehaviorConfigError as e:
+        return _error(str(e), 400)
+    registry.clear_caches()  # laufende Agenten tragen den alten Prompt
+    return jsonify(behavior.load())
+
+
+# =============================================================================
 # Tool-Worker (isolierte Codeausfuehrung)
 # =============================================================================
 

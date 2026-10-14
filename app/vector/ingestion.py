@@ -20,7 +20,6 @@ Document ingestion
 
 # Standard library
 import os
-import re
 import glob
 import uuid
 import shutil
@@ -46,7 +45,7 @@ from app.ingest.indexer import (
     upsert_points,
 )
 from app.ingest.index_doc import refresh_index
-from app.ingest.tables import delete_tables, make_sink
+from app.ingest.tables import column_hints_text, delete_tables, is_extracted_table, make_sink
 from app.llm.local_llm import TaskLLM
 from app.rag import model_settings, models_runtime
 from app.utils.phase_logger import phase_logger, Phase
@@ -89,36 +88,6 @@ def _load_dataframe(file_path: str):
     return pd.read_excel(file_path)
 
 
-_TABLE_NAME = re.compile(r"^(?P<stem>.+)--[0-9a-f]{8}--tabelle-(?P<n>\d+)\.csv$")
-
-
-def _table_origin(filename: str) -> str:
-    """Herkunftszeile fuer Tabellen, die beim Einlesen aus einem Dokument entstanden sind."""
-    m = _TABLE_NAME.match(os.path.basename(filename))
-    if not m:
-        return ""
-    return (
-        f"Herkunft: Tabelle {m['n']} aus dem Dokument `{m['stem']}` "
-        f"(beim Einlesen als CSV extrahiert; im Dokumenttext steht nur ein Verweis).\n"
-    )
-
-
-def _column_hints(df, max_columns: int = 12) -> str:
-    """Kurze Inhaltshinweise je Spalte (Wertebereich bzw. Beispielwerte), damit die
-    Tabelle ueber ihren Inhalt gefunden wird."""
-    parts = []
-    for col in list(df.columns)[:max_columns]:
-        series = df[col].dropna()
-        if series.empty:
-            continue
-        if str(series.dtype).startswith(("int", "float")):
-            parts.append(f"`{col}`: {series.min():g} bis {series.max():g}")
-        else:
-            examples = ", ".join(str(v)[:30] for v in series.astype(str).unique()[:3])
-            parts.append(f"`{col}`: z. B. {examples}")
-    return ("Inhalt: " + "; ".join(parts) + "\n") if parts else ""
-
-
 def describe_data_file(file_path: str, display_name: str | None = None) -> str:
     """Erzeugt eine kompakte, suchoptimierte Beschreibung für den Verweis-Chunk
     einer strukturierten Datei.
@@ -139,28 +108,21 @@ def describe_data_file(file_path: str, display_name: str | None = None) -> str:
         n_rows = len(df)
         columns = [str(c) for c in df.columns[:30]]
         sample = df.head(3).to_markdown(index=False)
-        column_hints = _column_hints(df)
+        column_hints = column_hints_text(df)
     except Exception as e:
         logger.warning(f"Datenvorschau fehlgeschlagen für {filename}: {e}")
 
     column_list = ", ".join(f"`{c}`" for c in columns) or "unbekannt"
-    origin = _table_origin(filename)
     return (
         f"[STRUKTURIERTE DATEN] Die Datei `{filename}` ({ext.upper()}) ist eine "
         f"Tabelle mit {n_rows} Zeilen und den Spalten: {column_list}.\n"
-        f"{origin}{column_hints}"
+        f"{column_hints}"
         f"Die Rohdaten sind NICHT als Text verfügbar. Für konkrete Werte, "
         f"Summen, Filter oder Auswertungen zu dieser Tabelle muss das "
         f"Pandas-Tool `run_pandas` mit dem Dateinamen `{filename}` genutzt "
         f"werden (vorab `list_files` / `preview_data`).\n"
         f"Vorschau (erste Zeilen):\n{sample}"
     )
-
-
-def _table_source(filename: str) -> dict:
-    """Bei aus einem Dokument extrahierten Tabellen: Name des Quelldokuments (aus dem Dateinamen)."""
-    m = _TABLE_NAME.match(os.path.basename(filename))
-    return {"source_document": m["stem"], "table_number": int(m["n"])} if m else {}
 
 
 def index_data_references(
@@ -189,6 +151,14 @@ def index_data_references(
         for p in data_dir.iterdir()
         if p.is_file() and p.suffix.lower() in STRUCTURED_EXTS
     )
+    # Aus Dokumenten extrahierte Tabellen gehoeren zum Dokument: ihr Verweis steht in dessen
+    # Chunks, ein eigener Punkt waere ein zweites "Dokument". Alt-Punkte werden entfernt.
+    for p in [p for p in files if is_extracted_table(p.name)]:
+        try:
+            delete_data_reference(collection_name, f"{name_prefix}{p.name}")
+        except Exception as e:
+            logger.debug(f"Alt-Verweis fuer {p.name} nicht loeschbar: {e}")
+    files = [p for p in files if not is_extracted_table(p.name)]
     if not files:
         return 0
 
@@ -210,7 +180,6 @@ def index_data_references(
                 "file_group_id": rel_name,
                 "file_type": file_path.suffix.lower().lstrip("."),
                 **({"knowledge_id": knowledge_id} if knowledge_id is not None else {}),
-                **_table_source(file_path.name),
             }
         )
 

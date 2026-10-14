@@ -749,8 +749,9 @@ class CustomTools:
             description=(
                 "Liefert das Inhaltsverzeichnis der durchsuchbaren Wissensbereiche: welche Dokumente "
                 "es gibt, ihre Gliederung und welche Tabellen/Datendateien (mit Spalten) für run_pandas "
-                "bereitstehen. Nutze es bei Übersichtsfragen (\"welche Dokumente gibt es?\") und wenn "
-                "unklar ist, wo etwas steht, bevor du blind suchst."
+                "bereitstehen. Nutze es bei ausdrücklichen Übersichtsfragen (\"welche Dokumente gibt es?\") und wenn "
+                "unklar ist, wo etwas steht, bevor du blind suchst. Gib das Ergebnis nicht vollständig wieder, "
+                "wenn nur nach einer bestimmten Sache gefragt wurde."
             ),
             args_schema=ReadIndexInput,
         )

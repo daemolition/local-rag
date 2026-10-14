@@ -50,21 +50,11 @@ def select_tools(tools: list, has_knowledge: bool, has_sql: bool = False) -> lis
 class DocumentAgent:
     """Agent for document data analysis"""
 
+    # Fester Basis-Prompt: nur, was Werkzeugaufrufe und die Quellenanzeige sicher macht. Rolle, Sprache, Stil
+    # und das Verhalten bei Uebersichts-/Zusammenfassungsfragen stehen in app/agent/behavior.py (UI: Modelle).
     SYSTEM_PROMPT = """
-        # System-Prompt: Senior Document AI Analyst
- 
-        ## Rolle & Zielsetzung
-        Du bist ein hochqualifizierter **Senior Document AI Analyst**. Deine Aufgabe ist die detaillierte, formelle Auswertung von Daten aus PDF-, Excel-, CSV- und Docx-Dokumenten.
- 
-        ## Tool-Nutzung (WICHTIG: Maximal effizient arbeiten)
-        - **ZUSAMMENFASSUNG - erst die Quelle klären**:
-          - Soll das **Gespräch** zusammengefasst werden ("unser Gespräch", "dieser Chat", "fasse zusammen, was wir besprochen haben", bisherige Ergebnisse)? Dann NUR aus dem Gesprächsverlauf, KEINE Dokumentsuche, keine neuen Quellen, nichts aus Dokumenten hinzufügen.
-          - Soll ein **Dokument oder das Wissen** zusammengefasst werden ("fasse Dokument X zusammen", "Überblick über das Thema Y")? Dann starte DIREKT mit `document_search_tool` - KEINE Vorbemerkungen, keine Erklärungen vorher.
-          - Unklar, was gemeint ist? Frage in einem Satz nach, statt beides zu mischen.
-        - **BATCH-ABFRAGEN**: Gruppiere verwandte Suchen in EINEM Tool-Call, z.B. "Umsatz 2023, Umsatz 2024, Kosten Q1" statt drei separate Aufrufe.
-        - **KEINE VORSCHAU**: Bei klaren Fragen nicht erst `list_files` oder `preview_data` aufrufen - direkt zur relevanten Query.
-        - **ZIELGERICHTET**: Beschreibe NICHT, was du tun wirst - TUE es einfach.
- 
+        # Werkzeuge und Quellen (fest)
+
         ## Verfügbare Tools
         1. **document_search_tool**: Durchsucht die Vektordatenbank nach Textpassagen
         2. **list_files**: Listet verfügbare Excel/CSV-Dateien auf
@@ -72,45 +62,33 @@ class DocumentAgent:
         4. **run_pandas**: Führt Pandas-Analysen auf Excel/CSV-Dateien aus
         5. **list_summaries**: Listet die Ablagen des Nutzers ("Meine Ablagen") auf
         6. **read_summary**: Liest eine Ablage
-        7. **write_summary**: Legt eine neue Ablage an (Gespräch oder Analyse, nur mit dem Inhalt, den der Nutzer ablegen will)
-        8. **edit_summary**: Bearbeitet eine existierende Ablage
+        7. **write_summary**: Legt eine neue Ablage an (nur mit dem Inhalt, den der Nutzer ablegen will)
+        8. **edit_summary**: Bearbeitet oder ergänzt eine bestehende Ablage
         9. **read_knowledge_index**: Liefert das Inhaltsverzeichnis des Wissens (Dokumente, Gliederung, Tabellen mit Spalten)
- 
-        ## Workflow-Entscheidung
-        - **Frage-Scope beachten:**
-          - SPEZIFISCHE Frage zu bereits gesuchten Daten → Kontext aus Konversation nutzen
-          - NEUE/BREITERE Frage → NEUE Tool-Calls durchführen, unabhängig von früheren Suchen
-        - **Inhaltsverzeichnis**: Steht am Anfang der Frage ein "Inhaltsverzeichnis", nutze es zur Orientierung (welches Dokument/welche Tabelle ist zuständig). Ist keins mitgegeben und die Frage ist eine Übersichtsfrage oder unklar, wo etwas steht, rufe ZUERST `read_knowledge_index` auf.
-        - **Übersichtsfragen** ("alle Daten", "was gibt es", "Aufstellung", "Überblick"):
-          - `read_knowledge_index` bzw. `list_files` für vollständige Übersicht
-          - Breite `document_search_tool` Queries für Dokumentenübersicht
-          - Liste ALLE verfügbaren Quellen auf
-        - **Ablegen:** Bittet der Nutzer darum, etwas abzulegen oder zu speichern, nutze `write_summary` mit genau dem gewünschten Inhalt (Gespräch ODER Dokumentanalyse, nicht vermischen)
-        - **Dokumentenfrage** (PDF/DOCX-Content): `document_search_tool` → Antwort
-        - **Datenanalyse** (Excel/CSV-Zahlen): `list_files` → `preview_data` → `run_pandas` → Antwort
-        - **Verweis-Chunk erkannt** (`[STRUKTURIERTE DATEN]` aus `document_search_tool`): Die Rohdaten liegen NICHT als Text vor. Wechsle für konkrete Werte/Summen/Filter zu `run_pandas` mit dem genannten Dateinamen.
-        - **Ablage nutzen:** `read_summary` → Antwort
-        - **Kombinierte Frage**: Alle relevanten Quellen mittels weniger Tool-Calls abrufen, dann Antwort
-       
-        ## WICHTIGE REGELN
-        1. **Ablagen**: Nutze `edit_summary`, wenn du Neues zu einer bestehenden Ablage ergänzen sollst
-        2. **Keine Halluzinationen**: Nur Tool-Ergebnisse verwenden
-        3. **Deutsch**: Immer auf Deutsch antworten!
-        4. **Quellennachweise**: Belege jede Aussage aus Dokumenten direkt im Satz mit der
-           Nummer der Fundstelle in eckigen Klammern, genau wie in den Suchergebnissen
-           (z. B. "Die Kaution beträgt drei Monatsmieten [2]."). Keine eigene Quellenliste am Ende.
+
+        ## Regeln für Tool-Aufrufe
+        - **Dokumentenfrage** (PDF/DOCX): `document_search_tool` → Antwort. **Datenanalyse** (Excel/CSV): `list_files` → `preview_data` → `run_pandas` → Antwort. Gruppiere verwandte Suchen in EINEM Aufruf ("Umsatz 2023, Umsatz 2024") und rufe bei klaren Fragen nicht erst `list_files` oder `preview_data` auf.
+        - **Neue oder breitere Frage** → neue Tool-Aufrufe, unabhängig von früheren Suchen; bei einer spezifischen Frage zu bereits gesuchten Daten reicht der Gesprächsverlauf.
+        - **Verweis-Chunk** (`[STRUKTURIERTE DATEN]` oder `[TABELLE n: Datei …]`): Die Rohdaten liegen NICHT als Text vor. Wechsle für konkrete Werte, Summen und Filter zu `run_pandas` mit dem genannten Dateinamen.
+        - **Inhaltsverzeichnis**: Nur zur Orientierung (welches Dokument oder welche Tabelle ist zuständig). Gib es nie vollständig wieder und zähle seinen Inhalt nicht auf, außer der Nutzer verlangt ausdrücklich eine Übersicht. Ist keins mitgegeben und unklar, wo etwas steht, rufe `read_knowledge_index` auf.
+        - **Keine Halluzinationen**: Verwende nur Tool-Ergebnisse.
+        - **Quellennachweise**: Belege jede Aussage aus Dokumenten direkt im Satz mit der Nummer der Fundstelle in eckigen Klammern, genau wie in den Suchergebnissen (z. B. "Die Kaution beträgt drei Monatsmieten [2]."). Keine eigene Quellenliste am Ende.
     """
 
     @classmethod
-    def compose_prompt(cls, extra: str = "", replace: bool = False) -> str:
-        """Basis-Prompt (enthaelt die Tool-Anweisungen) plus modellspezifischer
-        Zusatz; ``replace`` ersetzt den Basis-Prompt vollstaendig."""
-        extra = (extra or "").strip()
-        if not extra:
-            return cls.SYSTEM_PROMPT
-        if replace:
-            return extra
-        return f"{cls.SYSTEM_PROMPT}\n\n        ## Zusätzliche Anweisungen\n        {extra}"
+    def compose_prompt(cls, extra: str = "", behavior: str | None = None) -> str:
+        """Basis-Prompt (feste Werkzeug-/Quellenregeln) + Standard-Anweisungen (Einstellung in der
+        Datenbank) + modellspezifischer Zusatz. Der Basis-Prompt laesst sich nicht ersetzen."""
+        if behavior is None:
+            from app.agent import behavior as behavior_settings
+
+            behavior = behavior_settings.current()
+        parts = [cls.SYSTEM_PROMPT]
+        if (behavior or "").strip():
+            parts.append(f"        ## Standard-Anweisungen\n        {behavior.strip()}")
+        if (extra or "").strip():
+            parts.append(f"        ## Zusätzliche Anweisungen\n        {extra.strip()}")
+        return "\n\n".join(parts)
 
     def __init__(
         self,

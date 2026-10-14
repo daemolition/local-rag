@@ -19,8 +19,9 @@ Tabellen aus Dokumenten als CSV.
 
 Tabellen aus PDF/DOCX sind als Text in einer Vektordatenbank schlecht auszuwerten
 (Summen, Filter, Vergleiche). Deshalb legt das Einlesen jede erkannte Tabelle als CSV im
-Datenordner des Knowledge ab. Dort sehen sie die pandas-Tools, und sie bekommen wie jede
-CSV einen Verweis-Chunk in der Vektordatenbank. Im Markdown bleibt eine kleine Tabelle
+Datenordner des Knowledge ab. Dort sehen sie die pandas-Tools. Einen eigenen Eintrag in der
+Vektordatenbank haben sie nicht: sie gehoeren zum Dokument, dessen Chunks den Verweis tragen
+(``render_reference``). Im Markdown bleibt eine kleine Tabelle
 lesbar stehen, eine grosse wird durch einen Verweis mit Dateiname, Spalten und den ersten
 Zeilen ersetzt.
 """
@@ -54,6 +55,30 @@ def short_id(file_group_id: str) -> str:
 def table_filename(stem: str, file_group_id: str, number: int) -> str:
     """``vertrag--ab12cd34--tabelle-3.csv`` (eindeutig pro Dokument und Tabelle)."""
     return f"{_slug(stem)[:60]}--{short_id(file_group_id)}--tabelle-{number}.csv"
+
+
+_TABLE_NAME = re.compile(r"^.+--[0-9a-f]{8}--tabelle-\d+\.csv$")
+
+
+def is_extracted_table(filename: str) -> bool:
+    """True fuer CSVs, die beim Einlesen aus einem Dokument entstanden sind."""
+    return bool(_TABLE_NAME.match(Path(filename).name))
+
+
+def column_hints_text(df, max_columns: int = 12) -> str:
+    """Kurze Inhaltshinweise je Spalte (Wertebereich bzw. Beispielwerte), damit die Tabelle
+    ueber ihren Inhalt gefunden wird."""
+    parts = []
+    for col in list(df.columns)[:max_columns]:
+        series = df[col].dropna()
+        if series.empty:
+            continue
+        if str(series.dtype).startswith(("int", "float")):
+            parts.append(f"`{col}`: {series.min():g} bis {series.max():g}")
+        else:
+            examples = ", ".join(str(v)[:30] for v in series.astype(str).unique()[:3])
+            parts.append(f"`{col}`: z. B. {examples}")
+    return ("Inhalt: " + "; ".join(parts) + "\n") if parts else ""
 
 
 def table_pattern(file_group_id: str) -> str:
@@ -90,8 +115,15 @@ def make_sink(paths, stem: str, file_group_id: str) -> TableSink:
 def render_reference(info: dict, number: int, table_markdown: str) -> str:
     """Ersatztext fuer eine extrahierte Tabelle im Markdown."""
     name, rows, df = info["name"], info["rows"], info["frame"]
+    # Die Tabelle gehoert zum Dokument und hat keinen eigenen Eintrag in der Vektordatenbank:
+    # ueber diesen Verweis wird sie mit dem Dokument gefunden, deshalb stehen die Inhaltshinweise hier.
+    try:
+        hints = column_hints_text(df).strip()
+    except Exception:
+        hints = ""
+    hints = f"\n{hints}" if hints else ""
     if rows <= INLINE_MAX_ROWS and len(table_markdown) <= INLINE_MAX_CHARS:
-        return f"{table_markdown}\n\n[TABELLE {number}: als Datei `{name}` ({rows} Zeilen)]"
+        return f"{table_markdown}\n\n[TABELLE {number}: als Datei `{name}` ({rows} Zeilen)]{hints}"
     columns = ", ".join(info["columns"])
     try:
         preview = df.head(PREVIEW_ROWS).to_markdown(index=False)
@@ -102,6 +134,7 @@ def render_reference(info: dict, number: int, table_markdown: str) -> str:
         "Für Auswertungen (Summen, Filter, Vergleiche) das Tool run_pandas mit diesem "
         "Dateinamen nutzen.]"
     )
+    text += hints
     return f"{text}\n\nErste Zeilen:\n\n{preview}" if preview else text
 
 
