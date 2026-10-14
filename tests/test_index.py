@@ -187,12 +187,14 @@ def test_api_changes_refresh_the_index(app, db, qd):
     add_doc(db, kb, "Bericht.pdf", "# Bericht", fg="22222222-bbbb")
     index_doc.refresh_index(kb["id"])
     admin = client_for(app, {"id": 1})
+    access.add_grant("knowledge", kb["id"], "user", 1, "write")  # Admins haben keinen Sonderzugriff
     assert "Bericht.pdf" in stored(kb)
 
     assert admin.delete(f"/api/documents/{db.get_all_documents()[0].id}").status_code == 200
     assert "Bericht.pdf" not in stored(kb)
 
     other = knowledge.create_knowledge("Alt")
+    access.add_grant("knowledge", other["id"], "user", 1, "write")
     index_doc.refresh_index(other["id"])
     admin.patch(f"/api/knowledge/{other['id']}", json={"name": "Neuer Name"})
     assert "Inhaltsverzeichnis: Neuer Name" in stored(other)

@@ -39,13 +39,13 @@ export function KnowledgePicker({
     ? effective.length === 0
       ? "Modell-Wissen"
       : `Modell + ${effective.length}`
-    : effective.length === knowledge.length
-      ? "Alle Knowledge"
+    : effective.length > 1 && effective.length === knowledge.length
+      ? "Alle Knowledges"
       : effective.length === 0
         ? "Kein Knowledge"
         : effective.length === 1
           ? (knowledge.find((k) => k.id === effective[0])?.name ?? "Knowledge")
-          : `${effective.length} Knowledge`;
+          : `${effective.length} Knowledges`;
 
   const toggle = (id: number, checked: boolean) => {
     const next = checked

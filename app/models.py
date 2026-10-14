@@ -33,6 +33,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship
 
+from app.crypto import EncryptedText
+
 Base = declarative_base()
 
 
@@ -126,11 +128,13 @@ class Knowledge(Base):
     # 'local' (eigene Collection), 'external' (fremder Vektorspeicher, nur lesen) oder 'sql' (SQL-Datenbank, nur lesen)
     kind = Column(String(20), nullable=False, default="local", server_default="local")
     # externe Quelle: JSON mit URL, Key, Collection, Vektornamen, Feldzuordnung
-    source_config = Column(Text)
+    source_config = Column(EncryptedText)  # enthaelt Zugangsdaten: verschluesselt (app/crypto.py)
     # Inhaltsverzeichnis (Markdown) dieses Knowledge: gehoert zum Eintrag, nicht zu einer Datei im Ordner
     index_md = Column(Text)
     index_updated_at = Column(DateTime)
     index_signature = Column(String(32))
+    # Sprache der Stichwortsuche (BM25), mit der der Index entstand; leer = Altbestand = Englisch
+    bm25_language = Column(String(20), nullable=True)
     last_reindex_error = Column(Text)
     # Fuer jeden angemeldeten Nutzer lesbar (ohne Freigabe).
     is_public = Column(Boolean, nullable=False, default=False)
@@ -152,7 +156,7 @@ class Connection(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(120), nullable=False)
     base_url = Column(String(500), nullable=False)
-    api_key = Column(Text)
+    api_key = Column(EncryptedText)  # verschluesselt (app/crypto.py)
     enabled = Column(Boolean, nullable=False, default=True)
     # 'llm' (OpenAI-kompatibel), 'tei' (Text Embeddings Inference) oder 'infinity' (Embedding/Rerank)
     kind = Column(String(20), nullable=False, default="llm", server_default="llm")
@@ -187,6 +191,8 @@ class ModelConfig(Base):
     allow_extra_knowledge = Column(Boolean, nullable=False, default=True, server_default=true())
     # Websuche (SearXNG) als Werkzeug; standardmaessig aus
     web_search = Column(Boolean, nullable=False, default=False)
+    # Das Modell versteht Bilder: Bild-Anhaenge gehen zusaetzlich zum gelesenen Text direkt an das Modell
+    vision = Column(Boolean, nullable=False, default=False, server_default=false())
     # Fuer jeden angemeldeten Nutzer nutzbar (ohne Freigabe).
     is_public = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

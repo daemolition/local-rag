@@ -20,6 +20,12 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
+/** CSRF-Token der Sitzung (Cookie ``csrf_token``); der Server prüft es bei jeder ändernden Anfrage. */
+export function csrfHeaders(): Record<string, string> {
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return match ? { "X-CSRF-Token": decodeURIComponent(match[1]) } : {};
+}
+
 async function request<T>(
   url: string,
   options: RequestInit = {},
@@ -31,6 +37,7 @@ async function request<T>(
       ...(options.body && !(options.body instanceof FormData)
         ? { "Content-Type": "application/json" }
         : {}),
+      ...csrfHeaders(),
       ...(options.headers || {}),
     },
   });

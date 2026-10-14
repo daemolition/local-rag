@@ -34,6 +34,19 @@ def db(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fixed_encryption_key(monkeypatch):
+    """Fester Schluessel: keine Schluesseldatei im Arbeitsverzeichnis, gleiches Ergebnis in jedem Test."""
+    from cryptography.fernet import Fernet
+
+    from app import crypto
+
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    crypto.reset()
+    yield
+    crypto.reset()
+
+
+@pytest.fixture(autouse=True)
 def silence_phase_logger():
     """Der PhaseLogger erzeugt Records ohne Zeilennummer; pytests Log-Format
     (%(lineno)d) scheitert daran. Fuer Tests abschalten."""

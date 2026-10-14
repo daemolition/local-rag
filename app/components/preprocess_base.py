@@ -133,9 +133,11 @@ class PreprocessBase:
     """
 
     def __init__(
-        self, model: VisionLLM = None, max_retries: int = 3, retry_delay: float = 2.0
+        self, model: VisionLLM = None, max_retries: int = 3, retry_delay: float = 2.0,
+        table_model=None,
     ):
         self.model = model or VisionLLM()
+        self._table_model = table_model  # Standard: TaskLLM("tables"), erst bei Bedarf angelegt
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
@@ -282,25 +284,89 @@ class PreprocessBase:
         Dokument-Export; in zwei Schritten (Marker, dann Text) ersetzt, damit identische
         Tabellen und Ersatztexte, die die Tabelle selbst enthalten, nichts durcheinanderbringen.
         """
+        from app.ingest.table_merge import is_continuation, merge_frames, table_geometry
         from app.ingest.tables import render_reference
 
+        refiner = self._table_refiner(file_path)
+        # 1. Tabellen einsammeln (ggf. vom Bildmodell korrigiert). "gap": zwischen zwei Tabellen steht anderer Inhalt.
+        parts: list[dict] = []
+        gap = True
+        try:
+            for item, _ in doc.iterate_items():
+                if not isinstance(item, TableItem):
+                    gap = True
+                    continue
+                try:
+                    table_markdown = item.export_to_markdown(doc=doc)
+                    frame = item.export_to_dataframe(doc=doc)
+                    if refiner is not None and frame.shape[0] >= 2 and frame.shape[1] >= 2:
+                        frame = refiner(item, doc, frame, table_markdown)
+                except Exception as e:
+                    logger.warning(f"{file_path}: Tabelle {len(parts) + 1} nicht extrahierbar: {e}")
+                    gap = True
+                    continue
+                parts.append({"markdown": table_markdown, "frame": frame, "geo": table_geometry(item, doc), "gap": gap})
+                gap = False
+        finally:
+            if refiner is not None:
+                refiner.close()
+
+        # 2. Ueber Seitengrenzen laufende Tabellen zu einer zusammenfassen.
+        groups: list[list[dict]] = []
+        for part in parts:
+            last = groups[-1][-1] if groups else None
+            if last is not None and not part["gap"] and is_continuation(last["frame"], last["geo"], part["frame"], part["geo"]):
+                groups[-1].append(part)
+            else:
+                groups.append([part])
+
         replacements: dict[str, str] = {}
-        number = 0
-        for item, _ in doc.iterate_items():
-            if not isinstance(item, TableItem):
-                continue
-            number += 1
+        for number, group in enumerate(groups, start=1):
+            merged = len(group) > 1
             try:
-                table_markdown = item.export_to_markdown(doc=doc)
-                info = table_sink(item.export_to_dataframe(doc=doc), number)
+                frame = merge_frames([p["frame"] for p in group]) if merged else group[0]["frame"]
+                table_markdown = frame.to_markdown(index=False) if merged else group[0]["markdown"]
+                info = table_sink(frame, number)
             except Exception as e:
                 logger.warning(f"{file_path}: Tabelle {number} nicht extrahierbar: {e}")
                 continue
-            if info is None or table_markdown not in markdown:
+            if info is None or any(p["markdown"] not in markdown for p in group):
                 continue
             marker = TABLE_MARKER.format(number)
-            markdown = markdown.replace(table_markdown, marker, 1)
-            replacements[marker] = render_reference(info, number, table_markdown)
+            markdown = markdown.replace(group[0]["markdown"], marker, 1)
+            for extra in group[1:]:  # weitere Seiten der Tabelle stehen nur noch in der CSV
+                markdown = markdown.replace(extra["markdown"], "", 1)
+            pages = (group[0]["geo"].page, group[-1]["geo"].page) if merged else None
+            replacements[marker] = render_reference(info, number, table_markdown, pages)
         for marker, text in replacements.items():
             markdown = markdown.replace(marker, text, 1)
         return markdown
+
+    def _table_refiner(self, file_path: str):
+        """Aufrufbares Objekt fuer den zweiten Durchgang per Vision-Modell oder ``None`` (nur PDF, nur wenn aktiv)."""
+        if not str(file_path).lower().endswith(".pdf") or not _vision_enabled():
+            return None
+        from app.ingest.table_vision import DEFAULT_MAX_ROW_DEVIATION, PageRenderer, refine_table
+        from app.ingest.tasks import load_task
+
+        try:
+            cfg = load_task("tables")
+        except Exception:
+            return None
+        if not cfg["enabled"]:
+            return None
+        if self._table_model is None:
+            self._table_model = VisionLLM("tables")
+        renderer = PageRenderer(file_path)
+        deviation = cfg.get("max_row_deviation") or DEFAULT_MAX_ROW_DEVIATION
+        model, prompt = self._table_model, cfg["prompt"]
+
+        class _Refiner:
+            def __call__(self, item, doc, frame, markdown):
+                fixed = refine_table(item, doc, frame, markdown, renderer, model, prompt, deviation)
+                return frame if fixed is None else fixed
+
+            def close(self):
+                renderer.close()
+
+        return _Refiner()

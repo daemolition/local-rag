@@ -241,6 +241,7 @@ def test_switching_the_knowledge_profile_changes_the_result_immediately(app):
     few = admin.post("/api/retrieval/profiles", json={"name": "Knapp", "config": {"final_k": 1, "mmr": {"enabled": False}}}).json
     many = admin.post("/api/retrieval/profiles", json={"name": "Breit", "config": {"final_k": 4, "mmr": {"enabled": False}}}).json
     kid = knowledge.get_knowledge(None)["id"]
+    access.add_grant("knowledge", kid, "user", 1, "write")  # Admins haben keinen Sonderzugriff
 
     def count():
         return len(admin.post("/api/retrieval/test", json={"question": "Dach"}).json["results"][0]["documents"])

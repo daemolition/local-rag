@@ -25,6 +25,7 @@ from app.auth import current_user, require_role
 from app.knowledge import list_knowledge
 from app.llm import registry
 from app.rag import model_settings, models_runtime, pipeline, profiles
+from app.rag import sparse as sparse_lang
 from app.rag.helper import make_helper
 from app.rag.profiles import ProfileError
 from app.users import role_at_least
@@ -185,7 +186,9 @@ def retrieval_test():
                 cfg,
                 client=run_client,
                 dense=dense,
-                sparse=sparse,
+                sparse=sparse_lang.resolve(
+                    sparse, sparse_lang.LEGACY_LANGUAGE if k.get("kind") == "external" else sparse_lang.knowledge_language(k)
+                ),
                 helper=helper,
                 trace=trace,
                 layout=layout,

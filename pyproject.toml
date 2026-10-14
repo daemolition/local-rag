@@ -69,6 +69,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "ldap3>=2.9.1",
     "pyjwt[crypto]>=2.15.1",
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]

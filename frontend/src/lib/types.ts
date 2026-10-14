@@ -188,6 +188,7 @@ export interface ModelConfig {
   is_public: boolean;
   system_prompt: string;
   web_search: boolean;
+  vision?: boolean;
   params: ModelParams;
   knowledge_ids: number[] | null;
   // Nutzer dürfen zusätzlich eigenes Knowledge wählen (Standard an); aus = nur Modell-Knowledge
@@ -210,6 +211,8 @@ export interface ModelEntry {
   knowledge_locked?: boolean;
   // Knowledge, das das Modell mitbringt (immer Teil der Suche)
   knowledge_base?: { id: number; name: string }[];
+  // Versteht Bilder: Bild-Anhänge gehen direkt an das Modell
+  vision?: boolean;
 }
 
 export interface ModelsResponse {
@@ -363,6 +366,7 @@ export interface TaskSettings {
   prompt: string;
   default_prompt: string;
   excerpt_chars?: number;
+  max_row_deviation?: number;
 }
 
 export interface IngestSettings {
@@ -370,14 +374,17 @@ export interface IngestSettings {
   chunk_overlap: number;
   keep_original: boolean;
   index_enabled: boolean;
+  // Sprache der Stichwortsuche (BM25)
+  bm25_language: string;
 }
 
 export interface EmbeddingOverview {
   embedding: ModelSpec & { status: ModelStatus };
   reranker: ModelSpec & { status: ModelStatus };
   ingest: IngestSettings;
+  bm25_languages?: string[];
   device?: string;
-  tasks: Record<"vision" | "context", TaskSettings>;
+  tasks: Record<"vision" | "context" | "tables" | "images", TaskSettings>;
   stale: { id: number; name: string; error: string | null }[];
   suggestions: { embedding: string[]; reranker: string[] };
 }

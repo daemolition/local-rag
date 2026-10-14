@@ -23,6 +23,7 @@ filtert darauf (siehe ``app/retrieval.py``), sodass ein Anhang nur in seinem
 Chat auffindbar ist.
 """
 
+import base64
 import shutil
 import threading
 from logging import getLogger
@@ -32,7 +33,7 @@ from qdrant_client import models as qdrant_models
 from werkzeug.utils import secure_filename
 
 from app.database_service import get_db_service
-from app.utils.file_manager import DOCUMENT_EXTS
+from app.utils.file_manager import DOCUMENT_EXTS, IMAGE_EXTS
 from app.vector.collections import USER_UPLOADS_COLLECTION
 
 logger = getLogger(__name__)
@@ -44,7 +45,27 @@ _ingest_lock = threading.Lock()
 
 
 def is_supported(filename: str) -> bool:
-    return Path(filename).suffix.lower() in DOCUMENT_EXTS
+    return Path(filename).suffix.lower() in DOCUMENT_EXTS | IMAGE_EXTS
+
+
+def is_image(filename: str) -> bool:
+    return Path(filename).suffix.lower() in IMAGE_EXTS
+
+
+IMAGE_COPY = "bild.jpg"  # verkleinerte Fassung eines Bild-Anhangs (geht direkt an Modelle, die Bilder verstehen)
+
+
+def image_copy_path(session_id: str, attachment_id: str) -> Path:
+    return session_dir(session_id) / attachment_id / IMAGE_COPY
+
+
+def image_data_url(session_id: str, attachment_id: str) -> str | None:
+    """Das Bild als ``data:``-URL oder ``None``, wenn der Anhang kein (lesbares) Bild ist."""
+    path = image_copy_path(session_id, attachment_id)
+    try:
+        return "data:image/jpeg;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+    except OSError:
+        return None
 
 
 def session_dir(session_id: str) -> Path:
@@ -62,6 +83,14 @@ def start_attachment_ingestion(file_storage, session_id: str, sparse, user_id: i
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / filename
     file_storage.save(path)
+    if is_image(filename):
+        # Schon hier, damit die Frage nicht auf das Lesen des Bildes warten muss
+        try:
+            from app.ingest.image_text import encode_image
+
+            (folder / IMAGE_COPY).write_bytes(base64.b64decode(encode_image(path)))
+        except Exception as e:  # die Ingestion meldet das unlesbare Bild dem Nutzer
+            logger.warning(f"Bildkopie fuer {filename} nicht angelegt: {e}")
 
     threading.Thread(
         target=_ingest,
@@ -100,6 +129,7 @@ def _ingest(attachment_id, session_id, path, folder, sparse, user_id=None) -> No
             ) as ingest:
                 ok = ingest._process_file(path, sparse)
                 markdown_path = ingest.last_markdown_path
+                reason = next((e["error"] for e in ingest.errors), None)
         if ok:
             if markdown_path:
                 db.set_attachment_markdown(attachment_id, markdown_path)
@@ -107,7 +137,7 @@ def _ingest(attachment_id, session_id, path, folder, sparse, user_id=None) -> No
             db.set_attachment_status(attachment_id, "ready")
         else:
             db.set_attachment_status(
-                attachment_id, "error", "Datei enthält keinen lesbaren Inhalt"
+                attachment_id, "error", reason or "Datei enthält keinen lesbaren Inhalt"
             )
     except Exception as e:
         logger.exception(f"Anhang-Ingestion fehlgeschlagen: {attachment_id}")

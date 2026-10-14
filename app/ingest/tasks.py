@@ -25,12 +25,12 @@ from app.ingest import prompts
 from app.models import Setting
 from app.settings_service import SettingsService
 
-TASKS = ("vision", "context")
+TASKS = ("vision", "context", "tables", "images")
 MAX_PROMPT_CHARS = 8000
 
-_PROMPT_KEY = {"vision": "VISION_PROMPT", "context": "CONTEXT_PROMPT"}
-_SEED = {"VISION_PROMPT": prompts.VISION_PROMPT, "CONTEXT_PROMPT": prompts.CONTEXT_PROMPT}
-_ENABLED_KEY = {"vision": "INGEST_VISION_ENABLED", "context": "INGEST_CONTEXT_ENRICHMENT"}
+_PROMPT_KEY = {"vision": "VISION_PROMPT", "context": "CONTEXT_PROMPT", "tables": "TABLES_PROMPT", "images": "IMAGES_PROMPT"}
+_SEED = {"VISION_PROMPT": prompts.VISION_PROMPT, "CONTEXT_PROMPT": prompts.CONTEXT_PROMPT, "TABLES_PROMPT": prompts.TABLES_PROMPT, "IMAGES_PROMPT": prompts.IMAGES_PROMPT}
+ENABLED_KEY = {"vision": "INGEST_VISION_ENABLED", "context": "INGEST_CONTEXT_ENRICHMENT", "tables": "INGEST_TABLE_VISION", "images": "INGEST_CHAT_IMAGES"}
 
 
 def _float(raw: str | None) -> float | None:
@@ -60,12 +60,15 @@ def load_task(task: str) -> dict:
         prompt = (s.get(prompt_key) or "").strip() or _SEED[prompt_key]
         default_prompt = ((stored.default_value if stored else "") or "").strip() or _SEED[prompt_key]
         return {
-            "enabled": s.get_bool(_ENABLED_KEY[task], True),
+            "enabled": s.get_bool(ENABLED_KEY[task], True),
             "model_ref": s.get(f"{prefix}_MODEL_REF", "") or "",
             "temperature": _float(s.get(f"{prefix}_TEMPERATURE")),
             "max_tokens": _int(s.get(f"{prefix}_MAX_TOKENS")),
             "prompt": prompt,
             "default_prompt": default_prompt,
+            "max_row_deviation": s.get_int("TABLES_MAX_ROW_DEVIATION", prompts.TABLES_MAX_ROW_DEVIATION)
+            if task == "tables"
+            else None,
             "excerpt_chars": s.get_int("CONTEXT_EXCERPT_CHARS", prompts.CONTEXT_EXCERPT_CHARS)
             if task == "context"
             else None,

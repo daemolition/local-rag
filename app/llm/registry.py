@@ -73,6 +73,8 @@ class ResolvedModel:
     knowledge_ids: tuple[int, ...] | None
     # Websuche-Werkzeug zugeschaltet (greift nur, wenn SearXNG und PII-Filter eingerichtet sind)
     web_search: bool = False
+    # Bild-Anhaenge gehen direkt an das Modell (zusaetzlich zum gelesenen Text)
+    vision: bool = False
     # Nutzer duerfen zusaetzlich eigenes Knowledge waehlen; sonst durchsucht das Modell nur sein eigenes
     allow_extra_knowledge: bool = True
 
@@ -178,7 +180,7 @@ def _is_customized(cfg: dict | None) -> bool:
     return bool(
         cfg
         and (cfg["system_prompt"] or cfg["params"] or cfg["knowledge_ids"]
-             or cfg.get("web_search") or (cfg["name"] and not cfg["is_clone"]))
+             or cfg.get("web_search") or cfg.get("vision") or (cfg["name"] and not cfg["is_clone"]))
     )
 
 
@@ -335,6 +337,7 @@ def resolve_model(ref: str | None = None) -> ResolvedModel:
         system_prompt=cfg["system_prompt"] if cfg else "",
         knowledge_ids=tuple(cfg["knowledge_ids"]) if cfg and cfg["knowledge_ids"] else None,
         web_search=bool(cfg and cfg.get("web_search")),
+        vision=bool(cfg and cfg.get("vision")),
         allow_extra_knowledge=bool(cfg.get("allow_extra_knowledge", True)) if cfg else True,
     )
 

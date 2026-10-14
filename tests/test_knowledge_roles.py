@@ -162,5 +162,6 @@ def test_a_disabled_index_is_reported_and_remote_sources_have_none(app, db):
     got = c.get(f"/api/knowledge/{kid}/index").json
     assert got["enabled"] is False and got["markdown"] is None
     sql = knowledge.create_sql_knowledge("DB", "", {"dialect": "sqlite", "database": "x.db"})
+    access.add_grant("knowledge", sql["id"], "user", 1, "write")  # Admins sehen Knowledge nur mit Freigabe
     assert c.get(f"/api/knowledge/{sql['id']}/index").json["available"] is False
     assert c.post(f"/api/knowledge/{sql['id']}/index/refresh").status_code == 409

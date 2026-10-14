@@ -17,6 +17,8 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       # Zugang zum Tool-Worker (fuehrt Pandas-Code isoliert aus), z. B. openssl rand -hex 32
       - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (z. B. openssl rand -hex 32)}
+      # Schluessel fuer Zugangsdaten in der Datenbank (Fernet); leer = Schluesseldatei im Datenverzeichnis
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
     volumes:
       # Alle App-Daten (uploads, archiv, images, summaries, data) liegen im
       # einzelnen app-data-Volume als Subdirs von /app/data. Fruehere Bind-

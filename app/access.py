@@ -17,9 +17,10 @@
 """
 Zugriff auf Knowledge und Modelle (Freigaben).
 
-Eine Ressource ist fuer einen Nutzer zugreifbar, wenn er Admin ist, die
-Ressource oeffentlich ist (nur lesen/nutzen) oder ein Grant fuer ihn oder eine
-seiner Gruppen existiert. ``write`` schliesst ``read`` ein.
+Eine Ressource ist fuer einen Nutzer zugreifbar, wenn die Ressource oeffentlich ist
+(nur lesen/nutzen) oder ein Grant fuer ihn oder eine seiner Gruppen existiert.
+``write`` schliesst ``read`` ein. Admins sehen Knowledge nicht automatisch: auch fuer sie gilt
+nur, was oeffentlich oder ihnen freigegeben ist (Modelle nutzen und konfigurieren duerfen sie weiter alle).
 
 Ressourcentypen: ``knowledge`` (Schluessel: knowledge.id) und ``model``
 (Schluessel: model_configs.id; ein Basismodell ohne Konfiguration ist oeffentlich).
@@ -74,8 +75,6 @@ def can_access_knowledge(user: dict, knowledge_id: int, level: str = "read") -> 
         k = db.query(Knowledge).filter_by(id=knowledge_id).first()
         if k is None:
             return False
-        if _is_admin(user):
-            return True
         if level == "read" and k.is_public:
             return True
         return _granted(db, user, "knowledge", knowledge_id, level)
@@ -88,11 +87,7 @@ def accessible_knowledge_ids(user: dict, level: str = "read") -> set[int]:
     try:
         ids = set()
         for k in db.query(Knowledge):
-            if (
-                _is_admin(user)
-                or (level == "read" and k.is_public)
-                or _granted(db, user, "knowledge", k.id, level)
-            ):
+            if (level == "read" and k.is_public) or _granted(db, user, "knowledge", k.id, level):
                 ids.add(k.id)
         return ids
     finally:

@@ -113,6 +113,11 @@ class DatabaseService:
 
             ensure_default_profiles(db)
             db.commit()
+            # Zugangsdaten im Klartext (Altbestand) verschluesseln und den Schluessel pruefen
+            from app import crypto
+            from app.settings_service import SettingsService
+
+            crypto.encrypt_existing(self.engine, SettingsService.encrypted_keys())
         except Exception as e:
             db.rollback()
             raise e
@@ -121,6 +126,7 @@ class DatabaseService:
 
     def _init_settings(self, db: SQLAlchemySession):
         """Settings mit .env-Werten initialisieren"""
+        from app.settings_service import SettingsService
 
         from app.ingest import prompts as ingest_prompts
 
@@ -194,6 +200,11 @@ class DatabaseService:
                 "true",
                 "Bilder in Dokumenten per Vision-Modell beschreiben (aus: Bilder werden uebersprungen)",
             ),
+            "BM25_LANGUAGE": (
+                "ingest",
+                "german",
+                "Sprache der Stichwortsuche (BM25: Stemmer und Stoppwoerter); gilt fuer neue und neu indexierte Knowledge",
+            ),
             "INGEST_INDEX_ENABLED": (
                 "ingest",
                 "true",
@@ -211,6 +222,29 @@ class DatabaseService:
                 str(ingest_prompts.CONTEXT_EXCERPT_CHARS),
                 "Zeichen des Dokuments, die der Kontext-Anreicherung als Auszug dienen",
             ),
+            "INGEST_TABLE_VISION": (
+                "ingest",
+                "true",
+                "Tabellen aus PDFs zusaetzlich per Vision-Modell pruefen und korrigieren (wirkt nur mit Bildbeschreibung)",
+            ),
+            "TABLES_PROMPT": ("ingest", ingest_prompts.TABLES_PROMPT, "Anweisung fuer die Pruefung von Tabellen per Vision-Modell"),
+            "TABLES_MODEL_REF": ("ingest", "", "Modell der Tabellen-Pruefung (leer = Modell der Bildbeschreibung)"),
+            "TABLES_TEMPERATURE": ("ingest", "0", "Temperatur der Tabellen-Pruefung"),
+            "TABLES_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge der Tabellen-Pruefung (leer = Wert des Modells)"),
+            "TABLES_MAX_ROW_DEVIATION": (
+                "ingest",
+                str(ingest_prompts.TABLES_MAX_ROW_DEVIATION),
+                "Prozent, um die die Zeilenzahl der geprueften Tabelle vom Entwurf abweichen darf, bevor sie verworfen wird",
+            ),
+            "INGEST_CHAT_IMAGES": (
+                "ingest",
+                "true",
+                "Bilder im Chat annehmen: das Bildmodell liest sie, der Text wird wie ein Anhang durchsuchbar",
+            ),
+            "IMAGES_PROMPT": ("ingest", ingest_prompts.IMAGES_PROMPT, "Anweisung fuer das Lesen von Bildern im Chat"),
+            "IMAGES_MODEL_REF": ("ingest", "", "Modell fuer Bilder im Chat (leer = Modell der Bildbeschreibung)"),
+            "IMAGES_TEMPERATURE": ("ingest", "0", "Temperatur fuer Bilder im Chat"),
+            "IMAGES_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge fuer Bilder im Chat (leer = Wert des Modells)"),
             "VISION_TEMPERATURE": ("ingest", "", "Temperatur der Bildbeschreibung (leer = Wert des Modells)"),
             "VISION_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge der Bildbeschreibung (leer = Wert des Modells)"),
             "CONTEXT_MODEL_REF": ("ingest", "", "Modell der Kontext-Anreicherung (leer = Standardmodell)"),
@@ -274,8 +308,8 @@ class DatabaseService:
 
                 setting = Setting(
                     key=key,
-                    value=value,
-                    default_value=default,
+                    value=SettingsService._stored(key, value),
+                    default_value=SettingsService._stored(key, default),
                     category=category,
                     is_sensitive=is_sensitive,
                     description=description,

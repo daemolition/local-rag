@@ -80,6 +80,17 @@ def test_model_list_tells_users_the_base_knowledge_and_whether_the_choice_is_loc
     assert m["knowledge_locked"] is True
 
 
+def test_admins_also_get_the_base_knowledge_so_the_chat_cannot_deselect_it(app, db, conn, monkeypatch):
+    from app.llm import registry
+
+    monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m"])
+    base = knowledge.create_knowledge("Standard")
+    ref = setup_model(conn, [base["id"]])
+    m = next(x for x in client_for(app, {"id": 1}).get("/api/models?visible=1").json["models"] if x["ref"] == ref)
+    assert m["knowledge_base"] == [{"id": base["id"], "name": "Standard"}]
+    assert m["config"]["knowledge_ids"] == [base["id"]]  # Admins behalten die Konfiguration
+
+
 def test_the_switch_defaults_to_on_and_clones_inherit_it(db, conn):
     ref = setup_model(conn, [1], allow_extra_knowledge=False)
     cfg = next(c for c in store.list_model_configs() if c["ref"] == ref)

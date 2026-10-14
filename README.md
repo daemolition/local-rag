@@ -30,6 +30,7 @@ Details zu Änderungen: [`CHANGELOG.md`](./CHANGELOG.md). Architektur und Konven
 ```bash
 cp env.example .env
 echo "TOOL_WORKER_TOKEN=$(openssl rand -hex 32)" >> .env   # Pflicht: Zugang zu den Workern
+echo "ENCRYPTION_KEY=$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> .env   # empfohlen: Schlüssel für Zugangsdaten in der Datenbank
 docker compose up -d --build
 ```
 
@@ -64,6 +65,10 @@ python run_linux.py                             # http://localhost:5000
 **macOS (Apple Silicon):** Nur die App läuft nativ, alles andere bleibt in Docker, denn Docker auf dem Mac hat keinen Zugriff auf die GPU. `python run_mac.py` startet per `docker-compose.mac.yml` Postgres, Qdrant, SearXNG, entityguard, Parakeet (CPU) und die beiden Worker auf localhost, migriert die Datenbank und startet die App auf http://127.0.0.1:5000. Embedding, Reranking und Docling rechnen dann über Metal (MPS), ONNX-Modelle über CoreML; mit `RAG_DEVICE=cpu` lässt sich das abschalten. Voraussetzungen: Docker Desktop, `uv sync`, Frontend-Build und `brew install tesseract tesseract-lang poppler`. Mit `--no-docker` startet nur die App. Der Mac-Pfad ist bisher nicht auf echter Hardware getestet.
 
 Unter Windows genügt ein Doppelklick auf `start.bat` (bzw. `python run_windows.py`). Das lädt bei Bedarf `qdrant.exe` herunter und startet es lokal, ohne Administratorrechte. Mit `--no-qdrant` wird ein vorhandener Qdrant genutzt.
+
+**Sicherheit:** Zugangsdaten in der Datenbank (API-Keys, Quellen-Zugänge, sensible Einstellungen) sind mit Fernet verschlüsselt; der Schlüssel steht in `ENCRYPTION_KEY` (ohne ihn legt die App eine Schlüsseldatei im Datenverzeichnis an, siehe `env.example`), und er darf nicht verloren gehen. Änderungen über die Oberfläche sind gegen CSRF geschützt (Token im Header), der Sitzungs-Cookie ist `SameSite=Lax`; hinter HTTPS `SESSION_COOKIE_SECURE=true` setzen.
+
+**Bilder im Chat:** Fotos, Screenshots und Scans lassen sich anhängen oder einfügen. Das Bildmodell liest sie einmal zu Text (durchsuchbar, PII-gefiltert, Karte „Bilder im Chat“ unter *Einlesen & Modelle*); Modelle mit dem Schalter „Versteht Bilder“ sehen das Bild zusätzlich selbst. Der PII-Filter kann Bilder nicht schwärzen.
 
 **Ohne Docker** (Linux/Windows nativ) gibt es die Tool-Worker nicht: Pandas-Auswertungen und SQL-Knowledge melden dann „nicht verfügbar“, alles andere funktioniert. Wer sie braucht, startet die Worker per Docker (`docker compose up -d tool-worker tool-worker-sql`) und stellt die Adressen unter *Administration › Tools* ein.
 
@@ -107,6 +112,7 @@ Auswertungen von CSV/Excel (`run_pandas`) laufen nicht in der App, sondern im ei
 
 ## Modelle und Hardware
 
+- **Tabellen aus PDFs:** Nach der Layout-Erkennung liest das Bildmodell jede Tabelle noch einmal vom Bild und korrigiert falsch zugeordnete Zellen (Karte „Tabellen prüfen“ unter *Einlesen & Modelle*; ein Modellaufruf je Tabelle, abschaltbar).
 - **Gerät:** Die App wählt automatisch CUDA (NVIDIA), MPS (Apple Silicon) oder CPU; `RAG_DEVICE` erzwingt eines davon. Die Wahl steht auf der Seite *Einlesen & Modelle*.
 - **GPU (Docker):** Das Docker-Image bringt PyTorch mit CUDA mit; `docker-compose.yml` reserviert die GPU für die App (NVIDIA-Treiber und Container Toolkit nötig). Docling, Embedding und Reranker nutzen sie automatisch. Ohne GPU: `docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build` (siehe *Plattformen*). Die lokale Entwicklung (`uv sync`) installiert bewusst das CPU-Wheel; wer lokal die GPU will, installiert CUDA-torch in die venv (`uv pip install --reinstall-package torch --reinstall-package torchvision torch torchvision`).
 

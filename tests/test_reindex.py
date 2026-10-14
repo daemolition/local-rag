@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
-from app import knowledge, reindex
+from app import access, knowledge, reindex
 from app.admin_routes import admin_bp
 from app.api_routes import api_bp
 from app.database_service import get_db_service
@@ -175,6 +175,7 @@ def test_api_permissions_status_and_lock(app, db, qd, monkeypatch):
     viewer = add_user(db, "vera", "user")
     editor = add_user(db, "ed", "editor")
     kid = default_kb()["id"]
+    access.add_grant("knowledge", kid, "user", 1, "write")  # Admins haben keinen Sonderzugriff
     assert client_for(app, viewer).post(f"/api/knowledge/{kid}/reindex").status_code in (403, 404)
     assert client_for(app, editor).post(f"/api/knowledge/{kid}/reindex").status_code == 404  # kein Schreibrecht
     assert client_for(app, editor).post("/api/reindex-all").status_code == 403

@@ -59,6 +59,7 @@ export function ModelConfigDialog({
   const [visible, setVisible] = useState(true);
   const [prompt, setPrompt] = useState("");
   const [webSearch, setWebSearch] = useState(false);
+  const [vision, setVision] = useState(false);
   const [params, setParams] = useState<Record<string, string>>({});
   const [thinking, setThinking] = useState(DEFAULT_THINKING);
   const [knowledgeIds, setKnowledgeIds] = useState<number[]>([]);
@@ -91,6 +92,7 @@ export function ModelConfigDialog({
     setVisible(cfg?.visible ?? true);
     setPrompt(cfg?.system_prompt ?? "");
     setWebSearch(cfg?.web_search ?? false);
+    setVision(cfg?.vision ?? false);
     const p: Record<string, string> = {};
     for (const f of PARAM_FIELDS) {
       const v = cfg?.params?.[f.key];
@@ -112,6 +114,7 @@ export function ModelConfigDialog({
         visible,
         system_prompt: prompt,
         web_search: webSearch && webSearchAvailable,
+        vision,
         params: {
           ...params,
           thinking: thinking === DEFAULT_THINKING ? "" : thinking,
@@ -210,6 +213,19 @@ export function ModelConfigDialog({
                 disabled={!webSearchAvailable}
                 onCheckedChange={setWebSearch}
               />
+            </div>
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border-base px-3 py-2">
+              <div>
+                <Label htmlFor="mc-vision" className="cursor-pointer">
+                  Versteht Bilder
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Im Chat angehängte Bilder sieht das Modell selbst (zusätzlich zum gelesenen Text, der sie durchsuchbar macht).
+                  Achtung: Der PII-Filter kann Bilder nicht schwärzen, sie gehen unverändert an dieses Modell. Nur einschalten, wenn das
+                  Modell Bilder versteht und dafür vertrauenswürdig ist.
+                </p>
+              </div>
+              <Switch id="mc-vision" checked={vision} onCheckedChange={setVision} />
             </div>
           </section>
 

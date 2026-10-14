@@ -78,6 +78,17 @@ def stt_stream(ws):
     if current_user() is None:
         ws.close()
         return
+    from flask import request as flask_request
+
+    from app.csrf import same_origin
+
+    # WebSocket-Verbindungen unterliegen keiner CORS-Pruefung: nur Seiten derselben Adresse zulassen
+    if not same_origin(
+        flask_request.headers.get("Origin"),
+        flask_request.headers.get("X-Forwarded-Host") or flask_request.headers.get("Host"),
+    ):
+        ws.close()
+        return
 
     db = get_db_service()
     settings = SettingsService(db.get_session())

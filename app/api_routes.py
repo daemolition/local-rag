@@ -205,11 +205,13 @@ def _index_data_references_best_effort() -> None:
         dense, sparse, _ = resources
         from app.vector.ingestion import index_data_references
 
+        from app.rag import sparse as sparse_lang
+
         knowledge = _current_knowledge()
         paths = knowledge_paths(knowledge)
         index_data_references(
             dense,
-            sparse,
+            sparse_lang.resolve(sparse, sparse_lang.knowledge_language(knowledge)),
             knowledge["collection_name"],
             str(paths.data_dir),
             name_prefix=paths.name_prefix,
@@ -854,7 +856,7 @@ def _start_reindex(ids: list[int]):
 @auth_required_api
 def upload_chat_attachment():
     from app import resources_ready
-    from app.attachments import is_supported, start_attachment_ingestion
+    from app.attachments import is_image, is_supported, start_attachment_ingestion
 
     file = request.files.get("file")
     if not file or not file.filename:
@@ -864,9 +866,16 @@ def upload_chat_attachment():
             {
                 "success": False,
                 "error": "Dateityp im Chat nicht unterstützt "
-                "(PDF, DOCX, DOC, ODT, MD). CSV/Excel bitte über Knowledge hochladen.",
+                "(PDF, DOCX, DOC, ODT, MD, Bilder). CSV/Excel bitte über Knowledge hochladen.",
             }
         ), 415
+    if is_image(file.filename):
+        from app.ingest.image_text import enabled
+
+        if not enabled():
+            return jsonify(
+                {"success": False, "error": "Bilder im Chat sind abgeschaltet (Administration › Einlesen & Modelle)."}
+            ), 415
 
     sparse = current_app.extensions.get("sparse_embeddings")
     if not resources_ready() or not sparse:

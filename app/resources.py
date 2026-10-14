@@ -25,7 +25,7 @@ Event-Handling und Fehler-Logging.
 
 import logging
 
-from langchain_qdrant import FastEmbedSparse
+from app.rag.sparse import SparseRouter
 
 from app.llm.local_llm import VisionLLM
 from app.retrieval import MultiCollectionRetriever
@@ -62,9 +62,16 @@ def load_resources(
         data_dir: Verzeichnis fuer CSV-/Excel-Dateien.
         summaries_dir: Verzeichnis fuer Markdown-Analysen.
     """
-    # Sparse (BM25) bleibt fest; die Dense-Modelle kommen aus der Registry
+    # Sparse (BM25): Sprache je Knowledge (app/rag/sparse.py); die Dense-Modelle kommen aus der Registry
     # (app/rag/models_runtime.py) und werden je Knowledge gewaehlt.
-    sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
+    sparse_embeddings = SparseRouter()  # BM25 je Sprache (app/rag/sparse.py)
+    try:  # Modell jetzt laden (Download), nicht erst bei der ersten Frage
+        from app.rag.sparse import LEGACY_LANGUAGE, default_language
+
+        sparse_embeddings.for_language(default_language())
+        sparse_embeddings.for_language(LEGACY_LANGUAGE)
+    except Exception as e:
+        logger.warning(f"BM25-Modell konnte nicht vorgeladen werden: {e}")
 
     # Retriever ueber die Collections des jeweiligen Chat-Requests
     # (siehe app/retrieval.py); ohne Scope gilt der Standard-Bestand.

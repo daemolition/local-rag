@@ -35,6 +35,16 @@ interface Connection {
 }
 
 // Von fastembed unterstützte Modelle (Auswahl)
+const BM25_LABELS: Record<string, string> = {
+  german: "Deutsch",
+  english: "Englisch",
+  french: "Französisch",
+  spanish: "Spanisch",
+  italian: "Italienisch",
+  dutch: "Niederländisch",
+  portuguese: "Portugiesisch",
+};
+
 const FASTEMBED_MODELS: Record<"embedding" | "reranker", string[]> = {
   embedding: ["sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"],
   reranker: ["BAAI/bge-reranker-base", "jinaai/jina-reranker-v2-base-multilingual"],
@@ -220,6 +230,8 @@ function TaskCard({
   models,
   onChange,
   excerpt,
+  deviation,
+  defaultModelLabel = "Standardmodell",
 }: {
   title: string;
   switchLabel: string;
@@ -230,6 +242,8 @@ function TaskCard({
   models: ModelEntry[];
   onChange: (t: TaskSettings) => void;
   excerpt?: boolean;
+  deviation?: boolean;
+  defaultModelLabel?: string;
 }) {
   const num = (v: string): number | "" => (v === "" ? "" : Number(v));
   return (
@@ -254,7 +268,7 @@ function TaskCard({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__default__">Standardmodell</SelectItem>
+                <SelectItem value="__default__">{defaultModelLabel}</SelectItem>
                 {models.map((m) => (
                   <SelectItem key={m.ref} value={m.ref}>
                     {m.name} · {m.connection_name}
@@ -295,6 +309,18 @@ function TaskCard({
                 max={20000}
                 value={task.excerpt_chars ?? 2000}
                 onChange={(e) => onChange({ ...task, excerpt_chars: Number(e.target.value) })}
+              />
+            </div>
+          ) : null}
+          {deviation ? (
+            <div className="space-y-1">
+              <Label className="text-xs">Zeilenabweichung (%)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                value={task.max_row_deviation ?? 30}
+                onChange={(e) => onChange({ ...task, max_row_deviation: Number(e.target.value) })}
               />
             </div>
           ) : null}
@@ -472,6 +498,29 @@ export function AdminEmbeddingPage() {
         onChange={(t) => setTasks({ ...tasks, vision: t })}
       />
       <TaskCard
+        title="Tabellen prüfen"
+        switchLabel="Tabellen aus PDFs per Bildmodell prüfen"
+        switchHint="Das Bildmodell liest jede Tabelle noch einmal vom Bild und korrigiert Zellen, die die Layout-Erkennung falsch zugeordnet hat (ein Modellaufruf je Tabelle, nur neu eingelesene PDFs). Wirkt nur bei eingeschalteter Bildbeschreibung."
+        promptLabel="Anweisung für die Tabellenprüfung"
+        promptHint="Die Antwort muss eine Markdown-Tabelle sein. Weicht ihre Zeilenzahl zu stark vom Entwurf ab (Zeilenabweichung), bleibt die Tabelle der Layout-Erkennung."
+        task={tasks.tables}
+        models={chatModels}
+        onChange={(t) => setTasks({ ...tasks, tables: t })}
+        deviation
+        defaultModelLabel="Modell der Bildbeschreibung"
+      />
+      <TaskCard
+        title="Bilder im Chat"
+        switchLabel="Bilder im Chat annehmen"
+        switchHint="Das Bildmodell liest ein angehängtes Bild (Foto, Screenshot, Scan) und gibt den Text daraus wieder; dieser Text wird wie ein Anhang durchsuchbar. Das Bild selbst geht nicht an das Chat-Modell."
+        promptLabel="Anweisung für das Bildmodell"
+        promptHint="Das Modell braucht Bildverständnis. Gelesen wird einmal beim Hochladen; die Antwort wird in Abschnitte geteilt und durchsucht."
+        task={tasks.images}
+        models={chatModels}
+        onChange={(t) => setTasks({ ...tasks, images: t })}
+        defaultModelLabel="Modell der Bildbeschreibung"
+      />
+      <TaskCard
         title="Kontext-Anreicherung"
         switchLabel="Kontext je Chunk per LLM ergänzen"
         switchHint="Bessere Treffer, aber deutlich langsameres Einlesen (ein Modellaufruf je Abschnitt)."
@@ -503,6 +552,29 @@ export function AdminEmbeddingPage() {
                 onChange={(e) => setNum("chunk_overlap", e.target.value)}
               />
             </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Sprache der Stichwortsuche (BM25)</Label>
+            <Select
+              value={ingest.bm25_language}
+              onValueChange={(v) => setIngest({ ...ingest, bm25_language: v })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(data.bm25_languages ?? [ingest.bm25_language]).map((l) => (
+                  <SelectItem key={l} value={l}>
+                    {BM25_LABELS[l] ?? l}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Stemmer und Stoppwörter der Stichwortsuche: Wortformen („Kündigungsfristen“ – „Kündigungsfrist“) finden sich, „der“, „und“ zählen nicht. Gilt für neue und neu
+              indexierte Knowledge; bestehende bleiben in ihrer Sprache korrekt und melden „Index veraltet“, bis sie neu indexiert werden.
+              Zusammengesetzte Wörter trennt der Stemmer nicht.
+            </p>
           </div>
           {(
             [

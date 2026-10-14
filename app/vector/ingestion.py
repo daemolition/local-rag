@@ -49,7 +49,7 @@ from app.ingest.tables import column_hints_text, delete_tables, is_extracted_tab
 from app.llm.local_llm import TaskLLM
 from app.rag import model_settings, models_runtime
 from app.utils.phase_logger import phase_logger, Phase
-from app.utils.file_manager import read_uploader
+from app.utils.file_manager import IMAGE_EXTS, read_uploader
 from app.utils.qdrant_client import get_qdrant_client
 from app.database_service import get_db_service
 from app.settings_service import SettingsService
@@ -480,6 +480,13 @@ class DocumentIngestion:
 
         return f"Kontext: {context}\n\nInhalt: {chunk_text}"
 
+    def _sparse_for_index(self, sparse):
+        """BM25-Encoder in der Sprache dieses Index: die des Knowledge, bei Anhaengen die Standardsprache."""
+        from app.rag import sparse as sparse_lang
+
+        language = sparse_lang.knowledge_language(self.knowledge) if self.track_documents else sparse_lang.default_language()
+        return sparse_lang.resolve(sparse, language)
+
     def _load_markdown(self, file_path: str, extension: str, table_sink=None) -> str | None:
         """Liest die Datei als Markdown (Docling fuer PDF/Office, Text fuer .md)."""
         if extension == ".pdf":
@@ -488,6 +495,10 @@ class DocumentIngestion:
             docs = list(CustomDOCXLoader(file_path, model=self.model, table_sink=table_sink).lazy_load())
         elif extension == ".md":
             docs = TextLoader(file_path, autodetect_encoding=True).load()
+        elif extension in IMAGE_EXTS:
+            from app.ingest.image_text import image_to_markdown
+
+            return image_to_markdown(file_path, os.path.basename(file_path))
         else:
             logger.warning(f"Unbekannter Dateityp: {extension}")
             return None
@@ -507,7 +518,7 @@ class DocumentIngestion:
         Gleicher Weg wie beim Einlesen: splitten, ggf. anreichern, Dense + BM25, Upsert.
         Liefert die Anzahl Chunks (0 = kein Inhalt).
         """
-        sparse = sparse_model or self._shared_sparse or FastEmbedSparse(model_name="Qdrant/bm25")
+        sparse = self._sparse_for_index(sparse_model or self._shared_sparse or FastEmbedSparse(model_name="Qdrant/bm25"))
         points = build_points(
             markdown,
             filename=filename,
@@ -595,6 +606,8 @@ class DocumentIngestion:
         except Exception as e:
             logger.error(f"Fehler beim Laden von {filename}: {e}")
             delete_tables(self.paths, self.collection_name, file_group_id)
+            if extension in IMAGE_EXTS:  # die Meldung ist fuer den Nutzer gedacht (z. B. Bildmodell nicht erreichbar)
+                self.errors.append({"file": filename, "error": str(e)[:300]})
             return False
         if not markdown or not markdown.strip():
             logger.info(f"Kein Inhalt in {filename}")
@@ -624,7 +637,7 @@ class DocumentIngestion:
             source=file_path,
             file_group_id=file_group_id,
             dense=self.embeddings,
-            sparse=sparse_model,
+            sparse=self._sparse_for_index(sparse_model),
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
             extra_metadata={
@@ -733,7 +746,7 @@ class DocumentIngestion:
             if self.track_documents:
                 index_data_references(
                     embeddings=self.embeddings,
-                    sparse_model=sparse_model,
+                    sparse_model=self._sparse_for_index(sparse_model),
                     collection_name=self.collection_name,
                     data_dir=str(self.paths.data_dir),
                     name_prefix=self.paths.name_prefix,

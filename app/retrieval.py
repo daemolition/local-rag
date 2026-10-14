@@ -40,6 +40,7 @@ from langchain_core.retrievers import BaseRetriever
 from qdrant_client import models as qdrant_models
 
 from app.rag import model_settings, models_runtime, pipeline, profiles
+from app.rag import sparse as sparse_lang
 from app.vector import sources
 from app.vector.collections import USER_UPLOADS_COLLECTION
 
@@ -73,6 +74,8 @@ class RetrievalScope:
     # Embedding-Modell je Collection (JSON-Spec): womit die Vektoren entstanden sind. Fehlt eine
     # Collection, gilt das globale Modell.
     specs: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+    # BM25-Sprache je Collection (womit der Stichwort-Index entstand); fehlt eine: Altbestand = Englisch
+    sparse_langs: tuple[tuple[str, str], ...] = field(default=(), compare=False)
     # Treffer, die die Dokumentsuche in diesem Request geliefert hat (fuer die Quellenanzeige
     # mit Score im Chat). Wird von der Suche befuellt, vom Chat-Stream ausgelesen.
     sources: list = field(default_factory=list, compare=False)
@@ -131,7 +134,7 @@ class MultiCollectionRetriever(BaseRetriever):
     def _embedder(self, spec: models_runtime.ModelSpec):
         return self.dense_embeddings or models_runtime.get_embedder(spec)
 
-    def _run(self, question: str, collections: list[str], cfg: dict, scope, spec, flt=None):
+    def _run(self, question: str, collections: list[str], cfg: dict, scope, spec, flt=None, language=None):
         kwargs = {"rerank_fn": self.rerank_fn} if self.rerank_fn else {}
         return pipeline.run(
             question,
@@ -139,7 +142,7 @@ class MultiCollectionRetriever(BaseRetriever):
             cfg,
             client=self.client,
             dense=self._embedder(spec),
-            sparse=self.sparse_embeddings,
+            sparse=sparse_lang.resolve(self.sparse_embeddings, language or sparse_lang.default_language()),
             helper=scope.helper,
             query_filter=flt,
             **kwargs,
@@ -161,7 +164,7 @@ class MultiCollectionRetriever(BaseRetriever):
                 cfg,
                 client=client,
                 dense=self._embedder(spec),
-                sparse=self.sparse_embeddings,
+                sparse=sparse_lang.resolve(self.sparse_embeddings, sparse_lang.LEGACY_LANGUAGE),  # fremder Index: wie bisher
                 helper=scope.helper,
                 layout=layout,
                 query_filter=flt,
@@ -181,7 +184,8 @@ class MultiCollectionRetriever(BaseRetriever):
         # eine Pipeline-Ausfuehrung (Vektoren verschiedener Modelle sind nicht vergleichbar).
         global_spec = None if self.dense_embeddings else model_settings.embedding_spec()
         spec_of = dict(scope.specs)
-        groups: dict[tuple[str, str], tuple[dict, models_runtime.ModelSpec, list[str]]] = {}
+        lang_of = dict(scope.sparse_langs)
+        groups: dict[tuple[str, str, str], tuple[dict, models_runtime.ModelSpec, list[str]]] = {}
         external = dict(scope.externals)
         for collection in scope.collections:
             if collection in external:
@@ -189,7 +193,8 @@ class MultiCollectionRetriever(BaseRetriever):
             cfg = by_collection.get(collection, default_cfg)
             raw = spec_of.get(collection)
             spec = models_runtime.ModelSpec.from_dict(raw) if raw else global_spec
-            key = (json.dumps(cfg, sort_keys=True), spec.key if spec else "")
+            language = lang_of.get(collection, sparse_lang.LEGACY_LANGUAGE)
+            key = (json.dumps(cfg, sort_keys=True), spec.key if spec else "", language)
             groups.setdefault(key, (cfg, spec, []))[2].append(collection)
 
         result_lists: list[list[pipeline.Hit]] = []
@@ -218,9 +223,9 @@ class MultiCollectionRetriever(BaseRetriever):
             except Exception as e:
                 logger.warning(f"Anhang-Suche fehlgeschlagen: {e}")
 
-        for cfg, spec, collections in groups.values():
+        for (_cfg_key, _spec_key, language), (cfg, spec, collections) in groups.items():
             try:
-                hits = self._run(query, collections, cfg, scope, spec)
+                hits = self._run(query, collections, cfg, scope, spec, language=language)
             except Exception as e:
                 logger.warning(f"Suche in {collections} fehlgeschlagen: {e}")
                 continue

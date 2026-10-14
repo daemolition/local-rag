@@ -31,6 +31,9 @@ STRUCTURED_EXTS = {".csv", ".xlsx", ".xls"}
 # Dokumente: werden gechunkt und in die Vektordatenbank ingested.
 DOCUMENT_EXTS = {".pdf", ".docx", ".doc", ".odt", ".md"}
 
+# Bilder gibt es nur als Chat-Anhang: das Bildmodell liest sie, der Text wird durchsuchbar.
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+
 
 def get_data_dir() -> Path:
     """Liefert das konfigurierte DATA_DIR (Settings DB → env → Default)."""

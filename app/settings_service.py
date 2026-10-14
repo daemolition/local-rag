@@ -23,6 +23,7 @@ import os
 from typing import Optional, Dict, List, Any
 from sqlalchemy.orm import Session as SQLAlchemySession
 
+from app import crypto
 from app.models import Setting
 
 
@@ -97,12 +98,19 @@ class SettingsService:
             "INGEST_CONTEXT_ENRICHMENT",
             "INGEST_KEEP_ORIGINAL",
             "INGEST_INDEX_ENABLED",
+        "BM25_LANGUAGE",
+            "BM25_LANGUAGE",
             "INGEST_VISION_ENABLED",
+            "INGEST_TABLE_VISION",
+            "INGEST_CHAT_IMAGES",
         ],
         "ui": [
             "UI_THEME",
         ],
     }
+
+    # Verschluesselt in der Datenbank (app/crypto.py). Ohne den Passwort-Hash: er ist schon ein Hash.
+    ENCRYPTED_KEYS_EXCLUDED = {"APP_PASSWORD_HASH"}
 
     SENSITIVE_KEYS = {
         "API_KEY",
@@ -141,6 +149,17 @@ class SettingsService:
         "VISION_MODEL_REF",
         "VISION_PROMPT",
         "CONTEXT_PROMPT",
+        "INGEST_TABLE_VISION",
+        "TABLES_PROMPT",
+        "TABLES_MODEL_REF",
+        "TABLES_TEMPERATURE",
+        "TABLES_MAX_TOKENS",
+        "TABLES_MAX_ROW_DEVIATION",
+        "INGEST_CHAT_IMAGES",
+        "IMAGES_PROMPT",
+        "IMAGES_MODEL_REF",
+        "IMAGES_TEMPERATURE",
+        "IMAGES_MAX_TOKENS",
         "CONTEXT_EXCERPT_CHARS",
         "VISION_TEMPERATURE",
         "VISION_MAX_TOKENS",
@@ -229,6 +248,18 @@ class SettingsService:
     def __init__(self, db: SQLAlchemySession):
         self.db = db
 
+    @classmethod
+    def encrypted_keys(cls) -> set:
+        return cls.SENSITIVE_KEYS - cls.ENCRYPTED_KEYS_EXCLUDED
+
+    @classmethod
+    def _plain(cls, key: str, value):
+        return crypto.decrypt(value) if key in cls.encrypted_keys() else value
+
+    @classmethod
+    def _stored(cls, key: str, value):
+        return crypto.encrypt(value) if key in cls.encrypted_keys() else value
+
     def get(self, key: str, default: Any = None) -> Optional[str]:
         """
         Setting-Wert holen (Reihenfolge: DB → Env → Default)
@@ -237,7 +268,7 @@ class SettingsService:
         if key not in self.ENV_ONLY_KEYS:
             setting = self.db.query(Setting).filter_by(key=key).first()
             if setting and setting.value is not None:
-                return setting.value
+                return self._plain(key, setting.value)
 
         # 2. Fallback auf Environment
         env_value = os.getenv(key)
@@ -278,7 +309,7 @@ class SettingsService:
         """Setting in DB speichern"""
         setting = self.db.query(Setting).filter_by(key=key).first()
         if setting:
-            setting.value = value
+            setting.value = self._stored(key, value)
         else:
             # Neue Setting anlegen
             category = self._get_category(key)
@@ -288,8 +319,8 @@ class SettingsService:
 
             setting = Setting(
                 key=key,
-                value=value,
-                default_value=default_value,
+                value=self._stored(key, value),
+                default_value=self._stored(key, default_value),
                 category=category,
                 is_sensitive=is_sensitive,
                 description=description,
@@ -381,7 +412,7 @@ class SettingsService:
 
             value = os.getenv(key)
             if existing:
-                existing.value = value
+                existing.value = self._stored(key, value)
             else:
                 category = self._get_category(key)
                 is_sensitive = key in self.SENSITIVE_KEYS
@@ -389,8 +420,8 @@ class SettingsService:
 
                 setting = Setting(
                     key=key,
-                    value=value,
-                    default_value=value,
+                    value=self._stored(key, value),
+                    default_value=self._stored(key, value),
                     category=category,
                     is_sensitive=is_sensitive,
                     description=description,

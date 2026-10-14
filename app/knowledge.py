@@ -68,6 +68,7 @@ def _to_dict(k: Knowledge) -> dict:
         "kind": k.kind or "local",
         "source_config": k.source_config,
         "index_signature": k.index_signature,
+        "bm25_language": k.bm25_language,
         "last_reindex_error": k.last_reindex_error,
         "is_public": bool(k.is_public),
         "retrieval_profile_id": k.retrieval_profile_id,
@@ -117,6 +118,7 @@ def ensure_default_knowledge(db_session) -> None:
             existing.is_default = True
         return
     from app.rag import model_settings
+    from app.rag import sparse as sparse_lang
 
     spec = model_settings.embedding_spec()
     db_session.add(
@@ -129,6 +131,7 @@ def ensure_default_knowledge(db_session) -> None:
             embedding_model=spec.model,
             embedding_spec=json.dumps(spec.to_dict()),
             index_signature=model_settings.current_signature(spec),
+            bm25_language=sparse_lang.default_language(),
         )
     )
 
@@ -221,6 +224,7 @@ def create_knowledge(name: str, description: str = "", dimension: int | None = N
     db = get_db_service().get_session()
     try:
         from app.rag import model_settings
+        from app.rag import sparse as sparse_lang
 
         spec = model_settings.embedding_spec()
         k = Knowledge(
@@ -234,6 +238,7 @@ def create_knowledge(name: str, description: str = "", dimension: int | None = N
             embedding_spec=json.dumps(spec.to_dict()),
             embedding_dimension=dimension,
             index_signature=model_settings.current_signature(spec),
+            bm25_language=sparse_lang.default_language(),
         )
         db.add(k)
         db.flush()
@@ -306,6 +311,7 @@ def swap_collection(knowledge_id: int, collection_name: str, spec, dimension: in
     fehlt.
     """
     from app.rag import model_settings
+    from app.rag import sparse as sparse_lang
 
     db = get_db_service().get_session()
     try:
@@ -318,6 +324,7 @@ def swap_collection(knowledge_id: int, collection_name: str, spec, dimension: in
         k.embedding_model = spec.model
         k.embedding_dimension = dimension
         k.index_signature = model_settings.current_signature(spec)
+        k.bm25_language = sparse_lang.default_language()
         k.last_reindex_error = None
         db.commit()
         return old

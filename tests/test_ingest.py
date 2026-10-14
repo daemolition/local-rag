@@ -401,7 +401,7 @@ def test_markdown_respects_knowledge_access_and_role(app, db):
     assert stranger.get(f"/api/documents/{doc.id}/markdown").status_code == 404  # kein Zugriff
     assert plain.get(f"/api/documents/{doc.id}/markdown").status_code == 404  # kein Zugriff, auch als Benutzer
     assert client_for(app, owner).get(f"/api/documents/{doc.id}/markdown").status_code == 200
-    assert client_for(app, {"id": 1}).get(f"/api/documents/{doc.id}/markdown").status_code == 200
+    assert client_for(app, {"id": 1}).get(f"/api/documents/{doc.id}/markdown").status_code == 404  # auch Admins nicht
 
 
 def test_documents_without_markdown_say_so(app, db):
@@ -426,6 +426,7 @@ def test_paths_outside_the_markdown_folder_are_never_served(app, db, tmp_path):
 def test_deleting_a_document_removes_its_markdown_file(app, db, monkeypatch):
     kb = knowledge.get_knowledge(None)
     doc, path = stored_doc(db, kb)
+    access.add_grant("knowledge", kb["id"], "user", 1, "write")  # Admins haben keinen Sonderzugriff
     assert path.exists()
     res = client_for(app, {"id": 1}).delete(f"/api/documents/{doc.id}")
     assert res.status_code == 200 and not path.exists()
@@ -540,6 +541,7 @@ def test_deleting_the_document_removes_its_csvs_and_reference_chunks(app, db, qd
     other = Path("./data/andere.csv")
     other.write_text("a,b\n1,2\n")
     doc = db.get_all_documents()[0]
+    access.add_grant("knowledge", knowledge.get_knowledge(None)["id"], "user", 1, "write")  # Admins haben keinen Sonderzugriff
     assert len(list(Path("./data").glob("*--tabelle-*.csv"))) == 2
 
     assert client_for(app, {"id": 1}).delete(f"/api/documents/{doc.id}").status_code == 200

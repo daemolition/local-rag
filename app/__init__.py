@@ -327,6 +327,10 @@ def create_app(preload=False):
     # eingebettet (siehe serve_spa) - daher kein Jinja-Context mehr nötig.
 
     # Blueprints registrieren
+    from app.csrf import init_csrf
+
+    init_csrf(app)  # CSRF-Token fuer alle aendernden Anfragen, Session-Cookie SameSite=Lax
+
     from app.routes import bp
 
     app.register_blueprint(bp)

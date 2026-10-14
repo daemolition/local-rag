@@ -7,7 +7,7 @@ import { Composer, ATTACH_ACCEPT } from "@/components/chat/Composer";
 import { Message, type SourceInfo, type ToolCall, type ToolResult } from "@/components/chat/Message";
 import { useSessions } from "@/context/SessionsContext";
 import { useStt, type SttMode } from "@/hooks/useStt";
-import { api, ApiError, errorMessage } from "@/lib/api";
+import { api, ApiError, csrfHeaders, errorMessage } from "@/lib/api";
 import { consumeChatStream, type ChatStreamEvent } from "@/lib/sse";
 import type {
   ChatAttachment,
@@ -36,14 +36,16 @@ const KNOWLEDGE_KEY = "rag.selectedKnowledge";
 const MODEL_KEY = "rag.model";
 const POLL_MS = 1500;
 
+// Ohne gespeicherte Auswahl ist kein Knowledge gewählt; "all" steht für „alle“ (null).
 function loadSelectedKnowledge(): number[] | null {
   try {
     const raw = localStorage.getItem(KNOWLEDGE_KEY);
-    if (!raw) return null;
+    if (!raw) return [];
+    if (raw === "all") return null;
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map(Number) : null;
+    return Array.isArray(parsed) ? parsed.map(Number) : [];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -197,7 +199,7 @@ export function ChatPage() {
   const changeKnowledge = (ids: number[] | null) => {
     setSelectedKnowledge(ids);
     try {
-      if (ids === null) localStorage.removeItem(KNOWLEDGE_KEY);
+      if (ids === null) localStorage.setItem(KNOWLEDGE_KEY, "all");
       else localStorage.setItem(KNOWLEDGE_KEY, JSON.stringify(ids));
     } catch {
       // localStorage nicht verfügbar: Auswahl gilt nur für diese Sitzung.
@@ -318,7 +320,7 @@ export function ChatPage() {
         const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
         if (!allowed.includes(ext)) {
           toast.error(
-            `„${file.name}“: Dateityp nicht unterstützt (PDF, DOCX, DOC, ODT, MD). CSV/Excel bitte über Knowledge hochladen.`,
+            `„${file.name}“: Dateityp nicht unterstützt (PDF, DOCX, DOC, ODT, MD, Bilder). CSV/Excel bitte über Knowledge hochladen.`,
           );
           continue;
         }
@@ -441,7 +443,11 @@ export function ChatPage() {
 
       // Die Frage erscheint sofort; liegen noch Anhaenge in der Verarbeitung, wartet die
       // Antwort darauf (sonst wuerde das Modell ohne den Dateiinhalt antworten).
-      const isBusy = (a: ChatAttachment) => a.status === "uploading" || a.status === "processing";
+      // Bilder warten nicht auf das Lesen, wenn das Modell sie selbst sieht (nur auf den Upload).
+      const sees = Boolean(activeModel?.vision);
+      const isImage = (a: ChatAttachment) => /\.(png|jpe?g|webp|gif|bmp)$/i.test(a.filename);
+      const isBusy = (a: ChatAttachment) =>
+        a.status === "uploading" || (a.status === "processing" && !(sees && isImage(a)));
       const initial = attachments.filter((a) => a.status !== "error");
       setMessages((prev) => [
         ...prev,
@@ -476,6 +482,11 @@ export function ChatPage() {
             `„${failed.map((a) => a.filename).join("“, „")}“ konnte nicht gelesen werden – die Frage wird ohne diesen Anhang gestellt.`,
           );
         }
+        const imageIds = sees
+          ? attachmentsRef.current
+              .filter((a) => isImage(a) && a.status !== "error" && a.status !== "uploading")
+              .map((a) => a.id)
+          : [];
         setAttachments([]);
         setMessages((prev) => {
           const next = [...prev];
@@ -486,11 +497,12 @@ export function ChatPage() {
 
         const response = await fetch("/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...csrfHeaders() },
           body: JSON.stringify({
             message,
             session_id: sessionId ?? null,
             knowledge_ids: selectedKnowledge,
+            attachment_ids: imageIds,
             model: selectedModel || undefined,
           }),
           signal: controller.signal,
@@ -543,6 +555,7 @@ export function ChatPage() {
       sessionId,
       selectedKnowledge,
       selectedModel,
+      activeModel,
       adoptSession,
       reloadSessions,
       handleEvent,
@@ -591,6 +604,11 @@ export function ChatPage() {
 
   const composer = (
     <Composer
+      seesImages={Boolean(activeModel?.vision)}
+      history={messages
+        .filter((m) => m.role === "user" && m.content.trim())
+        .map((m) => m.content)
+        .filter((c, i, all) => i === 0 || c !== all[i - 1])}
       value={input}
       onChange={setInput}
       onSubmit={submit}

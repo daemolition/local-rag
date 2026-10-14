@@ -86,6 +86,8 @@ services:
     mem_limit: 4g
     environment:
       - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (run_mac.py macht das)}
+      # Schluessel fuer Zugangsdaten in der Datenbank (Fernet); leer = Schluesseldatei im Datenverzeichnis
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - TOOL_WORKER_ROLE=pandas
       - TOOL_WORKER_DATA_DIR=/data
     volumes:

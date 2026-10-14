@@ -34,6 +34,7 @@ from flask import (
 )
 
 from app import compaction, resources_ready, wait_for_resources
+from app.rag import sparse as sparse_lang
 from app.pii_session import PIISession, StreamDemasker, mask_conversation, set_session, short_reason
 from app.utils.pii_filter_client import PIIFilterUnavailable
 from app.agent.document_agent import CONVERSATION_ONLY_HINT, DocumentAgent, select_tools
@@ -301,6 +302,7 @@ def chat():
     session_id = data.get("session_id")
     # None = alle Knowledge-Bereiche; Liste = nur diese (leer = keiner).
     knowledge_ids = data.get("knowledge_ids")
+    attachment_ids = data.get("attachment_ids") if isinstance(data.get("attachment_ids"), list) else []
 
     if not user_message:
         return Response(
@@ -449,6 +451,8 @@ def chat():
         session_id=final_session_id,
         # Jedes Knowledge sucht mit seinem Retrieval-Profil (sonst Standardprofil).
         profiles=tuple((k["collection_name"], config_for_knowledge(k)) for k in all_knowledge),
+        # BM25-Sprache je Collection: jede Collection wird in der Sprache gefragt, mit der sie indexiert wurde
+        sparse_langs=tuple((k["collection_name"], sparse_lang.knowledge_language(k)) for k in all_knowledge),
         helper=make_helper(resolved, user),
         # pandas-Tools sehen nur die strukturierten Dateien dieser Knowledge-Bereiche
         data_dirs=tuple(
@@ -556,6 +560,24 @@ def chat():
     # Alle Platzhalter dieses Requests (Kontext, Werkzeug-Ergebnisse, Antwort) liegen in einer Sitzung
     pii_session = PIISession(pii_filter, pii_mapping)
     message_list[-1]["content"] += hints  # Hinweise (Anhaenge, Inhaltsverzeichnis) sind kein Nutzertext
+    # Versteht das Modell Bilder, sieht es die in dieser Frage angehaengten Bilder selbst (zusaetzlich
+    # zum gelesenen Text). Der PII-Filter kann Bilder nicht schwaerzen; die Modellwahl des Admins
+    # entscheidet, wer sie bekommt. Erst hier angehaengt, damit Maskierung und Compaction nur Text sehen.
+    if resolved.vision and attachment_ids:
+        from app.attachments import image_data_url
+
+        user_id = user["id"]
+        urls = []
+        for attachment_id in dict.fromkeys(str(i) for i in attachment_ids):
+            row = db.get_attachment(attachment_id)
+            if row and row.session_id == final_session_id and row.user_id == user_id:
+                url = image_data_url(final_session_id, attachment_id)
+                if url:
+                    urls.append(url)
+        if urls:
+            message_list[-1]["content"] = [{"type": "text", "text": message_list[-1]["content"]}] + [
+                {"type": "image_url", "image_url": {"url": url}} for url in urls
+            ]
     input_data = {"messages": message_list}
 
     def generate():

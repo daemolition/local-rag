@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, type FormEvent, type KeyboardEvent } from "react";
 import { ArrowUp, FileText, Loader2, Mic, Paperclip, Square, TriangleAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,7 +7,7 @@ import { ModelPicker } from "@/components/chat/ModelPicker";
 import { cn } from "@/lib/utils";
 import type { ChatAttachment, Knowledge, ModelEntry } from "@/lib/types";
 
-export const ATTACH_ACCEPT = ".pdf,.docx,.doc,.odt,.md";
+export const ATTACH_ACCEPT = ".pdf,.docx,.doc,.odt,.md,.png,.jpg,.jpeg,.webp,.gif,.bmp";
 
 interface ComposerProps {
   value: string;
@@ -32,14 +32,22 @@ interface ComposerProps {
   onToggleMic: () => void;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   placeholder?: string;
+  // Eigene Nachrichten dieser Unterhaltung, älteste zuerst (Pfeil hoch holt sie zurück).
+  history?: string[];
+  // Das gewählte Modell versteht Bilder: Bild-Anhänge gehen direkt an das Modell
+  seesImages?: boolean;
 }
+
+const IMAGE_NAME = /\.(png|jpe?g|webp|gif|bmp)$/i;
 
 function AttachmentChip({
   attachment,
   onRemove,
+  seesImages,
 }: {
   attachment: ChatAttachment;
   onRemove: () => void;
+  seesImages: boolean;
 }) {
   const busy =
     attachment.status === "uploading" || attachment.status === "processing";
@@ -51,7 +59,12 @@ function AttachmentChip({
           ? "border-destructive/50 text-destructive"
           : "border-border-base",
       )}
-      title={attachment.error ?? attachment.filename}
+      title={
+        attachment.error ??
+        (IMAGE_NAME.test(attachment.filename)
+          ? `${attachment.filename} – ${seesImages ? "das Modell sieht das Bild selbst, der gelesene Text macht es zusätzlich durchsuchbar" : "das Bild wird zu Text gelesen und durchsucht"}`
+          : attachment.filename)
+      }
     >
       {busy ? (
         <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
@@ -102,8 +115,37 @@ export function Composer({
   onToggleMic,
   textareaRef,
   placeholder = "Frag etwas zu deinem Wissen…",
+  history = [],
+  seesImages = false,
 }: ComposerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  // Position im Verlauf (null = es wird nicht geblättert) und der zuvor getippte Entwurf.
+  const histIndex = useRef<number | null>(null);
+  const histDraft = useRef("");
+
+  const recall = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.nativeEvent.isComposing) return;
+    const el = e.currentTarget;
+    const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
+    const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+    let next: number | null = null;
+    if (e.key === "ArrowUp" && history.length > 0 && (atStart || el.value === "")) {
+      const from = histIndex.current ?? history.length;
+      if (from === 0) return;
+      if (histIndex.current === null) histDraft.current = el.value;
+      next = from - 1;
+    } else if (e.key === "ArrowDown" && histIndex.current !== null && atEnd) {
+      next = histIndex.current + 1;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    const text = next >= history.length ? histDraft.current : history[next];
+    histIndex.current = next >= history.length ? null : next;
+    onChange(text);
+    // Cursor ans Ende, sonst bliebe er am Anfang und blockierte das nächste Blättern
+    requestAnimationFrame(() => el.setSelectionRange(text.length, text.length));
+  };
 
   // Wächst mit dem Inhalt, aber höchstens 8 Zeilen; danach scrollt das Feld.
   const autoGrow = useCallback(() => {
@@ -149,6 +191,7 @@ export function Composer({
               key={a.id}
               attachment={a}
               onRemove={() => onRemoveAttachment(a.id)}
+              seesImages={seesImages}
             />
           ))}
         </div>
@@ -163,11 +206,25 @@ export function Composer({
       <Textarea
         ref={textareaRef}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          histIndex.current = null;
+          onChange(e.target.value);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
+            histIndex.current = null;
             submit();
+            return;
+          }
+          recall(e);
+        }}
+        onPaste={(e) => {
+          // Eingefügte Bilder (Screenshot aus der Zwischenablage) werden wie Anhänge behandelt
+          const images = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+          if (images.length > 0) {
+            e.preventDefault();
+            onAttach(images);
           }
         }}
         placeholder={placeholder}
@@ -181,7 +238,7 @@ export function Composer({
           variant="ghost"
           size="icon"
           className="size-8 rounded-full text-muted-foreground"
-          title="Datei anhängen (PDF, DOCX, DOC, ODT, MD)"
+          title="Datei oder Bild anhängen (PDF, DOCX, DOC, ODT, MD, PNG, JPG, WebP)"
           onClick={() => fileRef.current?.click()}
         >
           <Paperclip className="size-5" />

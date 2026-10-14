@@ -137,6 +137,10 @@ def is_stale(knowledge: dict) -> bool:
     current = embedding_spec()
     if knowledge_spec(knowledge).key != current.key:
         return True
+    from app.rag import sparse as sparse_lang
+
+    if sparse_lang.knowledge_language(knowledge) != sparse_lang.default_language():
+        return True  # Stichwortsuche in anderer Sprache indexiert: Neu indexieren verbessert die Treffer
     sig = knowledge.get("index_signature")
     return bool(sig) and sig != current_signature(current)
 

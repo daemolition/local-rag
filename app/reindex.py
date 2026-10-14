@@ -152,7 +152,11 @@ def reindex_knowledge(k: dict, client, sparse, progress=lambda done, total: None
     """Baut ein Knowledge mit dem aktuellen globalen Modell und den aktuellen Einstellungen neu auf."""
     from app.vector.ingestion import DocumentIngestion, index_data_references
 
+    from app.rag import sparse as sparse_lang
+
     spec = model_settings.embedding_spec()
+    language = sparse_lang.default_language()  # der neue Index nutzt die aktuelle BM25-Sprache
+    k = {**k, "bm25_language": language}
     embedder = models_runtime.get_embedder(spec)  # scheitert frueh, bevor etwas angelegt wird
     dimension = embedder.dimension
     paths = kb_store.knowledge_paths(k)
@@ -188,7 +192,7 @@ def reindex_knowledge(k: dict, client, sparse, progress=lambda done, total: None
         # Verweis-Chunks der CSV/Excel-Dateien (inkl. aus Dokumenten extrahierter Tabellen)
         index_data_references(
             embeddings=embedder,
-            sparse_model=sparse,
+            sparse_model=sparse_lang.resolve(sparse, language),
             collection_name=new_collection,
             data_dir=str(paths.data_dir),
             name_prefix=paths.name_prefix,

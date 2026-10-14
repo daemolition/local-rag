@@ -62,3 +62,32 @@ CONTEXT_PROMPT = (
 )
 
 CONTEXT_EXCERPT_CHARS = 2000
+
+# Zweiter Durchgang fuer Tabellen aus PDFs (Bild der Tabelle + Docling-Entwurf)
+TABLES_PROMPT = (
+    "Du liest eine Tabelle aus einem Dokument. Das Bild zeigt die Tabelle, darunter steht ein automatisch "
+    "erzeugter Entwurf, der Fehler enthalten kann (verschobene Spalten, vertauschte oder fehlende Zellen).\n\n"
+    "Gib die Tabelle so aus, wie sie im Bild steht, als Markdown-Tabelle:\n"
+    "- Eine Kopfzeile, dann die Trennzeile, dann alle Datenzeilen. Keine Zeile weglassen, keine erfinden.\n"
+    "- Zellen wörtlich übernehmen, auch Zahlen, Einheiten, Währungszeichen und Schreibweisen (kein Umrechnen, kein Runden).\n"
+    "- Verbundene Zellen in jede Zeile oder Spalte wiederholen, die sie überspannen. Mehrzeilige Zellen in einer Zelle zusammenfassen.\n"
+    "- Leere Zellen bleiben leer. Hat die Tabelle mehrere Kopfzeilen, verbinde sie zu einer Kopfzeile (z. B. „Umsatz Q1“).\n"
+    "- Ein senkrechter Strich in einer Zelle wird als \\| geschrieben.\n\n"
+    "Gib ausschließlich die Markdown-Tabelle aus, ohne Einleitung und ohne Erklärung."
+)
+
+# Bilder, die im Chat angehaengt werden (Foto, Screenshot, Scan): Text daraus wird durchsuchbar
+IMAGES_PROMPT = (
+    "Du erschließt ein Bild, das ein Nutzer in einen Chat hochgeladen hat, damit sein Inhalt per Textsuche "
+    "gefunden und beantwortet werden kann.\n\n"
+    "Gib in dieser Reihenfolge aus:\n"
+    "1. Eine Zeile, was das Bild ist (z. B. Foto, Screenshot, Scan eines Briefs, Diagramm, Tabelle).\n"
+    "2. Alle lesbaren Texte wörtlich und vollständig, in Leserichtung (Zahlen, Einheiten und Schreibweisen unverändert). "
+    "Unleserliches als [unleserlich] markieren, nichts ergänzen.\n"
+    "3. Tabellen als Markdown-Tabelle, Diagramme und Abläufe als kurze Sätze (Wenn-Dann, Beteiligte, Werte).\n"
+    "4. Bei Fotos ohne Text: eine sachliche Beschreibung dessen, was zu sehen ist.\n\n"
+    "Erfinde nichts, was nicht im Bild steht. Antworte ausschließlich auf Deutsch und gib nur das Ergebnis aus, "
+    "ohne Einleitung."
+)
+
+TABLES_MAX_ROW_DEVIATION = 30  # Prozent Abweichung der Zeilenzahl vom Entwurf, ab der die Antwort verworfen wird

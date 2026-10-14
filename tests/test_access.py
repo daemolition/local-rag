@@ -58,7 +58,9 @@ def test_private_knowledge_needs_a_grant(db, admin):
     kb = knowledge.create_knowledge("Privat")
     alice = add_user(db, "alice", "editor")
     assert not access.can_access_knowledge(alice, kb["id"], "read")
-    assert access.can_access_knowledge(admin, kb["id"], "write")
+    # Auch Admins sehen fremdes, nicht freigegebenes Knowledge nicht
+    assert not access.can_access_knowledge(admin, kb["id"], "read")
+    assert kb["id"] not in access.accessible_knowledge_ids(admin)
 
     access.add_grant("knowledge", kb["id"], "user", alice["id"], "read")
     assert access.can_access_knowledge(alice, kb["id"], "read")
@@ -483,9 +485,12 @@ def test_manager_cannot_lock_themselves_out_by_saving_a_list_without_themselves(
     assert not access.can_access_knowledge(bob, kb["id"], "read")
 
 
-def test_admin_may_save_a_list_without_themselves(app, db):
+def test_admin_keeps_write_access_when_saving_a_list_without_themselves(app, db):
     kb = knowledge.create_knowledge("Admin-Sicht")
+    access.add_grant("knowledge", kb["id"], "user", 1, "write")  # Admins sehen Knowledge nur mit Freigabe
     ca = client_for(app, {"id": 1})
     res = ca.put(f"/api/knowledge/{kb['id']}/access", json={"is_public": False, "grants": []})
     assert res.status_code == 200
-    assert access.get_access("knowledge", kb["id"])["grants"] == []  # kein Zwangs-Grant
+    # Wer verwaltet, sperrt sich beim Speichern nicht aus (Admins haben keinen Sonderzugriff mehr)
+    assert [g["principal_id"] for g in access.get_access("knowledge", kb["id"])["grants"]] == [1]
+    assert access.can_access_knowledge({"id": 1, "role": "admin"}, kb["id"], "write")

@@ -177,20 +177,23 @@ def models_list():
         result["models"] = [m for m in result["models"] if can_use_model(user, m["ref"])]
         if result["default"] and not can_use_model(user, result["default"]):
             result["default"] = ""
-        # Prompts, Parameter und Knowledge-Zuordnung sind Admin-Sache; Nutzer
-        # brauchen nur Namen und Referenz fuers Dropdown. Das Flag
-        # ``knowledge_locked`` sagt dem Chat, ob die Knowledge-Auswahl greift.
-        from app.knowledge import list_knowledge
+    # Das Modell-Knowledge ist immer die Basis und im Chat nicht abwaehlbar: ``knowledge_base`` und
+    # ``knowledge_locked`` bekommen auch Admins, sonst sehen sie es als normale, abwaehlbare Auswahl.
+    from app.knowledge import list_knowledge
 
-        names = {k["id"]: k["name"] for k in list_knowledge()}
-        for m in result["models"]:
-            cfg = m.pop("config", None)
-            ids = (cfg or {}).get("knowledge_ids") or []
-            # Modell-Knowledge ist immer die Basis; gesperrt ist die Auswahl nur, wenn der Admin
-            # zusaetzliches Knowledge nicht erlaubt hat.
-            m["knowledge_locked"] = bool(ids) and not (cfg or {}).get("allow_extra_knowledge", True)
-            m["knowledge_base"] = [{"id": i, "name": names[i]} for i in ids if i in names]
+    names = {k["id"]: k["name"] for k in list_knowledge()}
+    for m in result["models"]:
+        cfg = m.get("config")
+        ids = (cfg or {}).get("knowledge_ids") or []
+        # Gesperrt ist die Auswahl nur, wenn der Admin zusaetzliches Knowledge nicht erlaubt hat.
+        m["knowledge_locked"] = bool(ids) and not (cfg or {}).get("allow_extra_knowledge", True)
+        m["knowledge_base"] = [{"id": i, "name": names[i]} for i in ids if i in names]
+        m["vision"] = bool((cfg or {}).get("vision"))
+        if not is_admin:
+            # Prompts, Parameter und Knowledge-Zuordnung sind Admin-Sache
+            m.pop("config", None)
             m["customized"] = False
+    if not is_admin:
         result["errors"] = []
     return jsonify(result)
 
@@ -268,6 +271,7 @@ INGEST_FIELDS = {
     "chunk_overlap": ("INGEST_CHUNK_OVERLAP", int, (0, 1000)),
     "keep_original": ("INGEST_KEEP_ORIGINAL", bool, None),
     "index_enabled": ("INGEST_INDEX_ENABLED", bool, None),
+    "bm25_language": ("BM25_LANGUAGE", str, None),
 }
 
 MODEL_SUGGESTIONS = {
@@ -278,6 +282,7 @@ MODEL_SUGGESTIONS = {
 
 def _ingest_values() -> dict:
     from app.database_service import get_db_service
+    from app.rag import sparse as sparse_lang
     from app.settings_service import SettingsService
 
     db = get_db_service().get_session()
@@ -288,6 +293,7 @@ def _ingest_values() -> dict:
             "chunk_overlap": s.get_int("INGEST_CHUNK_OVERLAP", 150),
             "keep_original": s.get_bool("INGEST_KEEP_ORIGINAL", True),
             "index_enabled": s.get_bool("INGEST_INDEX_ENABLED", True),
+            "bm25_language": sparse_lang.default_language(),
         }
     finally:
         db.close()
@@ -329,6 +335,7 @@ def _tasks_overview() -> dict:
             "prompt": cfg["prompt"],
             "default_prompt": cfg["default_prompt"],
             **({"excerpt_chars": cfg["excerpt_chars"]} if name == "context" else {}),
+            **({"max_row_deviation": cfg["max_row_deviation"]} if name == "tables" else {}),
         }
     return out
 
@@ -344,8 +351,9 @@ def _validate_tasks(data: dict) -> tuple[dict[str, str], str | None]:
             return {}, f"Unbekannte Aufgabe: {name}"
         prefix = name.upper()
         if "enabled" in cfg:
-            key = "INGEST_VISION_ENABLED" if name == "vision" else "INGEST_CONTEXT_ENRICHMENT"
-            values[key] = "true" if cfg["enabled"] else "false"
+            from app.ingest.tasks import ENABLED_KEY
+
+            values[ENABLED_KEY[name]] = "true" if cfg["enabled"] else "false"
         if "model_ref" in cfg:
             ref = (cfg["model_ref"] or "").strip()
             if ref:
@@ -385,6 +393,14 @@ def _validate_tasks(data: dict) -> tuple[dict[str, str], str | None]:
             if error:
                 return {}, error
             values[f"{prefix}_PROMPT"] = cfg["prompt"].strip()
+        if name == "tables" and "max_row_deviation" in cfg:
+            try:
+                dev = int(cfg["max_row_deviation"])
+            except (TypeError, ValueError):
+                return {}, "Zeilenabweichung muss eine ganze Zahl sein"
+            if not 0 <= dev <= 100:
+                return {}, "Zeilenabweichung: erlaubt sind 0 bis 100 Prozent"
+            values["TABLES_MAX_ROW_DEVIATION"] = str(dev)
         if name == "context" and "excerpt_chars" in cfg:
             try:
                 chars = int(cfg["excerpt_chars"])
@@ -399,6 +415,7 @@ def _validate_tasks(data: dict) -> tuple[dict[str, str], str | None]:
 def _embedding_overview() -> dict:
     from app.knowledge import list_knowledge
     from app.rag import model_settings, models_runtime
+    from app.rag import sparse as sparse_lang
 
     emb, rr = model_settings.embedding_spec(), model_settings.reranker_spec()
     stale = [k for k in list_knowledge() if model_settings.is_stale(k)]
@@ -406,6 +423,7 @@ def _embedding_overview() -> dict:
         "embedding": {**emb.to_dict(), "status": models_runtime.status("embedding", emb)},
         "reranker": {**rr.to_dict(), "status": models_runtime.status("reranker", rr)},
         "ingest": _ingest_values(),
+        "bm25_languages": sparse_lang.supported_languages(),
         "device": torch_device(),
         "tasks": _tasks_overview(),
         "stale": [{"id": k["id"], "name": k["name"], "error": k.get("last_reindex_error")} for k in stale],
@@ -450,6 +468,12 @@ def embedding_save():
         key, kind, bounds = INGEST_FIELDS[field]
         if kind is bool:
             values[key] = "true" if bool(raw) else "false"
+        elif kind is str:
+            from app.rag import sparse as sparse_lang
+
+            if str(raw) not in sparse_lang.supported_languages():
+                return _error(f"{field}: unbekannte Sprache", 400)
+            values[key] = str(raw)
         else:
             try:
                 number = int(raw)
