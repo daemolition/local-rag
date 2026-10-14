@@ -20,7 +20,7 @@ from logging import getLogger
 from langchain_core.tools.structured import StructuredTool
 from pydantic import BaseModel, Field
 
-from app.pii_session import get_session
+from app.pii_session import get_session, unavailable_message
 from app.retrieval import get_scope_or_none
 from app.sqlsource import format as fmt
 from app.sqlsource import valueindex
@@ -59,6 +59,8 @@ Sucht zu einem Begriff aus der Frage die passenden Werte in den Textspalten der 
 Ein- und Mehrzahl, Umlaute (Stühle/Stuhl, Straße/Strasse), zusammengesetzte Wörter (Bürostuhl) und kleine
 Tippfehler. Setze die gefundenen Werte danach mit `IN (...)` in `sql_query` ein, statt Schreibweisen zu raten.
 `table` und `column` schränken die Suche ein. `source` ist nur nötig, wenn mehrere Datenbanken verbunden sind.
+Nicht für Jahre, Zahlen oder Zeiträume: die filterst du in `sql_query` über die Datums- oder Zahlenspalte
+(z. B. `>= '2026-01-01' AND < '2027-01-01'`). Gibt es keinen passenden Wert, nimm keinen anderen.
 """
 
 
@@ -100,8 +102,18 @@ def _mask(text: str) -> str:
         return text
     try:
         return session.mask_tool_text(text)
-    except PIIFilterUnavailable:
-        return "FEHLER: Der PII-Filter ist nicht erreichbar, die Ergebnisse wurden nicht an das Modell übergeben."
+    except PIIFilterUnavailable as e:
+        return _filter_down(e)
+
+
+def _mask_values(values: list) -> list:
+    """Nur die Datenwerte maskieren (siehe ``PIISession.mask_values``); Fehler -> ``PIIFilterUnavailable``."""
+    session = get_session()
+    return session.mask_values(values) if session else list(values)
+
+
+def _filter_down(error) -> str:
+    return f"FEHLER: {unavailable_message(error)}. Die Ergebnisse wurden nicht an das Modell übergeben."
 
 
 def _call(action: str, cfg, extra: dict):
@@ -130,7 +142,7 @@ class SqlTools:
                 return f"FEHLER: {e}"
             if not out.get("ok"):
                 return f"FEHLER: {out.get('error') or 'Schema nicht lesbar'}"
-            return fmt.schema_text(name, out.get("tables") or [])
+            return fmt.schema_text(name, out.get("tables") or [], parse_config(raw).dialect)
 
         def sql_query(query: str, source: str = "") -> str:
             phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: sql_query | {query[:60]}")
@@ -141,7 +153,14 @@ class SqlTools:
                 return f"FEHLER: {e}"
             if not out.get("ok"):
                 return _mask(f"FEHLER: {out.get('error') or 'Abfrage fehlgeschlagen'}")
-            return _mask(fmt.result_text(name, out["columns"], out["rows"], bool(out.get("truncated")), limits.row_limit))
+            try:
+                rows = out["rows"]
+                flat = _mask_values([v for row in rows for v in row])
+                width = len(out["columns"]) or 1
+                rows = [flat[i : i + width] for i in range(0, len(flat), width)] if rows else rows
+            except PIIFilterUnavailable as e:
+                return _filter_down(e)
+            return fmt.result_text(name, out["columns"], rows, bool(out.get("truncated")), limits.row_limit)
 
         def sql_find_values(term: str, source: str = "", table: str = "", column: str = "") -> str:
             phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: sql_find_values | {term[:40]}")
@@ -156,17 +175,22 @@ class SqlTools:
                 )
             hits = valueindex.search(kid, _unmask(term), table=_unmask(table) or None, column=_unmask(column) or None)
             if not hits:
-                return _mask(
+                # Der Begriff steht so da, wie das Modell ihn geschickt hat (schon maskiert); nichts neu durch den Filter
+                return (
                     f"Quelle „{name}“: Zu „{term}“ gibt es keinen passenden Wert im Wertverzeichnis. "
                     "Der Begriff kommt in den erfassten Spalten nicht vor."
                 )
+            try:  # nur die Werte aus der Datenbank maskieren, nicht Tabellen, Spalten und Hinweise
+                values = _mask_values([e["value"] for e, _score in hits])
+            except PIIFilterUnavailable as e:
+                return _filter_down(e)
             grouped: dict[tuple[str, str], list[str]] = {}
-            for e, _score in hits:
-                grouped.setdefault((e["table"], e["column"]), []).append(f"{e['value']} ({e['count']})")
+            for (e, _score), value in zip(hits, values):
+                grouped.setdefault((e["table"], e["column"]), []).append(f"{value} ({e['count']})")
             lines = [f"Quelle „{name}“: Werte zu „{term}“ (in Klammern die Häufigkeit):"]
             lines += [f"- {t}.{c}: {', '.join(vals)}" for (t, c), vals in grouped.items()]
             lines.append("Setze die passenden Werte mit IN (...) in sql_query ein.")
-            return _mask("\n".join(lines))
+            return "\n".join(lines)
 
         return [
             StructuredTool.from_function(func=sql_find_values, name="sql_find_values", description=FIND_VALUES_DESCRIPTION, args_schema=FindValuesInput),

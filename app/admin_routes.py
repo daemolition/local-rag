@@ -566,6 +566,12 @@ class _FormSettings:
         value = self.values.get(key)
         return default if value is None else value
 
+    def get_float(self, key, default=0.0):
+        try:
+            return float(self.values.get(key))
+        except (TypeError, ValueError):
+            return default
+
 
 def _tools_overview() -> dict:
     from app.database_service import get_db_service
@@ -591,6 +597,8 @@ def _tools_overview() -> dict:
                 "url": s.get("PII_FILTER_URL", "") or "",
                 "enabled": s.get_bool("PII_FILTER_ENABLED", True),
                 "has_key": bool(s.get("PII_FILTER_API_KEY")),
+                "timeout_s": s.get_float("PII_FILTER_TIMEOUT_S", 10.0),
+                "max_chars": s.get_int("PII_FILTER_MAX_CHARS", 12000),
             },
             # Die Websuche ist je Modell zuschaltbar, sobald SearXNG und der PII-Filter laufen
             "web_search_available": web_search_available(),
@@ -662,6 +670,22 @@ def tools_save():
                     raise ValueError(f"PII-Filter: {e}") from None
             values["PII_FILTER_URL"] = url
             values["PII_FILTER_ENABLED"] = "true" if pii.get("enabled", True) else "false"
+            if "timeout_s" in pii:
+                try:
+                    timeout_s = float(pii["timeout_s"])
+                except (TypeError, ValueError):
+                    raise ValueError("PII-Filter: Zeitlimit muss eine Zahl sein") from None
+                if not 2 <= timeout_s <= 120:
+                    raise ValueError("PII-Filter: Zeitlimit zwischen 2 und 120 Sekunden")
+                values["PII_FILTER_TIMEOUT_S"] = f"{timeout_s:g}"
+            if "max_chars" in pii:
+                try:
+                    chars = int(pii["max_chars"])
+                except (TypeError, ValueError):
+                    raise ValueError("PII-Filter: Höchstlänge muss eine ganze Zahl sein") from None
+                if not 2000 <= chars <= 100000:
+                    raise ValueError("PII-Filter: Höchstlänge zwischen 2000 und 100000 Zeichen")
+                values["PII_FILTER_MAX_CHARS"] = str(chars)
             if pii.get("clear_key"):
                 values["PII_FILTER_API_KEY"] = ""
             elif (pii.get("api_key") or "").strip():
@@ -716,7 +740,9 @@ def tools_test():
             key = (values_in.get("api_key") or "").strip()
             if not key and url == (saved.get("PII_FILTER_URL", "") or ""):
                 key = saved.get("PII_FILTER_API_KEY") or ""
-            form = _FormSettings({"PII_FILTER_URL": url, "PII_FILTER_API_KEY": key})
+            form = _FormSettings(
+                {"PII_FILTER_URL": url, "PII_FILTER_API_KEY": key, "PII_FILTER_TIMEOUT_S": values_in.get("timeout_s")}
+            )
             test = _test_pii_filter
     finally:
         db.close()

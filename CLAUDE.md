@@ -15,7 +15,7 @@ TEST_DATABASE_URL=postgresql+psycopg://... # run the suite against Postgres inst
 
 uvx ruff check --select F app tests tool_worker alembic    # no [tool.ruff] config; CI only prints statistics
 cd frontend && npx tsc -b --noEmit && npm run build         # builds into app/static (not committed)
-alembic upgrade head                                        # latest revision: see alembic/versions (0034 at time of writing)
+alembic upgrade head                                        # latest revision: see alembic/versions (0035 at time of writing)
 
 docker compose up -d --build        # needs TOOL_WORKER_TOKEN in .env; -f docker-compose.cpu.yml for no-GPU/ARM
 python run_mac.py                   # macOS: app native, helpers + workers in Docker

@@ -16,7 +16,7 @@ import { api, errorMessage } from "@/lib/api";
 interface ToolsOverview {
   stt: { base_url: string; model: string; mode: string; has_key: boolean };
   search: { url: string; categories: string; allow_unmasked: boolean };
-  pii: { url: string; enabled: boolean; has_key: boolean };
+  pii: { url: string; enabled: boolean; has_key: boolean; timeout_s?: number; max_chars?: number };
   web_search_available: boolean;
   web_search_masked: boolean;
 }
@@ -85,7 +85,7 @@ export function AdminToolsPage() {
   const [data, setData] = useState<ToolsOverview | null>(null);
   const [stt, setStt] = useState({ base_url: "", model: "", mode: "auto", api_key: "" });
   const [search, setSearch] = useState({ url: "", categories: "general", allow_unmasked: false });
-  const [pii, setPii] = useState({ url: "", enabled: true, api_key: "" });
+  const [pii, setPii] = useState({ url: "", enabled: true, api_key: "", timeout_s: 10, max_chars: 12000 });
   const [testing, setTesting] = useState<Kind | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -93,7 +93,7 @@ export function AdminToolsPage() {
     setData(d);
     setStt({ base_url: d.stt.base_url, model: d.stt.model, mode: d.stt.mode || "auto", api_key: "" });
     setSearch({ url: d.search.url, categories: d.search.categories, allow_unmasked: d.search.allow_unmasked });
-    setPii({ url: d.pii.url, enabled: d.pii.enabled, api_key: "" });
+    setPii({ url: d.pii.url, enabled: d.pii.enabled, api_key: "", timeout_s: d.pii.timeout_s ?? 10, max_chars: d.pii.max_chars ?? 12000 });
   };
 
   const load = useCallback(async () => {
@@ -244,6 +244,33 @@ export function AdminToolsPage() {
               checked={pii.enabled}
               onCheckedChange={(v) => setPii({ ...pii, enabled: v })}
             />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Zeitlimit (Sekunden)</Label>
+            <Input
+              type="number"
+              min={2}
+              max={120}
+              value={pii.timeout_s}
+              onChange={(e) => setPii({ ...pii, timeout_s: Number(e.target.value) })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Grundwert je Aufruf, wächst mit der Textlänge; ein zweiter Versuch bekommt das doppelte Limit.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Höchstlänge je Aufruf (Zeichen)</Label>
+            <Input
+              type="number"
+              min={2000}
+              max={100000}
+              value={pii.max_chars}
+              onChange={(e) => setPii({ ...pii, max_chars: Number(e.target.value) })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Längere Texte (langer Verlauf, große Ergebnisse) gehen in Stücken an den Filter. Sehr große Texte können
+              manche Filter überlasten.
+            </p>
           </div>
           <details className="rounded-lg border border-border-base px-3 py-2 text-xs text-muted-foreground sm:col-span-2">
             <summary className="cursor-pointer text-sm font-medium text-foreground">

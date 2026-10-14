@@ -227,6 +227,24 @@ def test_with_a_filter_terms_are_unmasked_and_results_masked(built):
     assert session.unmask(text).count("Stuhl") >= 1
 
 
+def test_find_values_masks_only_the_values_and_keeps_the_instructions_intact(built):
+    from tests.test_pii_tools import FakeFilter as Base
+
+    class Greedy(Base):
+        NAMES = ("Stuhl", "Verzeichnis", "IN", "Wertverzeichnis")
+
+    f = Greedy()
+    session = PIISession(f)
+    set_session(session)
+    text = find(term="Stuhl")
+    assert "Setze die passenden Werte mit IN (...) in sql_query ein." in text  # Anweisung unzerstoert
+    assert "items.name:" in text and "Stuhl (5)" not in text  # nur der Wert ist maskiert
+    assert session.unmask(text).count("Stuhl (5)") == 1
+    assert all("Setze" not in c and "Quelle" not in c for c in f.calls)  # der Filter sah nur Werte
+    miss = find(term="[NAME_9]")  # kein Treffer: Hinweis bleibt, der Begriff steht wie gesendet da
+    assert "keinen passenden Wert im Wertverzeichnis" in miss and "[NAME_9]" in miss
+
+
 def test_the_chat_hint_mentions_the_value_search_only_when_a_directory_exists(app, db, shop, built, monkeypatch):
     from app import access
     from app.toolworker import config as wc

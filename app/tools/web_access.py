@@ -44,6 +44,8 @@ def _settings() -> dict:
             "pii_url": (s.get("PII_FILTER_URL") or "").strip(),
             "pii_key": s.get("PII_FILTER_API_KEY") or "",
             "pii_enabled": s.get_bool("PII_FILTER_ENABLED", True),
+            "pii_timeout": max(2.0, min(120.0, s.get_float("PII_FILTER_TIMEOUT_S", 10.0))),
+            "pii_max_chars": max(2000, s.get_int("PII_FILTER_MAX_CHARS", 12000)),
             "allow_unmasked": s.get_bool("SEARCH_ALLOW_UNMASKED", False),
         }
     finally:
@@ -55,11 +57,16 @@ def pii_client():
     cfg = _settings()
     if not (cfg["pii_url"] and cfg["pii_enabled"]):
         return None
-    key = (cfg["pii_url"], cfg["pii_key"])
+    key = (cfg["pii_url"], cfg["pii_key"], cfg["pii_timeout"], cfg["pii_max_chars"])
     if key not in _clients:
         from app.utils.pii_filter_client import PIIFilterClient
 
-        _clients[key] = PIIFilterClient(full_url=cfg["pii_url"], api_key=cfg["pii_key"] or None)
+        _clients[key] = PIIFilterClient(
+            full_url=cfg["pii_url"],
+            api_key=cfg["pii_key"] or None,
+            timeout=cfg["pii_timeout"],
+            max_chars=cfg["pii_max_chars"],
+        )
     return _clients[key]
 
 

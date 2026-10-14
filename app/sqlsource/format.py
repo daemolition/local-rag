@@ -35,8 +35,13 @@ def result_text(source: str, columns: list, rows: list, truncated: bool, row_lim
     return "\n".join(lines)
 
 
-def schema_text(source: str, tables: list) -> str:
+DIALECTS = {"postgresql": "PostgreSQL", "mysql": "MySQL/MariaDB", "mssql": "SQL Server", "sqlite": "SQLite"}
+
+
+def schema_text(source: str, tables: list, dialect: str = "") -> str:
     lines = [f"Quelle „{source}“: {len(tables)} Tabellen"]
+    if dialect in DIALECTS:  # sonst nimmt das Modell Funktionen eines anderen Dialekts (z. B. strftime auf PostgreSQL)
+        lines.append(f"SQL-Dialekt: {DIALECTS[dialect]} (Datums- und Textfunktionen dieses Dialekts verwenden)")
     for t in tables:
         lines += ["", f"### {t['name']}" + (" (View)" if t.get("kind") == "view" else "")]
         if t.get("comment"):

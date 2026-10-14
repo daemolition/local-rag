@@ -45,9 +45,9 @@ CHARS_PER_EXTRA_SECOND = 2000
 MAX_TIMEOUT_S = 60.0
 
 
-def timeout_for(chars: int) -> float:
-    """Zeitlimit waechst mit der Textlaenge: 5 s + 1 s je 2000 Zeichen, hoechstens 60 s."""
-    return min(MAX_TIMEOUT_S, BASE_TIMEOUT_S + chars / CHARS_PER_EXTRA_SECOND)
+def timeout_for(chars: int, base: float = BASE_TIMEOUT_S) -> float:
+    """Zeitlimit waechst mit der Textlaenge: ``base`` + 1 s je 2000 Zeichen, hoechstens 60 s (nie unter ``base``)."""
+    return max(base, min(MAX_TIMEOUT_S, base + chars / CHARS_PER_EXTRA_SECOND))
 
 
 def join_texts(texts: list[str]) -> str:
@@ -70,7 +70,88 @@ def split_texts(joined: str, count: int) -> list[str]:
     return texts
 
 
+_YEAR = re.compile(r"(19|20)\d{2}")
+
+
+def keep_years(texts: list[str], mapping) -> tuple[list[str], object]:
+    """Macht Platzhalter fuer reine Jahreszahlen ("2026") wieder rueckgaengig.
+
+    Die Entitaetenerkennung hielt Jahre mehrfach fuer Organisationen oder Orte; die Frage hiess dann
+    "in [ORGANISATION_1]", und das Modell suchte statt eines Zeitraums nach einem Namen. Eine Jahreszahl
+    allein ist keine personenbezogene Angabe (ein vollstaendiges Datum, Geburtsdaten und alles andere
+    bleiben unter Kontrolle des Filters).
+    """
+    pairs = mapping_pairs(mapping)
+    years = [(p, o) for p, o in pairs if _YEAR.fullmatch(o.strip())]
+    if not years:
+        return texts, mapping
+    for placeholder, original in years:
+        texts = [t.replace(placeholder, original.strip()) for t in texts]
+    return texts, {p: o for p, o in pairs if (p, o) not in years}
+
+
+DEFAULT_MAX_CHARS = 12000
+
+
+def max_chars(client) -> int:
+    """Hoechste Textlaenge je Filteraufruf (Einstellung ``PII_FILTER_MAX_CHARS``): Gemessen brachte ein Text von
+    50 000 Zeichen den Filter zum Absturz, 20 000 Zeichen brauchten ueber 30 s, 12 000 warm unter 3 s."""
+    return int(getattr(client, "max_chars", None) or DEFAULT_MAX_CHARS)
+
+
+def split_text(text: str, limit: int) -> list[str]:
+    """Teilt ``text`` in Stuecke bis ``limit`` Zeichen, bevorzugt an Absaetzen, Zeilen und Satzenden.
+
+    Die Stuecke ergeben aneinandergehaengt genau den Text zurueck."""
+    pieces, rest = [], text
+    while len(rest) > limit:
+        window = rest[:limit]
+        cut = 0
+        for marker, offset in (("\n\n", 2), ("\n", 1), (". ", 2), (" ", 1)):
+            idx = window.rfind(marker)
+            if idx > limit // 2:
+                cut = idx + offset
+                break
+        cut = cut or limit
+        pieces.append(rest[:cut])
+        rest = rest[cut:]
+    pieces.append(rest)
+    return pieces
+
+
 def mask_conversation(client: PIIFilterClient, texts: list[str]) -> tuple[list[str], object]:
+    """Maskiert alle ``texts``; was in ein Stueck passt, in EINEM Aufruf, sonst in Stuecken.
+
+    Bei Stuecken vergibt der Dienst je Aufruf neu zu zaehlen an: ``merge_masked`` ordnet die Platzhalter
+    der Stuecke in ein gemeinsames Mapping ein (gleicher Wert = gleicher Platzhalter).
+    """
+    limit = max_chars(client)
+    if not texts or len(join_texts(texts)) <= limit:
+        return _mask_batch(client, texts)
+    units = [(i, piece) for i, text in enumerate(texts) for piece in split_text(text, limit - 200)]
+    batches, current, size = [], [], 0
+    for unit in units:
+        if current and size + len(unit[1]) + 40 > limit:
+            batches.append(current)
+            current, size = [], 0
+        current.append(unit)
+        size += len(unit[1]) + 40
+    batches.append(current)
+    known: dict[str, str] = {}
+    pieces: list[str] = []
+    for batch in batches:
+        masked, mapping = _mask_batch(client, [piece for _, piece in batch])
+        batch_pairs = mapping_pairs(mapping)
+        if batch_pairs:
+            masked = split_texts(merge_masked(known, join_texts(masked), batch_pairs), len(masked))
+        pieces.extend(masked)
+    out = [""] * len(texts)
+    for (i, _), piece in zip(units, pieces):
+        out[i] += piece
+    return keep_years(out, known)
+
+
+def _mask_batch(client: PIIFilterClient, texts: list[str]) -> tuple[list[str], object]:
     """Maskiert alle ``texts`` in einem Aufruf.
 
     Returns:
@@ -85,13 +166,33 @@ def mask_conversation(client: PIIFilterClient, texts: list[str]) -> tuple[list[s
         # reuse_placeholders: optionaler Hinweis, gleicher Wert = gleicher Platzhalter (EntityGuard >= 1.2);
         # Dienste, die das Feld nicht kennen, ignorieren es.
         result = client.filter_text(
-            joined, timeout=timeout_for(len(joined)), extra={"reuse_placeholders": True}
+            joined,
+            timeout=timeout_for(len(joined), getattr(client, "timeout", None) or BASE_TIMEOUT_S),
+            extra={"reuse_placeholders": True},
         )
     except Exception as e:  # filter_text faengt selbst; Sicherheitsnetz
         raise PIIFilterUnavailable(type(e).__name__) from None
     if result.error:
         raise PIIFilterUnavailable(result.error)
-    return split_texts(result.filtered, len(texts)), result.mapping
+    return keep_years(split_texts(result.filtered, len(texts)), result.mapping)
+
+
+def unavailable_message(error) -> str:
+    """Satz fuer Nutzer, warum der PII-Filter nicht benutzt werden konnte (ohne Adressen oder Ausnahmetexte).
+
+    Unterscheidet, was wirklich los war: ein langsamer Filter ist nicht dasselbe wie ein abgelehnter Key
+    oder ein nicht erreichbarer Dienst."""
+    text = str(error)
+    if "Timeout" in text or "timed out" in text:
+        limit = re.search(r"\(([^)]*)\)", text)
+        return "Der PII-Filter hat nicht rechtzeitig geantwortet (Zeitüberschreitung" + (f" nach {limit.group(1)}" if limit else "") + ")"
+    if text.startswith("HTTP 401") or text.startswith("HTTP 403"):
+        return f"Der PII-Filter lehnt die Anmeldung ab ({text.split(':')[0][:12]}, API-Key prüfen)"
+    if text.startswith("HTTP "):
+        return f"Der PII-Filter hat mit einem Fehler geantwortet ({text.split(':')[0][:12]})"
+    if "Trennmarken" in text:
+        return "Der PII-Filter hat den Text verändert (Trennmarken des Verlaufs verändert)"
+    return "Der PII-Filter ist nicht erreichbar"
 
 
 def short_reason(error: str) -> str:
@@ -170,13 +271,43 @@ class PIISession:
         """Maskiert Werkzeug-Text (nur mit eingerichtetem Filter). Fehler -> ``PIIFilterUnavailable``."""
         if self.client is None or not text:
             return text
-        masked, mapping = mask_or_fail(self.client, text)
-        pairs = mapping_pairs(mapping)
-        if not pairs:
-            return masked
-        with self._lock:
-            return merge_masked(self._known, masked, pairs)
+        out = []
+        for piece in split_text(text, max_chars(self.client)):  # grosse Ergebnisse stueckweise (siehe max_chars)
+            masked, mapping = mask_or_fail(self.client, piece)
+            (masked,), mapping = keep_years([masked], mapping)
+            pairs = mapping_pairs(mapping)
+            if pairs:
+                with self._lock:
+                    masked = merge_masked(self._known, masked, pairs)
+            out.append(masked)
+        return "".join(out)
 
+
+    def mask_values(self, values: list) -> list:
+        """Maskiert einzelne Datenwerte (Zellen) in EINEM Filteraufruf; Platzhalter sind sitzungsweit eindeutig.
+
+        Nur echte Daten gehen durch den Filter, nicht der Text drumherum (Spaltenueberschriften, Hinweise,
+        Schluesselwoerter): die Erkennung hielt dort Woerter wie "IN" oder "Verzeichnis" fuer Namen und Orte
+        und zerstoerte die Anweisungen an das Modell. Schlichte Zahlen (bis 9 Stellen, z. B. Jahr, Anzahl,
+        ID) bleiben unveraendert. Fehler -> ``PIIFilterUnavailable``.
+        """
+        out = list(values)
+        if self.client is None:
+            return out
+        positions = [i for i, v in enumerate(out) if isinstance(v, str) and v.strip() and not _PLAIN_NUMBER.match(v.strip())]
+        if not positions:
+            return out
+        masked, mapping = mask_conversation(self.client, [out[i] for i in positions])
+        pairs = mapping_pairs(mapping)
+        if pairs:
+            with self._lock:
+                masked = split_texts(merge_masked(self._known, join_texts(masked), pairs), len(masked))
+        for i, text in zip(positions, masked):
+            out[i] = text
+        return out
+
+
+_PLAIN_NUMBER = re.compile(r"^-?\d{1,9}([.,]\d+)?$")
 
 _session: ContextVar["PIISession | None"] = ContextVar("pii_session", default=None)
 

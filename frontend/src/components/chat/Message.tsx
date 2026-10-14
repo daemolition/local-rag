@@ -53,6 +53,7 @@ function toolMeta(name: string) {
 export interface ToolResult {
   name: string;
   output: string;
+  input?: string;
 }
 
 interface MessageProps {
@@ -77,6 +78,17 @@ export interface SourceInfo {
   page?: string | null;
   headers?: Record<string, string> | null;
   snippet?: string;
+}
+
+// Historie speichert die Werkzeug-Aufrufe (maskiert) als <tools>[json]</tools> vor den Quellen.
+function splitTools(content: string): { body: string; tools: ToolResult[] } {
+  const match = content.match(/\n*<tools>([\s\S]*?)<\/tools>\s*$/);
+  if (!match) return { body: content, tools: [] };
+  try {
+    return { body: content.slice(0, match.index), tools: JSON.parse(match[1]) };
+  } catch {
+    return { body: content.slice(0, match.index), tools: [] };
+  }
 }
 
 // Historie speichert die Quellen als <sources>[json]</sources> am Ende der Antwort.
@@ -268,7 +280,10 @@ export function Message({
     return () => window.clearTimeout(t);
   }, [activeSource]);
   const split = role === "assistant" ? splitSources(content) : { body: content, sources: [] };
-  const parsed = role === "assistant" ? splitThink(split.body) : { reasoning: "", body: content };
+  const withTools = role === "assistant" ? splitTools(split.body) : { body: split.body, tools: [] as ToolResult[] };
+  const parsed = role === "assistant" ? splitThink(withTools.body) : { reasoning: "", body: content };
+  const shownTools = toolResults && toolResults.length > 0 ? toolResults : withTools.tools;
+  const storedMasked = !(toolResults && toolResults.length > 0) && withTools.tools.length > 0;
   const shownSources = sources && sources.length > 0 ? sources : split.sources;
   const reasoningText = reasoning || parsed.reasoning;
 
@@ -301,7 +316,7 @@ export function Message({
 
       {tools?.map((tool, i) => <ToolIndicator key={i} tool={tool} />)}
 
-      {toolResults && toolResults.length > 0 ? (
+      {shownTools.length > 0 ? (
         <div className="my-2 text-sm">
           <button
             className="text-xs font-medium text-muted-foreground underline-offset-2 hover:underline"
@@ -310,15 +325,20 @@ export function Message({
             {resultsOpen ? "Tool-Ergebnisse ausblenden" : "Tool-Ergebnisse anzeigen"}
           </button>
           {resultsOpen
-            ? toolResults.map((r, i) => (
+            ? shownTools.map((r, i) => (
                 <pre
                   key={i}
-                  className="mt-1 overflow-x-auto rounded bg-background p-2 text-xs"
+                  className="mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-background p-2 text-xs"
                 >
-                  {`[${r.name}]\n${r.output}`}
+                  {`[${r.name}]\n${r.input ? `Eingabe:\n${r.input}\n\nErgebnis:\n` : ""}${r.output}`}
                 </pre>
               ))
             : null}
+          {resultsOpen && storedMasked ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Gespeicherte Werkzeug-Aufrufe zeigen Platzhalter statt Klartext (aus Datenschutzgründen wird nur die maskierte Fassung abgelegt).
+            </p>
+          ) : null}
         </div>
       ) : null}
 

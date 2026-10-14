@@ -91,6 +91,8 @@ class SettingsService:
             "PII_FILTER_URL",
             "PII_FILTER_API_KEY",
             "PII_FILTER_ENABLED",
+            "PII_FILTER_TIMEOUT_S",
+            "PII_FILTER_MAX_CHARS",
         ],
         "ingest": [
             "INGEST_CHUNK_SIZE",
@@ -242,6 +244,8 @@ class SettingsService:
         "PII_FILTER_URL": "Vollständige PII-Filter Endpoint URL (z.B. http://localhost:9500/api/v1/sanitize)",
         "PII_FILTER_API_KEY": "API Key für PII-Filter Service",
         "PII_FILTER_ENABLED": "PII-Filter aktivieren (true/false)",
+        "PII_FILTER_TIMEOUT_S": "Zeitlimit eines PII-Filter-Aufrufs in Sekunden (waechst mit der Textlaenge)",
+        "PII_FILTER_MAX_CHARS": "Hoechste Textlaenge je PII-Filter-Aufruf; laengere Texte gehen in Stuecken",
         "UI_THEME": "Oberflaeche: light, dark oder system (folgt OS)",
     }
 

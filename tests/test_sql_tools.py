@@ -60,6 +60,11 @@ def test_result_text_is_a_markdown_table_with_a_truncation_note():
     assert "auf 2 Zeilen gekürzt" in text
 
 
+def test_schema_text_names_the_sql_dialect_when_known():
+    assert "SQL-Dialekt: PostgreSQL" in sqlformat.schema_text("Shop", [], "postgresql")
+    assert "SQL-Dialekt" not in sqlformat.schema_text("Shop", [])
+
+
 def test_schema_text_shows_keys_and_foreign_keys():
     text = sqlformat.schema_text("Shop", [{"name": "o", "kind": "table", "comment": "Bestellungen", "columns": [{"name": "id", "type": "INTEGER", "nullable": False, "pk": True, "comment": ""}], "foreign_keys": [{"columns": ["item_id"], "ref_table": "items", "ref_columns": ["id"]}]}])
     assert "### o" in text and "Bestellungen" in text and "id (INTEGER, PK, NOT NULL)" in text and "FK: item_id → items(id)" in text
@@ -138,6 +143,32 @@ def test_a_second_person_in_a_result_gets_its_own_placeholder(db, shop):
     text = tools()["sql_query"].invoke({"query": "select distinct customer from orders where customer in ('Anna','Bernd') order by customer"})
     assert "Bernd" not in text and "Anna" not in text
     assert session.unmask(text).count("Bernd") == 1 and session.unmask(text).count("Anna") == 1
+
+
+class GreedyFilter(FakeFilter):
+    """Wie die echte Erkennung auf technischem Text: haelt "IN", "Verzeichnis", "2026" und Orte fuer Entitaeten."""
+
+    NAMES = ("Anna", "Bernd", "IN", "Verzeichnis", "2026", "Stuhl")
+
+
+def test_only_the_data_values_go_through_the_filter_not_the_text_around_them(db, shop):
+    use(("Shop", SRC))
+    f = GreedyFilter()
+    session = PIISession(f)
+    set_session(session)
+    text = tools()["sql_query"].invoke({"query": "select customer, count(*) as n from orders where customer in ('Anna','Bernd') group by customer"})
+    assert text.startswith("Quelle „Shop“ · 2 Zeilen") and "| customer | n |" in text  # Kopf und Zeilenzahl unberuehrt
+    assert "Anna" not in text and "Bernd" not in text  # Werte sind maskiert
+    assert "Quelle" not in "".join(f.calls) and "Zeilen" not in "".join(f.calls)  # der Filter sah nur die Werte
+    assert session.unmask(text).count("Anna") == 1 and session.unmask(text).count("Bernd") == 1
+
+
+def test_plain_numbers_stay_readable_and_a_year_is_not_taken_for_a_place(db, shop):
+    use(("Shop", SRC))
+    f = GreedyFilter()
+    set_session(PIISession(f))
+    text = tools()["sql_query"].invoke({"query": "select 2026 as jahr, count(*) as n from orders"})
+    assert "| 2026 | 83 |" in text and f.calls == []  # reine Zahlen gehen gar nicht erst zum Filter
 
 
 def test_a_failing_filter_returns_no_rows(db, shop):
@@ -249,5 +280,5 @@ def test_end_to_end_without_a_filter_nothing_is_masked(app, db, orders, monkeypa
 def test_end_to_end_a_failing_filter_stops_before_the_model_and_the_tools(app, db, orders, monkeypatch, sanitizer):
     Sanitizer.behavior = "500"
     res, agent, base = run_chat(app, db, monkeypatch, sanitizer, "egal")
-    assert "PII-Filter ist nicht erreichbar" in res.get_data(as_text=True)
+    assert "HTTP 500" in res.get_data(as_text=True) and "nicht gesendet" in res.get_data(as_text=True)
     assert agent.results == [] and agent.inputs == []

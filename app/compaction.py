@@ -184,11 +184,12 @@ def effective_params(model_params: dict | None) -> dict:
 
 _THINK = re.compile(r"<think>.*?</think>\s*", re.S)
 _SOURCES = re.compile(r"\n*<sources>.*?</sources>\s*$", re.S)
+_TOOLS = re.compile(r"\n*<tools>.*?</tools>\s*$", re.S)
 
 
 def clean_history_text(content: str) -> str:
-    """Anzeigebestandteile (Quellenblock, Denkblock) gehoeren nicht in den Verlauf fuers Modell."""
-    return _THINK.sub("", _SOURCES.sub("", content or "")).strip()
+    """Anzeigebestandteile (Quellen-, Werkzeug- und Denkblock) gehoeren nicht in den Verlauf fuers Modell."""
+    return _THINK.sub("", _TOOLS.sub("", _SOURCES.sub("", content or ""))).strip()
 
 
 def prompt_for_langchain(template: str) -> str:

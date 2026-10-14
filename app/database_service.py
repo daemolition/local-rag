@@ -272,6 +272,8 @@ class DatabaseService:
             ),
             "PII_FILTER_API_KEY": ("pii_filter", "", "API-Key des PII-Filters", True),
             "PII_FILTER_ENABLED": ("pii_filter", "true", "PII-Filter aktivieren (true/false)"),
+            "PII_FILTER_TIMEOUT_S": ("pii_filter", "10", "Zeitlimit eines PII-Filter-Aufrufs in Sekunden (waechst mit der Textlaenge)"),
+            "PII_FILTER_MAX_CHARS": ("pii_filter", "12000", "Hoechste Textlaenge je PII-Filter-Aufruf; laengere Texte gehen in Stuecken"),
             "SEARCH_ALLOW_UNMASKED": (
                 "search",
                 "false",

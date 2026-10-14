@@ -20,9 +20,13 @@ PII-Filter Client für externen PII-Maskierungs-Service
 
 from logging import getLogger
 from typing import Optional
+import time
+
 import requests
 
 logger = getLogger(__name__)
+
+MAX_RETRY_TIMEOUT_S = 120.0  # Obergrenze fuer das Limit beim zweiten Versuch
 
 
 FILTERED_KEYS = ("filtered", "sanitized_text", "result", "text")
@@ -95,16 +99,18 @@ class PIIFilterResult:
 class PIIFilterClient:
     """Client für externen PII-Filter-Service"""
 
-    def __init__(self, full_url: str, api_key: str = None, timeout: float = 5.0):
+    def __init__(self, full_url: str, api_key: str = None, timeout: float = 5.0, max_chars: int = 12000):
         """
         Args:
             full_url: Vollständige URL zum Endpoint (z.B. http://localhost:9500/api/v1/sanitize)
             api_key: Optionaler API Key (wird als "Authorization: Bearer" gesendet)
-            timeout: Request timeout in Sekunden
+            timeout: Grundwert des Zeitlimits in Sekunden (waechst mit der Textlaenge)
+            max_chars: hoechste Textlaenge je Aufruf
         """
         self.full_url = full_url
         self.api_key = api_key
         self.timeout = timeout
+        self.max_chars = max_chars  # laengere Texte gehen in Stuecken an den Dienst (siehe pii_session.max_chars)
 
     def demask(self, text: str, mapping) -> str:
         """
@@ -145,6 +151,7 @@ class PIIFilterClient:
 
         # Verwende die vollständige URL direkt
         url = self.full_url
+        limit = timeout or self.timeout
 
         try:
             # Request-Body vorbereiten
@@ -155,12 +162,25 @@ class PIIFilterClient:
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
-            response = requests.post(
-                url,
-                json=json_body,
-                headers=headers,
-                timeout=timeout or self.timeout,
-            )
+            started = time.monotonic()
+            # Ein einziger Ausreisser (Last, kurzer Netzfehler, 5xx) soll nicht die ganze Antwort kosten:
+            # einmal wiederholen, mit doppeltem Limit. 4xx (Key, Format) sind endgueltig.
+            for attempt in (1, 2):
+                try:
+                    response = requests.post(url, json=json_body, headers=headers, timeout=limit)
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                    if attempt == 2:
+                        raise
+                    logger.warning(
+                        f"PII-Filter: {type(e).__name__} nach {time.monotonic() - started:.1f}s bei {len(text)} Zeichen, neuer Versuch"
+                    )
+                    limit = min(limit * 2, MAX_RETRY_TIMEOUT_S)
+                    continue
+                if response.status_code >= 500 and attempt == 1:
+                    logger.warning(f"PII-Filter: HTTP {response.status_code} bei {len(text)} Zeichen, neuer Versuch")
+                    limit = min(limit * 2, MAX_RETRY_TIMEOUT_S)
+                    continue
+                break
 
             if response.status_code != 200:
                 logger.warning(
@@ -180,10 +200,8 @@ class PIIFilterClient:
             )
 
         except requests.exceptions.Timeout:
-            logger.warning(f"PII-Filter timeout after {timeout or self.timeout}s")
-            return PIIFilterResult(
-                original=text, filtered=text, error=f"Timeout ({timeout or self.timeout:g}s)"
-            )
+            logger.warning(f"PII-Filter timeout bei {len(text)} Zeichen (Limit {limit:.0f}s)")
+            return PIIFilterResult(original=text, filtered=text, error=f"Timeout ({limit:.0f}s)")
 
         except requests.exceptions.RequestException as e:
             logger.error(f"PII-Filter request failed: {e}")
@@ -202,7 +220,10 @@ def mask_or_fail(client: "PIIFilterClient", text: str) -> tuple[str, object]:
         unveraenderte Text und ein leeres Mapping.
     """
     try:
-        result = client.filter_text(text)
+        # Das Limit waechst mit der Textlaenge (grosse Werkzeug-Ergebnisse brauchen laenger als ein Satz)
+        from app.pii_session import timeout_for
+
+        result = client.filter_text(text, timeout=timeout_for(len(text), getattr(client, "timeout", None) or 5.0))
     except Exception as e:  # filter_text faengt selbst, das hier ist das Sicherheitsnetz
         raise PIIFilterUnavailable(type(e).__name__) from None
     if result.error:

@@ -35,7 +35,7 @@ from flask import (
 
 from app import compaction, resources_ready, wait_for_resources
 from app.rag import sparse as sparse_lang
-from app.pii_session import PIISession, StreamDemasker, mask_conversation, set_session, short_reason
+from app.pii_session import PIISession, StreamDemasker, mask_conversation, set_session, unavailable_message
 from app.utils.pii_filter_client import PIIFilterUnavailable
 from app.agent.document_agent import CONVERSATION_ONLY_HINT, DocumentAgent, select_tools
 from app.tools.web_access import build_web_search_tool, pii_client
@@ -294,6 +294,36 @@ def history(session_id):
     return {"history": message_dicts}
 
 
+MAX_TOOL_BLOCKS = 20
+MAX_TOOL_CHARS = 2000
+
+
+def _tool_text(output) -> str:
+    """Text eines Werkzeug-Ergebnisses (nicht die ``repr`` der ToolMessage mit name=/tool_call_id=)."""
+    content = getattr(output, "content", output)
+    if isinstance(content, list):
+        content = "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+    return str(content if content is not None else "")
+
+
+def _tool_input_text(tool_input) -> str:
+    if isinstance(tool_input, dict):
+        parts = [f"{k}: {v}" for k, v in tool_input.items() if v not in ("", None)]
+        return "\n".join(parts)[:MAX_TOOL_CHARS]
+    return str(tool_input or "")[:MAX_TOOL_CHARS]
+
+
+def tools_block(tool_calls: list[dict]) -> str:
+    """``<tools>[json]</tools>`` fuer den Verlauf: maskiert, gekuerzt, hoechstens ``MAX_TOOL_BLOCKS`` Aufrufe."""
+    rows = [
+        {"name": tc["name"], "input": _tool_input_text(tc.get("input")), "output": (tc.get("output") or "")[:MAX_TOOL_CHARS]}
+        for tc in tool_calls[:MAX_TOOL_BLOCKS]
+    ]
+    if not rows:
+        return ""
+    return "\n\n<tools>" + json.dumps(rows, ensure_ascii=False).replace("</", "<\\/") + "</tools>"
+
+
 @bp.route("/chat", methods=["POST"])
 @auth_required_api
 def chat():
@@ -548,10 +578,10 @@ def chat():
                 "data: "
                 + json.dumps(
                     {
-                        "error": "Der PII-Filter ist nicht erreichbar. Die Nachricht wurde nicht "
+                        "error": f"{unavailable_message(e)}. Die Nachricht wurde nicht "
                         "gesendet, damit keine personenbezogenen Daten ungeschützt das System "
-                        f"verlassen ({short_reason(e)}). Bitte den Administrator informieren oder den PII-Filter "
-                        "unter Administration › Tools prüfen."
+                        "verlassen. Bitte den Administrator informieren oder den PII-Filter "
+                        "unter Administration › Tools prüfen (der Test dort prüft auch einen langen Text)."
                     }
                 )
                 + "\n\n",
@@ -654,14 +684,15 @@ def chat():
                             result_queue.put(("sources", list(fresh)))
                         while scope.warnings:
                             result_queue.put(("warning", scope.warnings.pop(0)))
-                        result_queue.put(
-                            ("tool_result", (tool_name, str(tool_output)[:2000]))
-                        )
+                        text = _tool_text(tool_output)[:MAX_TOOL_CHARS]
+                        shown_input = ""
                         if tool_calls:
                             for tc in tool_calls:
                                 if tc["name"] == tool_name and tc["output"] is None:
-                                    tc["output"] = str(tool_output)[:2000]
+                                    tc["output"] = text  # maskiert, wie das Modell es sah (so landet es im Verlauf)
+                                    shown_input = _tool_input_text(tc.get("input"))
                                     break
+                        result_queue.put(("tool_result", (tool_name, text, shown_input)))
 
                 if cancel_event.is_set():
                     phase_logger.log_phase(
@@ -739,6 +770,7 @@ def chat():
                         saved_assistant = (
                             f"<think>{reasoning_text}</think>\n" + demasked_response
                         )
+                    saved_assistant += tools_block(tool_calls)  # Werkzeug-Aufrufe (maskiert) fuer den Verlauf
                     if scope.sources:  # Quellen mit Score fuer die Anzeige im Verlauf
                         saved_assistant += (
                             "\n\n<sources>"
@@ -781,9 +813,12 @@ def chat():
                     yield f"data: {json.dumps({'source_list': msg_data})}\n\n"
 
                 elif msg_type == "tool_result":
-                    tool_name, tool_output = msg_data
+                    tool_name, tool_output, tool_input = msg_data
+                    if pii_filter and pii_session.pairs():
+                        # Der Nutzer sieht echte Werte wie in der Antwort; gespeichert wird die maskierte Fassung
+                        tool_output, tool_input = pii_session.unmask(tool_output), pii_session.unmask(tool_input)
                     payload = {
-                        "tool_result": {"name": tool_name, "output": tool_output}
+                        "tool_result": {"name": tool_name, "output": tool_output, "input": tool_input}
                     }
                     yield f"data: {json.dumps(payload)}\n\n"
 

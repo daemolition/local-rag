@@ -20,6 +20,7 @@ User Routes für Dokumentenverwaltung, Vektordatenbank, Settings und Summaries
 """
 
 import os
+import time
 from logging import getLogger
 from pathlib import Path
 
@@ -733,12 +734,14 @@ def _test_search(settings: SettingsService) -> dict:
     return {"success": False, "error": last_error or "SearXNG nicht erreichbar"}
 
 
+PII_LONG_CHARS = 8000  # Laenge des zweiten Testtexts (ein langer Verlauf, ein grosses Ergebnis)
 PII_TEST_TEXT = "Bitte schreibe Max Mustermann (max.mustermann@example.com) eine kurze Antwort."
 
 
 def _test_pii_filter(settings: SettingsService) -> dict:
     """PII-Filter testen: echte Maskierung eines Beispieltexts mit erfundenen Daten und Pruefung
     des Vertrags (docs/sanitizer-api.md): Text veraendert, Mapping erkannt, Demaskierung stimmt."""
+    from app.pii_session import timeout_for
     from app.utils.pii_filter_client import PIIFilterClient, mapping_pairs, parse_response
 
     url = settings.get("PII_FILTER_URL") or ""
@@ -751,8 +754,10 @@ def _test_pii_filter(settings: SettingsService) -> dict:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    started = time.monotonic()
     try:
         resp = requests.post(url, json={"text": PII_TEST_TEXT}, headers=headers, timeout=10)
+        short_ms = int((time.monotonic() - started) * 1000)
     except requests.exceptions.Timeout:
         return {"success": False, "error": f"Timeout (10s) bei {url}"}
     except requests.exceptions.RequestException as e:
@@ -789,6 +794,27 @@ def _test_pii_filter(settings: SettingsService) -> dict:
             problems.append("Die Demaskierung ergibt nicht den Originaltext (Platzhalter nicht eindeutig oder Mapping unvollständig)")
     elif filtered != PII_TEST_TEXT:
         problems.append("Kein Mapping in der Antwort: Antworten des Modells können nicht demaskiert werden (die Websuche funktioniert trotzdem)")
+    # Ein kurzer Satz sagt wenig: ein langer Text zeigt, ob der Dienst auch bei grossen Verlaeufen und Ergebnissen
+    # rechtzeitig antwortet (dort entstanden die Zeitueberschreitungen, obwohl der Kurztest bestand).
+    facts.append(f"kurzer Text {short_ms} ms")
+    timeout_s = settings.get_float("PII_FILTER_TIMEOUT_S", 10.0)
+    try:
+        long_text = (PII_TEST_TEXT + " ") * (PII_LONG_CHARS // (len(PII_TEST_TEXT) + 1) + 1)
+        started = time.monotonic()
+        long_resp = requests.post(url, json={"text": long_text[:PII_LONG_CHARS]}, headers=headers, timeout=120)
+        long_ms = int((time.monotonic() - started) * 1000)
+        allowed = timeout_for(PII_LONG_CHARS, timeout_s)
+        if long_resp.status_code != 200:
+            problems.append(f"Langer Text ({PII_LONG_CHARS} Zeichen): HTTP {long_resp.status_code}")
+        elif long_ms / 1000 > allowed:
+            problems.append(
+                f"Langer Text ({PII_LONG_CHARS} Zeichen) brauchte {long_ms} ms, erlaubt sind {allowed:g} s: "
+                "Zeitlimit erhöhen oder den Dienst entlasten"
+            )
+        else:
+            facts.append(f"langer Text ({PII_LONG_CHARS} Zeichen) {long_ms} ms")
+    except requests.exceptions.RequestException as e:
+        problems.append(f"Langer Text ({PII_LONG_CHARS} Zeichen) scheiterte: {type(e).__name__}")
     result = {"details": " · ".join(facts + problems)}
     if filtered == PII_TEST_TEXT:
         return {"success": False, "error": problems[0], **result}

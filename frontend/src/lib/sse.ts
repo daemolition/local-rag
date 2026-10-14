@@ -4,7 +4,7 @@ export interface ChatStreamEvent {
   reasoning_done?: boolean;
   tool_start?: string;
   tool_end?: string;
-  tool_result?: { name: string; output: string };
+  tool_result?: { name: string; output: string; input?: string };
   sources?: string;
   source_list?: import("@/components/chat/Message").SourceInfo[];
   warning?: string;

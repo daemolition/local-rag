@@ -173,9 +173,12 @@ def create_web_search_tool(
                 logger.warning(f"PII-Filter für Web-Suche fehlgeschlagen: {e}")
                 filter_result = None
             if filter_result is None or filter_result.error:
+                from app.pii_session import unavailable_message
+
                 return (
                     "FEHLER: Die Suche wurde abgebrochen, weil die Suchanfrage nicht maskiert "
-                    "werden konnte (PII-Filter nicht erreichbar). Beantworte die Frage ohne Websuche."
+                    f"werden konnte ({unavailable_message(filter_result.error if filter_result else 'nicht erreichbar')}). "
+                    "Beantworte die Frage ohne Websuche."
                 )
             pairs = mapping_pairs(filter_result.mapping)
             if pairs:
