@@ -42,7 +42,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       latest: ${{ steps.v.outputs.latest }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - id: v
@@ -76,7 +76,7 @@ jobs:
           - { image: tool-worker, suffix: "-tool-worker", file: tool_worker/Dockerfile, arch: amd64, runner: ubuntu-latest, args: "" }
           - { image: tool-worker, suffix: "-tool-worker", file: tool_worker/Dockerfile, arch: arm64, runner: ubuntu-24.04-arm, args: "" }
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
