@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -221,7 +223,7 @@ def mask_or_fail(client: "PIIFilterClient", text: str) -> tuple[str, object]:
     """
     try:
         # Das Limit waechst mit der Textlaenge (grosse Werkzeug-Ergebnisse brauchen laenger als ein Satz)
-        from app.pii_session import timeout_for
+        from app.chat.pii_session import timeout_for
 
         result = client.filter_text(text, timeout=timeout_for(len(text), getattr(client, "timeout", None) or 5.0))
     except Exception as e:  # filter_text faengt selbst, das hier ist das Sicherheitsnetz

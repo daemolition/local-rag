@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -25,7 +27,7 @@ erreicht ist, ``ToolResultClipMiddleware`` kuerzt ein einzelnes riesiges Ergebni
 
 from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 
-from app.compaction import Budget, clip_text, estimate_tokens, prompt_for_langchain
+from app.chat.compaction import Budget, clip_text, estimate_tokens, prompt_for_langchain
 
 CLIP_SHARE = 0.4  # ein einzelnes Werkzeug-Ergebnis darf hoechstens so viel vom Budget belegen
 

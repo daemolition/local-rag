@@ -1,6 +1,6 @@
 import pytest
 
-from app import connections as store
+from app.llm import connections as store
 from app.rag import endpoints
 from app.rag import models_runtime as mr
 from tests.fake_inference import DIM, TEI, Infinity, serve

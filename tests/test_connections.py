@@ -1,6 +1,6 @@
 import pytest
 
-from app import connections as store
+from app.llm import connections as store
 
 
 @pytest.fixture

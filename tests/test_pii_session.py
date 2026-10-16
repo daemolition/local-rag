@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -24,14 +26,14 @@ from types import SimpleNamespace
 import pytest
 from flask import Flask
 
-from app import compaction
-from app import connections as store
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
+from app.chat import compaction
+from app.llm import connections as store
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
 from app.llm import registry
-from app.pii_session import StreamDemasker, join_texts, mask_conversation, split_texts, timeout_for
-from app.routes import bp as main_bp
-from app.settings_service import SettingsService
+from app.chat.pii_session import StreamDemasker, join_texts, mask_conversation, split_texts, timeout_for
+from app.web.routes import bp as main_bp
+from app.core.settings_service import SettingsService
 from app.utils.pii_filter_client import PIIFilterClient, PIIFilterUnavailable
 from tests.test_access import add_user, client_for
 from tests.test_sanitizer import FakeAgent
@@ -232,14 +234,14 @@ def app(db):
 
 def setup_chat(app, db, monkeypatch, pii_url, chunks):
     monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m1"])
-    monkeypatch.setattr("app.routes.resources_ready", lambda: True)
+    monkeypatch.setattr("app.web.routes.resources_ready", lambda: True)
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
     s = db.get_session()
     SettingsService(s).set_batch({"PII_FILTER_URL": pii_url, "PII_FILTER_ENABLED": "true", "INGEST_INDEX_ENABLED": "false"})
     s.close()
     agent = FakeAgent(chunks)
-    monkeypatch.setattr("app.routes.get_agent", lambda *a, **k: agent)
+    monkeypatch.setattr("app.web.routes.get_agent", lambda *a, **k: agent)
     return agent
 
 
@@ -297,7 +299,7 @@ def test_the_chat_error_names_a_short_reason_and_never_an_internal_address(app, 
 
 
 def test_a_plain_year_is_not_masked_but_everything_else_stays():
-    from app.pii_session import keep_years, mask_conversation
+    from app.chat.pii_session import keep_years, mask_conversation
     from tests.test_pii_tools import FakeFilter
 
     class YearFilter(FakeFilter):
@@ -316,7 +318,7 @@ def test_a_plain_year_is_not_masked_but_everything_else_stays():
 
 
 def test_the_timeout_grows_with_the_text_and_never_falls_below_the_base():
-    from app.pii_session import timeout_for
+    from app.chat.pii_session import timeout_for
 
     assert timeout_for(100, 10) == pytest.approx(10.05) and timeout_for(12000, 10) == pytest.approx(16)
     assert timeout_for(10**9, 10) == 60 and timeout_for(100, 90) == 90  # die Basis ist die Untergrenze
@@ -381,7 +383,7 @@ def test_a_rejected_key_or_a_second_failure_is_final(monkeypatch):
 
 
 def test_the_messages_name_the_real_cause():
-    from app.pii_session import unavailable_message
+    from app.chat.pii_session import unavailable_message
 
     assert "nicht rechtzeitig" in unavailable_message("Timeout (20s)") and "nach 20s" in unavailable_message("Timeout (20s)")
     assert "lehnt die Anmeldung ab" in unavailable_message("HTTP 401") and "API-Key" in unavailable_message("HTTP 403")
@@ -391,7 +393,7 @@ def test_the_messages_name_the_real_cause():
 
 
 def test_split_text_keeps_every_character_and_prefers_paragraphs():
-    from app.pii_session import split_text
+    from app.chat.pii_session import split_text
 
     text = ("Absatz eins ist lang genug. " * 20 + "\n\n") * 5
     pieces = split_text(text, 700)
@@ -425,7 +427,7 @@ class _Cap:
 
 
 def test_long_conversations_go_to_the_filter_in_pieces_with_consistent_placeholders():
-    from app.pii_session import mask_conversation, PIISession
+    from app.chat.pii_session import mask_conversation, PIISession
 
     filler = "Das ist ein Satz ohne Namen. " * 40
     texts = [f"Frage {i}: {'Anna' if i % 2 else 'Bernd'} schrieb. {filler}" for i in range(12)]  # ~15 000 Zeichen
@@ -440,7 +442,7 @@ def test_long_conversations_go_to_the_filter_in_pieces_with_consistent_placehold
 
 
 def test_one_huge_tool_result_is_masked_piece_by_piece(db):
-    from app.pii_session import PIISession
+    from app.chat.pii_session import PIISession
 
     client = _Cap(3000)
     session = PIISession(client)

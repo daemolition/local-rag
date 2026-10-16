@@ -38,3 +38,6 @@ app/static/dist/
 
 # graphify (generierter Wissensgraph)
 graphify-out/
+
+# OpenCode-Arbeitsdateien (Pläne etc.) — niemals ins Repo
+.opencode/

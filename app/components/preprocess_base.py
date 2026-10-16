@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -112,8 +114,8 @@ def _picture_block(description: str) -> str:
 
 def _vision_enabled() -> bool:
     try:
-        from app.database_service import get_db_service
-        from app.settings_service import SettingsService
+        from app.core.database_service import get_db_service
+        from app.core.settings_service import SettingsService
 
         session = get_db_service().get_session()
         try:

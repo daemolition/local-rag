@@ -1,9 +1,9 @@
 import pytest
 from flask import Flask
 
-from app import connections as store
-from app.admin_routes import admin_bp
+from app.llm import connections as store
 from app.llm import registry
+from app.web.admin_routes import admin_bp
 
 
 @pytest.fixture
@@ -164,7 +164,7 @@ def test_embedding_models_of_a_connection_are_filtered_by_capability(client):
 
 
 def test_tei_and_infinity_connections_do_not_appear_as_chat_models(db, monkeypatch):
-    from app import connections as store
+    from app.llm import connections as store
     from app.llm import registry
 
     monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m1"])

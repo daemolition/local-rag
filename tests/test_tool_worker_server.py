@@ -1,4 +1,5 @@
 import os
+import sqlite3
 
 import pytest
 
@@ -104,8 +105,6 @@ def test_errors_do_not_leak_internals(data):
 
 
 # --- Rolle sql -----------------------------------------------------------------
-import sqlite3
-
 
 @pytest.fixture
 def sqldir(tmp_path):

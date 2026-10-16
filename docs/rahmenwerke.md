@@ -10,7 +10,7 @@
 
 | Kriterium | Belegbar | Lücke |
 |---|---|---|
-| CC6.1-6.3 Zugriff | Rollen und Gruppen (`app/access.py`), SSO/LDAP, Passwort-Hashing | MFA lokal, Zugriffsüberprüfungen (Review-Prozess) |
+| CC6.1-6.3 Zugriff | Rollen und Gruppen (`app/auth/access.py`), SSO/LDAP, Passwort-Hashing | MFA lokal, Zugriffsüberprüfungen (Review-Prozess) |
 | CC6.6-6.7 Datenübertragung | TLS über Proxy möglich, Link-Local-Sperre | Security-Header, TLS-Pflicht nicht erzwungen |
 | CC7.1-7.3 Überwachung, Vorfälle | `/health`, Logs | **kein Audit-Log**, kein Alarmwesen, kein Incident-Prozess |
 | CC8.1 Änderungsmanagement | Git, CI, Changelog, Release-Skript, PR-Vorlage | Branch-Schutz, Pflicht-Review, signierte Releases |

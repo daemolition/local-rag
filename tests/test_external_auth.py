@@ -11,12 +11,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from flask import Flask
 from ldap3 import MOCK_SYNC, OFFLINE_AD_2012_R2, Connection, Server
 
-from app import auth_external, auth_ldap, auth_oidc, users
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.models import Group, GroupMember, User
-from app.routes import bp as main_bp
-from app.user_admin_routes import users_bp
+from app.auth import auth_external, auth_ldap, auth_oidc, users
+from app.auth.user_admin_routes import users_bp
+from app.core.models import Group, GroupMember, User
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}

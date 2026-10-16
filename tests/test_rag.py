@@ -5,11 +5,10 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client import models as qm
 
-from app import retrieval
 from app.rag import format as rag_format
-from app.rag import pipeline, queries
+from app.rag import pipeline, queries, retrieval
 from app.rag import profiles as prof
-from app.retrieval import MultiCollectionRetriever, RetrievalScope
+from app.rag.retrieval import MultiCollectionRetriever, RetrievalScope
 from app.vector.collections import ensure_collection
 
 VOCAB = ["kuendigung", "kaution", "miete", "dach", "frist", "strom"]

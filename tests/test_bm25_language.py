@@ -11,17 +11,16 @@ from types import SimpleNamespace
 import pytest
 from qdrant_client import QdrantClient
 
-from app import knowledge
-from app.rag import model_settings, pipeline
+from app.rag import knowledge, model_settings, pipeline
 from app.rag import sparse as sparse_lang
-from app.retrieval import MultiCollectionRetriever, RetrievalScope, set_scope
+from app.rag.retrieval import MultiCollectionRetriever, RetrievalScope, set_scope
 from tests.test_access import app, client_for  # noqa: F401
 from tests.test_ingest import no_enrichment, qd  # noqa: F401
 from tests.test_web_and_vision import ADMIN
 
 
 def set_language(db, value):
-    from app.settings_service import SettingsService
+    from app.core.settings_service import SettingsService
 
     s = db.get_session()
     SettingsService(s).set("BM25_LANGUAGE", value)
@@ -92,7 +91,7 @@ def test_new_and_reindexed_knowledge_get_the_current_language(db):
 def test_existing_knowledge_without_a_language_is_english_and_stale_under_the_german_default(db):
     kb = knowledge.get_knowledge(None)
     s = db.get_session()
-    from app.models import Knowledge
+    from app.core.models import Knowledge
 
     s.query(Knowledge).filter_by(id=kb["id"]).update({"bm25_language": None})
     s.commit()

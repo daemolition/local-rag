@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -157,7 +159,7 @@ class FastEmbedEmbedder(_Embedder):
 
 
 def _connection(spec: ModelSpec) -> dict:
-    from app import connections as store
+    from app.llm import connections as store
     from app.llm.registry import RemoteModelsError, _reject_link_local
 
     conn = store.get_connection(spec.connection_id, with_key=True)

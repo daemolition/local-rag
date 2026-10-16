@@ -1,7 +1,27 @@
 # Hält die auf SHAs gepinnten GitHub-Actions aktuell (Pull Requests mit Changelog der Action).
+# Python-Abhängigkeiten laufen bewusst NICHT über Dependabot: uv.lock wird gepinnt aktualisiert,
+# Dependabot-pip PRs würden gegen das Lock bzw. `uv sync --frozen` brechen (deps manuell über uv).
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    schedule:
+      interval: weekly
+  # Frontend-Pakete (Vite/React/etc.); Frontend-Build in der CI fängt Inkompatibilitäten.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+  # Basis-Images (Stages: node, Python, Worker, Parakeet) — je einen Eintrag pro Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /tool_worker
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /parakeet
     schedule:
       interval: weekly

@@ -2,15 +2,15 @@ import pytest
 from flask import Flask
 from werkzeug.security import generate_password_hash
 
-from app import access, knowledge
-from app import connections as store
-from app import user_admin
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.models import User
-from app.routes import bp as main_bp
-from app.user_admin import AdminError
-from app.user_admin_routes import users_bp
+from app.auth import access, user_admin
+from app.auth.user_admin import AdminError
+from app.auth.user_admin_routes import users_bp
+from app.core.models import User
+from app.llm import connections as store
+from app.rag import knowledge
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 
 
 def add_user(db, username, role="user", password="pw"):
@@ -187,7 +187,7 @@ def test_grants_are_removed_with_their_principal_or_resource(db, conn):
     # Ressource weg -> Grants weg
     access.add_grant("knowledge", kb["id"], "user", 1, "write")
     knowledge.delete_knowledge(kb["id"])
-    from app.models import ResourceGrant
+    from app.core.models import ResourceGrant
 
     s = store.get_db_service().get_session()
     assert s.query(ResourceGrant).filter_by(resource_type="knowledge", resource_id=kb["id"]).count() == 0
@@ -232,7 +232,7 @@ def test_last_admin_and_self_protection(db):
 def test_update_user_resets_password_and_name(db):
     u = add_user(db, "gina")
     user_admin.update_user(u["id"], 1, {"display_name": "Gina G.", "password": "neuespw"})
-    from app.users import authenticate
+    from app.auth.users import authenticate
 
     assert authenticate("gina", "neuespw")["display_name"] == "Gina G."
     assert authenticate("gina", "pw") is None
@@ -407,7 +407,7 @@ class FakeAgent:
 @pytest.fixture
 def chat_env(app, db, conn, monkeypatch):
     """/chat ohne LLM: ein Fake-Agent, der Scope wird mitgeschrieben."""
-    import app.routes as routes
+    import app.web.routes as routes
 
     seen = []
     monkeypatch.setattr(routes, "set_scope", lambda scope: seen.append(scope))

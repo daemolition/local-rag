@@ -81,24 +81,31 @@ export interface SourceInfo {
 }
 
 // Historie speichert die Werkzeug-Aufrufe (maskiert) als <tools>[json]</tools> vor den Quellen.
-function splitTools(content: string): { body: string; tools: ToolResult[] } {
-  const match = content.match(/\n*<tools>([\s\S]*?)<\/tools>\s*$/);
+// Exportiert für die Unit-Tests (pinnen des Verhaltsens bei kaputtem JSON).
+export function splitTools(content: string): { body: string; tools: ToolResult[] } {
+  // Ab dem LETZTEN <tools> matchen: ein "<tools>" im Fliesstext beschneidet den Text nicht mehr.
+  const start = content.lastIndexOf("<tools>");
+  if (start === -1) return { body: content, tools: [] };
+  const match = content.slice(start).match(/^<tools>([\s\S]*?)<\/tools>\s*$/);
   if (!match) return { body: content, tools: [] };
   try {
-    return { body: content.slice(0, match.index), tools: JSON.parse(match[1]) };
+    return { body: content.slice(0, start).replace(/\n*$/, ""), tools: JSON.parse(match[1]) };
   } catch {
-    return { body: content.slice(0, match.index), tools: [] };
+    return { body: content.slice(0, start).replace(/\n*$/, ""), tools: [] };
   }
 }
 
 // Historie speichert die Quellen als <sources>[json]</sources> am Ende der Antwort.
-function splitSources(content: string): { body: string; sources: SourceInfo[] } {
-  const match = content.match(/\n*<sources>([\s\S]*?)<\/sources>\s*$/);
+// Exportiert für die Unit-Tests.
+export function splitSources(content: string): { body: string; sources: SourceInfo[] } {
+  const start = content.lastIndexOf("<sources>");
+  if (start === -1) return { body: content, sources: [] };
+  const match = content.slice(start).match(/^<sources>([\s\S]*?)<\/sources>\s*$/);
   if (!match) return { body: content, sources: [] };
   try {
-    return { body: content.slice(0, match.index), sources: JSON.parse(match[1]) };
+    return { body: content.slice(0, start).replace(/\n*$/, ""), sources: JSON.parse(match[1]) };
   } catch {
-    return { body: content.slice(0, match.index), sources: [] };
+    return { body: content.slice(0, start).replace(/\n*$/, ""), sources: [] };
   }
 }
 

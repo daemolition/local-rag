@@ -31,7 +31,9 @@ jobs:
       - name: Tests
         run: uv run --with pytest pytest tests -q
 
-      - name: Ruff (nur Information, bekannte Altlasten)
+      - name: "Ruff-Gate: Basis-Regelwerk E4/E7/E9/F"
+        run: uv run ruff check . --select E4,E7,E9,F
+      - name: "Ruff-Statistik (nur Information, weitere Regel-Altlasten)"
         run: uv run ruff check . --exit-zero --statistics
 
   frontend:
@@ -54,4 +56,5 @@ jobs:
       - run: npm ci
 
       # Typecheck (tsc -b) und Produktions-Build
+      - run: npm run test
       - run: npm run build

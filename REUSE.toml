@@ -1,0 +1,45 @@
+version = 1
+
+# Primär alle Dateien mit SPDX-Kopf (AGPL-3.0-or-later). Diese Ablage deckt Dateien
+# ohne eigenen Header ab (generierte und Build-Dateien, Tests, Tools, Doku, Infra):
+# Rechteinhaber ist die S2A Open Technologies gGmbH, Urheber siehe AUTHORS.md.
+[[annotations]]
+path = [
+  ".github/**",
+  "docs/**",
+  "frontend/**",
+  "parakeet/**",
+  "scripts/**",
+  "searxng/**",
+  "tests/**",
+  "tool_worker/**",
+  "alembic/**",
+  "entrypoint.sh",
+  "Dockerfile",
+  "docker-compose*.yml",
+  "env.example",
+  "pyproject.toml",
+  "uv.lock",
+  "*.md",
+  ".gitignore",
+  ".dockerignore",
+  "docker-compose.yml",
+  ".python-version",
+  "alembic.ini",
+  "alembic/script.py.mako",
+  "start.bat",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 S2A Open Technologies gGmbH"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# Fremdcode: Schriftfamilie Inter (SIL Open Font License 1.1), siehe
+# LICENSES/OFL-1.1.txt und app/static/fonts/LICENSE.txt.
+[[annotations]]
+path = [
+  "app/static/fonts/LICENSE.txt",
+  "app/static/fonts/Inter-Latin-*.woff2",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2016 The Inter Project Authors"
+SPDX-License-Identifier = "OFL-1.1"

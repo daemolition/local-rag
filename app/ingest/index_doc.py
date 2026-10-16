@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -139,8 +141,8 @@ def build_index(knowledge: dict, documents: list, paths) -> str:
 
 
 def _index_enabled() -> bool:
-    from app.database_service import get_db_service
-    from app.settings_service import SettingsService
+    from app.core.database_service import get_db_service
+    from app.core.settings_service import SettingsService
 
     session = get_db_service().get_session()
     try:
@@ -150,8 +152,8 @@ def _index_enabled() -> bool:
 
 
 def _store(knowledge_id: int, text: str | None) -> None:
-    from app.database_service import get_db_service
-    from app.models import Knowledge
+    from app.core.database_service import get_db_service
+    from app.core.models import Knowledge
 
     session = get_db_service().get_session()
     try:
@@ -169,8 +171,8 @@ def _store(knowledge_id: int, text: str | None) -> None:
 
 def get_index(knowledge_id: int) -> tuple[str | None, datetime | None]:
     """Gespeichertes Inhaltsverzeichnis dieses Knowledge (Text, Stand) oder ``(None, None)``."""
-    from app.database_service import get_db_service
-    from app.models import Knowledge
+    from app.core.database_service import get_db_service
+    from app.core.models import Knowledge
 
     session = get_db_service().get_session()
     try:
@@ -187,8 +189,8 @@ def refresh_index(knowledge_id: int | None) -> bool:
     Fehler werden geloggt und nie weitergereicht: Das Verzeichnis darf das Einlesen nicht stoeren.
     """
     try:
-        from app.database_service import get_db_service
-        from app.knowledge import get_knowledge, is_remote, knowledge_paths
+        from app.core.database_service import get_db_service
+        from app.rag.knowledge import get_knowledge, is_remote, knowledge_paths
 
         knowledge = get_knowledge(knowledge_id)
         if not knowledge or is_remote(knowledge):
@@ -209,7 +211,7 @@ def refresh_index(knowledge_id: int | None) -> bool:
 def ensure_index(knowledge: dict) -> str | None:
     """Das Verzeichnis dieses Knowledge; fehlt es (Bestand vor Migration 0029), wird es einmal erzeugt.
     Fremde Quellen (Qdrant, SQL) haben keines."""
-    from app.knowledge import is_remote
+    from app.rag.knowledge import is_remote
 
     if is_remote(knowledge):
         return None
@@ -226,7 +228,9 @@ def _read_texts(indexes) -> list[str]:
 
 def read_indexes(max_chars: int = TOOL_MAX_CHARS) -> str:
     """Die Verzeichnisse der Knowledge im aktuellen Scope (gekuerzt auf ``max_chars``)."""
-    from app.retrieval import get_scope_or_none  # lazy: vermeidet einen Importzyklus
+    from app.rag.retrieval import (
+        get_scope_or_none,  # lazy: vermeidet einen Importzyklus
+    )
 
     scope = get_scope_or_none()
     texts = _read_texts(scope.indexes if scope else ())

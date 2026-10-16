@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,7 +20,32 @@
 
 import os
 
+import openai
 from langchain_openai import ChatOpenAI
+
+
+class ReasoningChatOpenAI(ChatOpenAI):
+    """ChatOpenAI, das das Denken von Servern mit Reasoning-Parser weiterreicht.
+
+    ``ChatOpenAI`` haelt sich an die OpenAI-Spezifikation und wirft Zusatzfelder
+    anderer Anbieter weg. vLLM (und llama.cpp mit Reasoning-Parser) liefern das
+    Denken getrennt vom Inhalt in ``delta.reasoning`` bzw. ``delta.reasoning_content``;
+    ohne diese Unterklasse bliebe der Chat waehrend des Denkens leer. Der Chat liest
+    es aus ``additional_kwargs["reasoning_content"]``.
+    """
+
+    def _convert_chunk_to_generation_chunk(self, chunk, default_chunk_class, base_generation_info):
+        generation_chunk = super()._convert_chunk_to_generation_chunk(
+            chunk, default_chunk_class, base_generation_info
+        )
+        if generation_chunk is None:
+            return None
+        choices = chunk.get("choices") or chunk.get("chunk", {}).get("choices") or []
+        delta = (choices[0].get("delta") if choices else None) or {}
+        reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+        if reasoning:
+            generation_chunk.message.additional_kwargs["reasoning_content"] = reasoning
+        return generation_chunk
 
 _FALLBACK = {
     "temperature": "0.1",
@@ -45,8 +72,8 @@ def global_chat_defaults() -> dict:
     """
     raw = dict(_FALLBACK)
     try:
-        from app.database_service import get_db_service
-        from app.settings_service import SettingsService
+        from app.core.database_service import get_db_service
+        from app.core.settings_service import SettingsService
 
         session = get_db_service().get_session()
         try:
@@ -78,7 +105,7 @@ def build_chat_llm(
     params: dict | None = None,
     streaming: bool = True,
     timeout: float | None = None,
-) -> ChatOpenAI:
+) -> ReasoningChatOpenAI:
     """Baut das Chat-LLM. ``params`` ueberschreibt die globalen Defaults."""
     p = {**global_chat_defaults(), **(params or {})}
 
@@ -120,4 +147,10 @@ def build_chat_llm(
 
     if extra_body:
         kwargs["extra_body"] = extra_body
-    return ChatOpenAI(**kwargs)
+    # Eigener async-Client je Instanz: langchain-openai teilt sonst einen per lru_cache
+    # gehaltenen Client samt Verbindungspool zwischen allen Modellen. Jeder Chat laeuft aber
+    # in einem neuen Event-Loop; eine gepoolte Verbindung des vorigen (geschlossenen) Loops
+    # endet in "RuntimeError: Event loop is closed". Der Client bindet sich erst bei der
+    # ersten Anfrage an den Loop, daher ist das Anlegen hier unkritisch.
+    kwargs["http_async_client"] = openai.DefaultAsyncHttpxClient()
+    return ReasoningChatOpenAI(**kwargs)

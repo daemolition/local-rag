@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -28,7 +30,7 @@ import logging
 from app.rag.sparse import SparseRouter
 
 from app.llm.local_llm import VisionLLM
-from app.retrieval import MultiCollectionRetriever
+from app.rag.retrieval import MultiCollectionRetriever
 from app.sqlsource.tools import SqlTools
 from app.tools.custom_tools import CustomTools
 

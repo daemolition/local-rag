@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -37,7 +39,7 @@ def format_hits(docs: list[Document], numbers: list[int] | None = None) -> str:
     """
     if not docs:
         return NO_RESULTS
-    from app.retrieval import get_scope_or_none
+    from app.rag.retrieval import get_scope_or_none
 
     scope = get_scope_or_none()
     names = dict(scope.knowledge_names) if scope is not None and len(scope.knowledge_names) > 1 else {}
@@ -83,7 +85,7 @@ def source_entry(doc: Document) -> dict:
 def record_sources(docs: list[Document]) -> list[int]:
     """Merkt die Treffer im Scope des Requests (Anzeige unter der Antwort) und liefert ihre
     Quellennummern; dieselbe Stelle behaelt bei erneuter Suche ihre Nummer."""
-    from app.retrieval import get_scope_or_none
+    from app.rag.retrieval import get_scope_or_none
 
     scope = get_scope_or_none()
     if scope is None:

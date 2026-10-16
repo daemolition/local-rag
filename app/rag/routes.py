@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -20,15 +22,15 @@ from logging import getLogger
 
 from flask import Blueprint, current_app, jsonify, request
 
-from app.access import accessible_knowledge_ids, can_access_knowledge
-from app.auth import current_user, require_role
-from app.knowledge import list_knowledge
+from app.auth.access import accessible_knowledge_ids, can_access_knowledge
+from app.auth.auth import current_user, require_role
+from app.auth.users import role_at_least
 from app.llm import registry
 from app.rag import model_settings, models_runtime, pipeline, profiles
 from app.rag import sparse as sparse_lang
 from app.rag.helper import make_helper
+from app.rag.knowledge import list_knowledge
 from app.rag.profiles import ProfileError
-from app.users import role_at_least
 
 rag_bp = Blueprint("rag_api", __name__, url_prefix="/api")
 
@@ -146,7 +148,7 @@ def retrieval_test():
         override = found["config"]
 
     # Helfer-LLM fuers Query-Enhancement
-    from app.access import can_use_model
+    from app.auth.access import can_use_model
 
     try:
         chat_model = registry.resolve_model(data.get("model"))

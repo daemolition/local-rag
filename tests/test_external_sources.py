@@ -5,13 +5,14 @@ from flask import Flask
 from qdrant_client import QdrantClient
 from qdrant_client import models as qm
 
-from app import access, knowledge
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
+from app.auth import access
+from app.rag import knowledge
 from app.rag import models_runtime as mr
-from app.retrieval import MultiCollectionRetriever, RetrievalScope
-from app.routes import bp as main_bp
+from app.rag.retrieval import MultiCollectionRetriever, RetrievalScope
 from app.vector import sources
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 from tests.test_rag import FakeDense as KeywordDense
 from tests.test_rag import FakeSparse, cfg, with_scope
@@ -404,11 +405,11 @@ def test_the_filter_test_shows_counts_without_saving_and_only_for_admins(app, db
 
 
 def test_chat_scope_carries_the_users_identity(app, db, remote):
-    from app.access import user_group_names
+    from app.auth.access import user_group_names
 
     ed = add_user(db, "ed3", "editor")
     s = db.get_session()
-    from app.models import Group, GroupMember
+    from app.core.models import Group, GroupMember
 
     g = Group(name="Vertrieb")
     s.add(g)

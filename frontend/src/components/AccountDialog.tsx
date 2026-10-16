@@ -15,7 +15,7 @@ import { useAuth } from "@/context/AuthContext";
 import { api, errorMessage } from "@/lib/api";
 import { useVersion } from "@/lib/useVersion";
 
-// Eigenes Konto: Passwort ändern (für jede Rolle erreichbar).
+// Eigenes Konto: Passwort ändern und Datenexport (Auskunft/Übertragbarkeit).
 export function AccountDialog({
   open,
   onOpenChange,
@@ -29,6 +29,7 @@ export function AccountDialog({
   const [newPw, setNewPw] = useState("");
   const [repeat, setRepeat] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -55,6 +56,29 @@ export function AccountDialog({
       toast.error(errorMessage(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/me/export", { credentials: "include" });
+      if (!res.ok) throw new Error("Export fehlgeschlagen");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const cd = res.headers.get("Content-Disposition") ?? "";
+      a.href = url;
+      a.download = /filename="?([^";]+)"?/.exec(cd)?.[1] ?? "open-knowledge-ui-export.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Daten exportiert");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -108,6 +132,15 @@ export function AccountDialog({
             <p className="text-xs text-muted-foreground">Version v{version}</p>
           ) : null}
           <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={exportData}
+              disabled={exporting}
+              className="mr-auto"
+            >
+              {exporting ? "Exportiere …" : "Daten exportieren"}
+            </Button>
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
               Abbrechen
             </Button>

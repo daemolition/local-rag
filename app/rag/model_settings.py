@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -27,10 +29,10 @@ welchem Modell ein Knowledge indexiert wurde.
 import json
 from logging import getLogger
 
-from app.database_service import get_db_service
-from app.models import Knowledge, Setting
+from app.core.database_service import get_db_service
+from app.core.models import Knowledge, Setting
+from app.core.settings_service import SettingsService
 from app.rag import models_runtime as mr
-from app.settings_service import SettingsService
 
 logger = getLogger(__name__)
 
@@ -187,7 +189,7 @@ def prepare(client) -> None:
     Fehler (z. B. kein Netz fuer den Download) werden im Modell-Status festgehalten und
     verhindern den Start nicht; sie erscheinen auf der Admin-Seite "Einlesen & Modelle".
     """
-    from app.knowledge import list_knowledge
+    from app.rag.knowledge import list_knowledge
     from app.vector.collections import ensure_collection
 
     for kb in list_knowledge():

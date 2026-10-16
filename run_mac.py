@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -69,8 +71,8 @@ def point_workers_to_localhost() -> None:
     native App nicht. Nur Standardwerte werden ersetzt, Angepasstes bleibt."""
     code = (
         "import os\n"
-        "from app.database_service import init_db_service\n"
-        "from app.settings_service import SettingsService\n"
+        "from app.core.database_service import init_db_service\n"
+        "from app.core.settings_service import SettingsService\n"
         "svc = init_db_service(os.environ['DATABASE_URL'])\n"
         "s = svc.get_session()\n"
         "st = SettingsService(s)\n"

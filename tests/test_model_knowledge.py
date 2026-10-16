@@ -1,7 +1,15 @@
 # ruff: noqa: F811  (Fixtures aus anderen Testmodulen werden importiert und als Argument genutzt)
-from app import access, knowledge
-from app import connections as store
-from tests.test_access import add_user, app, chat, chat_env, client_for, conn  # noqa: F401
+from app.auth import access
+from app.llm import connections as store
+from app.rag import knowledge
+from tests.test_access import (  # noqa: F401
+    add_user,
+    app,
+    chat,
+    chat_env,
+    client_for,
+    conn,
+)
 
 
 def setup_model(conn, ids, **cfg):

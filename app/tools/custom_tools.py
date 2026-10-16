@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -32,7 +34,7 @@ from pydantic import BaseModel, Field
 from langchain_core.tools.structured import StructuredTool
 from app.rag.format import format_hits, record_sources
 from app.ingest.index_doc import read_indexes
-from app.retrieval import get_scope_or_none
+from app.rag.retrieval import get_scope_or_none
 from app.utils.phase_logger import phase_logger, Phase
 from app.toolworker import config as worker_config
 from app.toolworker.client import ToolWorkerUnavailable, get_client
@@ -581,8 +583,8 @@ class CustomTools:
     @property
     def SUMMARIES_DIR(self) -> str:
         """Analysen-Ordner des Nutzers dieses Requests (siehe app/summaries.py)."""
-        from app import summaries
-        from app.retrieval import get_scope_or_none
+        from app.chat import summaries
+        from app.rag.retrieval import get_scope_or_none
 
         scope = get_scope_or_none()
         return str(summaries.user_dir(scope.user_id if scope else None))
@@ -634,9 +636,9 @@ class CustomTools:
         "Analysen" erscheint (Single-User).
         """
         try:
-            from app.database_service import get_db_service
+            from app.core.database_service import get_db_service
 
-            from app.retrieval import get_scope_or_none
+            from app.rag.retrieval import get_scope_or_none
 
             scope = get_scope_or_none()
             owner = scope.user_id if scope else None

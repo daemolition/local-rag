@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -17,21 +19,20 @@
 """
 PDF-spezifisches Preprocessing via Docling.
 
-Nutzt DocumentConverter mit Tesseract-OCR (CLI) und TableFormer
-(do_table_structure=True) fuer saubere Tabellenextraktion. Bilder werden
-ueber generate_picture_images=True als PIL-Bilder zur Verfuegung gestellt
-und in Lesereihenfolge via VisionLLM beschrieben; Ergebnis ist Markdown.
+Nutzt DocumentConverter mit waehlbarer OCR (OCR_ENGINE, siehe
+``app/components/ocr.py``) und TableFormer (do_table_structure=True) fuer
+saubere Tabellenextraktion. Bilder werden ueber generate_picture_images=True
+als PIL-Bilder zur Verfuegung gestellt und in Lesereihenfolge via VisionLLM
+beschrieben; Ergebnis ist Markdown.
 """
 
 # Third party
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import (
-    PdfPipelineOptions,
-    TesseractCliOcrOptions,
-)
+from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 
 # Custom imports
+from app.components.ocr import build_ocr_options
 from app.components.preprocess_base import PreprocessBase
 
 
@@ -39,13 +40,16 @@ class PreprocessPDF(PreprocessBase):
     """PDF-Preprocessing mit Docling (Layout, Tabellen, OCR, Bilder)."""
 
     def _build_converter(self) -> DocumentConverter:
-        pipeline_options = PdfPipelineOptions(
-            do_ocr=True,
-            do_table_structure=True,
-            generate_picture_images=True,
-            images_scale=2,
-            ocr_options=TesseractCliOcrOptions(lang=["deu", "eng"]),
-        )
+        do_ocr, ocr_options = build_ocr_options()
+        pipeline_kwargs = {
+            "do_ocr": do_ocr,
+            "do_table_structure": True,
+            "generate_picture_images": True,
+            "images_scale": 2,
+        }
+        if ocr_options is not None:
+            pipeline_kwargs["ocr_options"] = ocr_options
+        pipeline_options = PdfPipelineOptions(**pipeline_kwargs)
         return DocumentConverter(
             format_options={
                 InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),

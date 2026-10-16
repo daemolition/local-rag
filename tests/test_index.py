@@ -5,18 +5,29 @@ import pytest
 from flask import Flask
 from werkzeug.security import generate_password_hash
 
-from app import access, knowledge, retrieval
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
+from app.auth import access
+from app.auth.user_admin_routes import users_bp
+from app.core.models import User
 from app.ingest import index_doc
-from app.models import User
-from app.retrieval import RetrievalScope
-from app.routes import bp as main_bp
+from app.rag import knowledge, retrieval
+from app.rag.retrieval import RetrievalScope
 from app.tools.custom_tools import CustomTools
-from app.user_admin_routes import users_bp
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_ingest import (  # noqa: F401
-    FakeDense, FakeSparse, FakeVision, Shared, qd, make_ingestion, no_enrichment,
-    put_file, set_setting, DOC, make_docx_with_tables, ingest_docx,
+    DOC,
+    FakeDense,
+    FakeSparse,
+    FakeVision,
+    Shared,
+    ingest_docx,
+    make_docx_with_tables,
+    make_ingestion,
+    no_enrichment,
+    put_file,
+    qd,
+    set_setting,
 )
 
 
@@ -264,9 +275,8 @@ class CapturingAgent:
 
 @pytest.fixture
 def chat_env(app, db, monkeypatch):
-    import app.routes as routes
-    from app import connections as store
-
+    import app.web.routes as routes
+    from app.llm import connections as store
     CapturingAgent.messages = []
     conn = store.create_connection("C", "http://x/v1", "k")
     monkeypatch.setattr(routes, "get_agent", lambda resolved, tools: CapturingAgent())

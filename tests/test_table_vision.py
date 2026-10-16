@@ -9,15 +9,15 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from app import connections as store
+from app.llm import connections as store
 from app.ingest import prompts, table_vision as tv, tasks
 from app.llm.local_llm import VisionLLM
 from flask import Flask
 
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
 from app.llm import registry
-from app.routes import bp as main_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 from tests.test_web_and_vision import ADMIN, put_tasks
 
@@ -242,7 +242,7 @@ def test_word_tables_and_a_disabled_task_never_call_the_model(db, monkeypatch):
     monkeypatch.setattr("app.components.preprocess_base._vision_enabled", lambda: True)
     assert base._table_refiner("vertrag.docx") is None  # kein Seitenbild bei Word
     s = db.get_session()
-    from app.settings_service import SettingsService
+    from app.core.settings_service import SettingsService
 
     SettingsService(s).set("INGEST_TABLE_VISION", "false")
     s.close()

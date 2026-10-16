@@ -7,9 +7,10 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import text
 
-from app import connections as store
-from app import crypto, knowledge
-from app.settings_service import SettingsService
+from app.core import crypto
+from app.core.settings_service import SettingsService
+from app.llm import connections as store
+from app.rag import knowledge
 
 
 def raw(db, sql, **params):

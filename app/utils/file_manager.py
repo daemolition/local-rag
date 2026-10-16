@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -82,7 +84,7 @@ def store_uploaded_files(files, paths=None, uploader_id: Optional[int] = None) -
       sofort für die Pandas-Tools verfügbar (keine Ingestion, keine Vektoren).
     - Dokumente (PDF/DOCX/DOC/ODT/MD) gehen nach data/files zur Ingestion.
 
-    ``paths`` (``app.knowledge.KnowledgePaths``) legt die Zielordner eines
+    ``paths`` (``app.rag.knowledge.KnowledgePaths``) legt die Zielordner eines
     Knowledge-Bereichs fest; ohne Angabe gelten die Standard-Ordner.
 
     Returns:

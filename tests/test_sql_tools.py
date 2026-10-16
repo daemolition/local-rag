@@ -4,16 +4,30 @@ import sqlite3
 
 import pytest
 
-from app import access, knowledge, retrieval
 from app.agent.document_agent import KNOWLEDGE_TOOLS, SQL_TOOLS, select_tools
-from app.models import Message
-from app.pii_session import PIISession, set_session
-from app.retrieval import RetrievalScope
+from app.auth import access
+from app.chat.pii_session import PIISession, set_session
+from app.core.models import Message
+from app.rag import knowledge, retrieval
+from app.rag.retrieval import RetrievalScope
 from app.sqlsource import format as sqlformat
 from app.sqlsource.tools import SqlTools
-from tests.test_access import add_user, app, chat, chat_env, client_for, conn  # noqa: F401,F811
+from tests.test_access import (  # noqa: F401,F811
+    add_user,
+    app,
+    chat,
+    chat_env,
+    client_for,
+    conn,
+)
 from tests.test_pii_tools import FakeFilter
-from tests.test_sanitizer import FakeAgent, Sanitizer, chat_setup, sanitizer, set_settings  # noqa: F401
+from tests.test_sanitizer import (  # noqa: F401
+    FakeAgent,
+    Sanitizer,
+    chat_setup,
+    sanitizer,
+    set_settings,
+)
 
 SRC = {"dialect": "sqlite", "database": "shop.db", "tables": ["items", "orders"], "blocked_columns": {"items": ["salary"]}}
 
@@ -188,8 +202,7 @@ def test_without_a_filter_results_are_unchanged(db, shop):
 
 # --- Chat-Scope und Ende-zu-Ende ------------------------------------------------------------
 def test_chat_scope_carries_sql_sources_only_for_readable_knowledge(app, db, conn, chat_env, shop):  # noqa: F811
-    from app import connections as store
-
+    from app.llm import connections as store
     sql = knowledge.create_sql_knowledge("Shop", "", SRC)
     alice = add_user(db, "alice", "editor")
     ref = store.make_base_ref(conn["id"], "m")
@@ -250,7 +263,7 @@ def run_chat(app, db, monkeypatch, pii_url, answer, who="[NAME_1]"):
         ],
         [answer],
     )
-    monkeypatch.setattr("app.routes.get_agent", lambda *a, **k: tool_agent)
+    monkeypatch.setattr("app.web.routes.get_agent", lambda *a, **k: tool_agent)
     res = client_for(app, ed).post("/chat", json={"message": "Wie viele Bestellungen hat Max Mustermann?", "knowledge_ids": [sql["id"]]})
     res.get_data()
     return res, tool_agent, agent

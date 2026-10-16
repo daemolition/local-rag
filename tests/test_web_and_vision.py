@@ -1,14 +1,14 @@
 import pytest
 from flask import Flask
 
-from app import connections as store
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
+from app.core.settings_service import SettingsService
+from app.llm import connections as store
 from app.llm import registry
 from app.llm.local_llm import VisionLLM
-from app.routes import bp as main_bp
-from app.settings_service import SettingsService
 from app.tools import web_access
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
@@ -102,7 +102,7 @@ def test_tools_api_is_admin_only_and_validates(app, db):
 
 
 def test_tools_test_uses_form_values_and_stored_key_only_for_the_stored_url(app, db, monkeypatch):
-    import app.user_routes as ur
+    import app.web.user_routes as ur
 
     seen = []
     monkeypatch.setattr(ur, "_test_stt", lambda s: seen.append((s.get("STT_BASEURL"), s.get("STT_API_KEY"))) or {"success": True})

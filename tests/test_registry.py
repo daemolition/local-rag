@@ -1,7 +1,7 @@
 import pytest
 
-from app import connections as store
 from app.agent.document_agent import DocumentAgent
+from app.llm import connections as store
 from app.llm import registry
 
 

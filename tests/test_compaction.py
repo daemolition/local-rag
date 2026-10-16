@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -21,11 +23,11 @@ import pytest
 from flask import Flask
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from app import compaction
-from app.admin_routes import admin_bp
 from app.agent import context_guard
-from app.api_routes import api_bp
-from app.routes import bp as main_bp
+from app.chat import compaction
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}

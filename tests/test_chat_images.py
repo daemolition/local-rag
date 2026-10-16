@@ -12,9 +12,10 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from app import attachments, knowledge  # noqa: F401
-from app import connections as store
+from app.chat import attachments
 from app.ingest import image_text, prompts, tasks
+from app.llm import connections as store
+from app.rag import knowledge  # noqa: F401
 from tests.test_access import add_user, app, client_for, conn  # noqa: F401
 from tests.test_ingest import FakeDense, FakeSparse, no_enrichment, qd  # noqa: F401
 from tests.test_web_and_vision import ADMIN, put_tasks
@@ -197,7 +198,7 @@ class CapturingAgent:
 
 @pytest.fixture
 def chat_images(app, db, conn, upload_env, monkeypatch):
-    import app.routes as routes
+    import app.web.routes as routes
 
     CapturingAgent.sent = []
     monkeypatch.setattr(routes, "get_agent", lambda resolved, tools: CapturingAgent())
@@ -241,7 +242,7 @@ def test_foreign_or_unknown_attachment_ids_are_ignored(app, db, chat_images):
 
 
 def test_the_pii_filter_masks_the_text_but_the_image_is_sent_unchanged(app, db, chat_images, monkeypatch):
-    import app.routes as routes
+    import app.web.routes as routes
 
     store.save_model_config(chat_images, {"vision": True})
 

@@ -19,6 +19,11 @@ services:
       - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (z. B. openssl rand -hex 32)}
       # Schluessel fuer Zugangsdaten in der Datenbank (Fernet); leer = Schluesseldatei im Datenverzeichnis
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      # OCR-Engine fuer PDFs: tesseract (default) | rapidocr | ocrmac (macOS) | off, naehere
+      # Details (Sprachcodes, tesseract.exe-Pfad) siehe env.example:
+      # - OCR_ENGINE=tesseract
+      # - OCR_LANGUAGES=deu,eng
+      # - OCR_TESSERACT_CMD=/usr/local/bin/tesseract
     volumes:
       # Alle App-Daten (uploads, archiv, images, summaries, data) liegen im
       # einzelnen app-data-Volume als Subdirs von /app/data. Fruehere Bind-
@@ -27,11 +32,13 @@ services:
       - app-data:/app/data
       # ONNX-Modell-Cache (FastEmbed). Beim ersten Start werden die zur Build-Zeit
       # vorgeladenen Modelle aus dem Image ins Volume kopiert und persistieren
-      # danach ueber Image-Rebuilds hinweg.
-      - fastembed-cache:/root/.cache/fastembed
+      # danach ueber Image-Rebuilds hinweg. Pfad seit dem Non-Root-Image:
+      # /app/.cache statt /root/.cache — die alten Volumes behalten ihre Inhalte,
+      # die Modelle laden einmalig neu.
+      - fastembed-cache:/app/.cache/fastembed
       # HuggingFace-Cache: heruntergeladene Embedding-/Reranking-Modelle (z. B. bge-m3)
       # und die Docling-Modelle bleiben ueber Neustarts und Rebuilds erhalten.
-      - hf-cache:/root/.cache/huggingface
+      - hf-cache:/app/.cache/huggingface
     networks:
       - open-knowledge-ui-network
       - tool-worker-net

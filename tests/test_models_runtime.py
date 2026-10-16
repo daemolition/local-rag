@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from app import connections
+from app.llm import connections
 from app.rag import models_runtime as mr
 
 

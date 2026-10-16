@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -25,8 +27,8 @@ from pathlib import Path
 from flask import Flask
 
 from app.utils.qdrant_client import get_qdrant_client
-from app.database_service import init_db_service
-from app.settings_service import LiveSettingsService, SettingsService
+from app.core.database_service import init_db_service
+from app.core.settings_service import LiveSettingsService, SettingsService
 
 # fastembed >=0.6 emits a UserWarning that the paraphrase-multilingual-MiniLM-L12-v2
 # model now uses mean pooling instead of CLS embedding. The new behaviour is correct
@@ -121,7 +123,7 @@ def init_resources(app, preload=False):
     # Collections mit bekannter Dimension sofort anlegen (schnell; Dense + HNSW, BM25 mit IDF;
     # bestehende bekommen den IDF-Modifier nachgetragen). Wo die Dimension noch unbekannt ist
     # (frische Installation), legt model_settings.prepare sie nach dem Laden des Modells an.
-    from app.knowledge import list_knowledge
+    from app.rag.knowledge import list_knowledge
     from app.vector.collections import ensure_collection
 
     try:
@@ -327,26 +329,30 @@ def create_app(preload=False):
     # eingebettet (siehe serve_spa) - daher kein Jinja-Context mehr nötig.
 
     # Blueprints registrieren
-    from app.csrf import init_csrf
+    from app.core.csrf import init_csrf
 
     init_csrf(app)  # CSRF-Token fuer alle aendernden Anfragen, Session-Cookie SameSite=Lax
 
-    from app.routes import bp
+    from app.core.security_headers import init_security_headers
+
+    init_security_headers(app)  # CSP, X-Frame-Options, nosniff; HSTS nur bei Secure-Cookie
+
+    from app.web.routes import bp
 
     app.register_blueprint(bp)
 
     # JSON-API für die React-SPA (Auth, Settings, Dokumente, VektordB, ...).
-    from app.api_routes import api_bp
+    from app.web.api_routes import api_bp
 
     app.register_blueprint(api_bp)
 
     # Connections und Modell-Konfigurationen (Admin-Bereich der SPA).
-    from app.admin_routes import admin_bp
+    from app.web.admin_routes import admin_bp
 
     app.register_blueprint(admin_bp)
 
     # Benutzer, Gruppen, Freigaben und eigenes Passwort.
-    from app.user_admin_routes import users_bp
+    from app.auth.user_admin_routes import users_bp
 
     app.register_blueprint(users_bp)
 
@@ -357,12 +363,12 @@ def create_app(preload=False):
 
     # User Routes enthalten jetzt auch die ehemaligen Admin-Funktionen
     # (Vektordatenbank, Settings, Summaries).
-    from app.user_routes import user_bp
+    from app.web.user_routes import user_bp
 
     app.register_blueprint(user_bp)
 
     # WebSocket-Proxy fuer Live-STT-Streaming (Browser <-> Parakeet).
-    from app.stt_stream import sock
+    from app.stt.stt_stream import sock
 
     sock.init_app(app)
 

@@ -1,6 +1,6 @@
 import pytest
 
-from app.pii_session import PIISession, StreamDemasker, get_session, merge_masked, set_session
+from app.chat.pii_session import PIISession, StreamDemasker, get_session, merge_masked, set_session
 from app.utils.pii_filter_client import PIIFilterResult, PIIFilterUnavailable
 
 

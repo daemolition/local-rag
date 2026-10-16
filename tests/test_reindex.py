@@ -5,13 +5,14 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
-from app import access, knowledge, reindex
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.database_service import get_db_service
-from app.rag import model_settings
+from app.auth import access
+from app.core.database_service import get_db_service
+from app.rag import knowledge, model_settings
 from app.rag import models_runtime as mr
-from app.routes import bp as main_bp
+from app.vector import reindex
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 from tests.test_ingest import (  # noqa: F401  (Fixtures)
     DOC,
@@ -210,7 +211,7 @@ def test_reindex_keeps_uploader_and_upload_date(db, qd, no_enrichment):
     ed = add_user(db, "ed", "editor")
     ingest_two(qd)
     s = db.get_session()
-    from app.models import UserDocument
+    from app.core.models import UserDocument
 
     stamp = None
     for doc in s.query(UserDocument).all():

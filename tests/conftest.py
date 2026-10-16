@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-from app import database_service
+from app.core import database_service
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def db(tmp_path, monkeypatch):
     if "://" in target and not target.startswith("sqlite"):
         from sqlalchemy import create_engine
 
-        from app.models import Base
+        from app.core.models import Base
 
         engine = create_engine(target)
         Base.metadata.drop_all(engine)
@@ -38,8 +38,7 @@ def fixed_encryption_key(monkeypatch):
     """Fester Schluessel: keine Schluesseldatei im Arbeitsverzeichnis, gleiches Ergebnis in jedem Test."""
     from cryptography.fernet import Fernet
 
-    from app import crypto
-
+    from app.core import crypto
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
     crypto.reset()
     yield

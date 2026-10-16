@@ -4,19 +4,18 @@ from flask import Flask
 from qdrant_client import QdrantClient
 from werkzeug.security import generate_password_hash
 
-from app import access, knowledge
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.models import User
+from app.auth import access
+from app.auth.user_admin_routes import users_bp
+from app.core.models import User
+from app.rag import knowledge, model_settings
 from app.rag import profiles as prof
-from app.rag import model_settings
 from app.rag.profiles import ProfileError
 from app.rag.routes import rag_bp
-from app.routes import bp as main_bp
-from app.user_admin_routes import users_bp
 from app.vector.collections import ensure_collection
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_rag import FakeDense, FakeSparse, add_point  # noqa: E402
-
 
 # --- Konfiguration ---------------------------------------------------------
 

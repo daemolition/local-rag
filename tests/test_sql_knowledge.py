@@ -3,10 +3,11 @@ import sqlite3
 import pytest
 from flask import Flask
 
-from app import access, knowledge
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.routes import bp as main_bp
+from app.auth import access
+from app.rag import knowledge
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
@@ -55,7 +56,7 @@ def test_the_password_never_leaks_but_is_stored(app, db, shop, monkeypatch):
     from app.sqlsource import config as sqlcfg
 
     # Verbindungsprobe ohne echten Server: der Worker-Test wird ersetzt
-    monkeypatch.setattr("app.api_routes._sql_probe", lambda cfg: {"version": "x", "tables": [], "write_privilege": False})
+    monkeypatch.setattr("app.web.api_routes._sql_probe", lambda cfg: {"version": "x", "tables": [], "write_privilege": False})
     r = create(app, body(dialect="postgresql", host="db.lan", port=5432, database="d", user="u", password="geheim"))
     assert r.status_code == 201, r.json
     assert "geheim" not in r.get_data(as_text=True)
@@ -117,7 +118,7 @@ def test_visibility_follows_the_usual_grants(app, db, shop):
 def test_changing_the_source_keeps_the_password_for_the_same_target(app, db, shop, monkeypatch):
     from app.sqlsource import config as sqlcfg
 
-    monkeypatch.setattr("app.api_routes._sql_probe", lambda cfg: {"version": "x", "tables": [], "write_privilege": False})
+    monkeypatch.setattr("app.web.api_routes._sql_probe", lambda cfg: {"version": "x", "tables": [], "write_privilege": False})
     k = create(app, body(dialect="postgresql", host="db.lan", port=5432, database="d", user="u", password="geheim")).json
     src = {"dialect": "postgresql", "host": "db.lan", "port": 5432, "database": "d", "user": "u", "password": "", "tables": ["a"]}
     r = client_for(app, ADMIN).patch(f"/api/knowledge/{k['id']}", json={"source": src})

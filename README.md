@@ -52,12 +52,12 @@ Das Skript arbeitet an einer Kopie der SQLite-Datei (die Originaldatei bleibt un
 
 ### Ohne Docker
 
-Voraussetzungen: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+, ein laufender Qdrant-Server und für PDF-OCR Tesseract (`tesseract-ocr-deu`) und Poppler.
+Voraussetzungen: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+, ein laufender Qdrant-Server. Für PDF-OCR der Engine `tesseract` (Default, siehe `OCR_ENGINE`): Tesseract (`tesseract-ocr-deu`) und Poppler; `rapidocr` und `off` brauchen kein zusätzliches Binary.
 
 ```bash
 uv sync
 (cd frontend && npm install && npm run build)   # React-Oberfläche nach app/static/
-cp env.example .env                             # Qdrant-Host, OCR-Pfade
+cp env.example .env                             # Qdrant-Host, OCR-Engine, Worker-Token
 alembic upgrade head                            # Datenbank anlegen bzw. aktualisieren
 python run_linux.py                             # http://localhost:5000
 ```
@@ -178,6 +178,7 @@ Selbstauskunft mit Fundstellen und ehrlich benannten Lücken (keine Zertifizieru
 | Modell lädt nicht | Status und Fehlertext stehen unter *Einlesen & Modelle*; ohne Internet können HuggingFace-Modelle nicht geladen werden. |
 | Reranking fehlt in der Suche | Der Reranker lädt beim Start im Hintergrund; schlägt das fehl, läuft die Suche ohne Neusortierung weiter. |
 
-## Autor
+## Autor und Rechteinhaber
 
-Christopher Abanilla
+Rechteinhaber ist die **S2A Open Technologies gGmbH**; Urheber ist Christopher Abanilla.
+Siehe [`AUTHORS.md`](./AUTHORS.md).

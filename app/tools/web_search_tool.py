@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -173,7 +175,7 @@ def create_web_search_tool(
                 logger.warning(f"PII-Filter für Web-Suche fehlgeschlagen: {e}")
                 filter_result = None
             if filter_result is None or filter_result.error:
-                from app.pii_session import unavailable_message
+                from app.chat.pii_session import unavailable_message
 
                 return (
                     "FEHLER: Die Suche wurde abgebrochen, weil die Suchanfrage nicht maskiert "

@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -23,14 +25,14 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from flask import Flask
 
-from app import connections as store
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
+from app.core.settings_service import SettingsService
+from app.llm import connections as store
 from app.llm import registry
-from app.routes import bp as main_bp
-from app.settings_service import SettingsService
 from app.tools import web_access
 from app.utils.pii_filter_client import PIIFilterClient, mapping_pairs, parse_response
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
@@ -319,13 +321,13 @@ class FakeAgent:
 
 def chat_setup(app, db, monkeypatch, pii_url, chunks=("Antwort",)):
     monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m1"])
-    monkeypatch.setattr("app.routes.resources_ready", lambda: True)
+    monkeypatch.setattr("app.web.routes.resources_ready", lambda: True)
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
     set_settings(db, PII_FILTER_URL=pii_url, PII_FILTER_ENABLED="true", INGEST_INDEX_ENABLED="false")
     app.extensions["agent_tools"] = []
     agent = FakeAgent(chunks)
-    monkeypatch.setattr("app.routes.get_agent", lambda *a, **k: agent)
+    monkeypatch.setattr("app.web.routes.get_agent", lambda *a, **k: agent)
     return agent
 
 
@@ -336,7 +338,7 @@ def test_chat_shows_an_error_and_sends_nothing_when_the_filter_is_unreachable(ap
     assert r.mimetype == "text/event-stream" and "PII-Filter ist nicht erreichbar" in body and "nicht gesendet" in body
     assert agent.inputs == []  # nichts ging an das Modell
     s = db.get_session()
-    from app.models import Message
+    from app.core.models import Message
 
     assert s.query(Message).count() == 0  # die Nachricht wurde nicht gespeichert
     s.close()

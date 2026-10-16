@@ -37,7 +37,9 @@ def test_tiny_sections_are_merged_up_to_the_chunk_size():
 
 
 def test_merging_respects_chunk_size_and_does_not_chain_past_min_size():
-    section = lambda n: f"## S{n}\n\n" + ("Wort " * 25)  # ca. 130 Zeichen
+    def section(n) -> str:
+        # ca. 130 Zeichen je Abschnitt
+        return f"## S{n}\n\n" + ("Wort " * 25)
     doc = "\n\n".join(section(i) for i in range(6))
     chunks = split_markdown(doc, filename="v.md", chunk_size=700, min_size=250)
     assert all(len(c.text) <= 700 for c in chunks)

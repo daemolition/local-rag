@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -38,8 +40,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from app import connections as store
 from app.agent.document_agent import DocumentAgent
+from app.llm import connections as store
 from app.llm.factory import build_chat_llm
 
 logger = getLogger(__name__)
@@ -282,8 +284,8 @@ def default_model_ref() -> str:
         except ValueError:
             pass
 
-    from app.database_service import get_db_service
-    from app.settings_service import SettingsService
+    from app.core.database_service import get_db_service
+    from app.core.settings_service import SettingsService
 
     db = get_db_service().get_session()
     try:
@@ -343,8 +345,7 @@ def resolve_model(ref: str | None = None) -> ResolvedModel:
 
 
 def _compaction_summary() -> dict:
-    from app import compaction
-
+    from app.chat import compaction
     cfg = compaction.load_settings()
     return {k: cfg[k] for k in ("enabled", "headroom_percent", "keep_percent", "output_reserve_percent")}
 
@@ -353,8 +354,7 @@ def get_agent(resolved: ResolvedModel, tools: list) -> DocumentAgent:
     """Agent fuer das aufgeloeste Modell (LRU-gecacht)."""
     # Die Werkzeugliste gehoert in den Schluessel (Websuche kann pro Anfrage ein-/ausfallen).
     # Compaction: Budget und Prompt gehoeren in den Schluessel (Aenderungen muessen greifen).
-    from app import compaction
-
+    from app.chat import compaction
     cfg = compaction.load_settings()
     budget = compaction.compute_budget(compaction.effective_params(resolved.params), cfg)
     system_prompt = DocumentAgent.compose_prompt(resolved.system_prompt)

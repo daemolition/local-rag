@@ -2,11 +2,11 @@ import pytest
 from flask import Flask
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app import users
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.models import ChatSession, User
-from app.routes import bp as main_bp
+from app.auth import users
+from app.core.models import ChatSession, User
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 
 
 @pytest.fixture(autouse=True)
@@ -165,7 +165,7 @@ def test_anonymous_is_rejected_everywhere(app):
 
 
 def test_normal_user_sees_models_without_prompts_or_config(app, db, monkeypatch):
-    from app import connections as store
+    from app.llm import connections as store
     from app.llm import registry
 
     conn = store.create_connection("C", "http://x/v1", "k")

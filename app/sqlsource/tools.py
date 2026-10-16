@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -20,8 +22,8 @@ from logging import getLogger
 from langchain_core.tools.structured import StructuredTool
 from pydantic import BaseModel, Field
 
-from app.pii_session import get_session, unavailable_message
-from app.retrieval import get_scope_or_none
+from app.chat.pii_session import get_session, unavailable_message
+from app.rag.retrieval import get_scope_or_none
 from app.sqlsource import format as fmt
 from app.sqlsource import valueindex
 from app.sqlsource.config import parse_config

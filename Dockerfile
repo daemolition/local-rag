@@ -1,7 +1,8 @@
+# Basis-Images auf Manifest-Digest gepinnt (multi-arch, amd64+arm64); Dependabot aktualisiert den Digest zusammen mit dem Tag.
 # --- Stage 1: React-Frontend bauen -------------------------------------------
 # Separater Node-Build-Layer; das Ergebnis (statische Assets) wird in das
 # Runtime-Image kopiert. Node ist zur Laufzeit nicht noetig.
-FROM node:22-slim AS frontend
+FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS frontend
 
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./frontend/
@@ -13,7 +14,7 @@ RUN cd frontend && npm run build
 
 
 # --- Stage 2: Python-Runtime -------------------------------------------------
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
 
 LABEL maintainer="open-knowledge-ui"
 
@@ -23,9 +24,16 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+# Modell-Caches im Datenbereich? Nein: eigene Ordnung unter /app/.cache (Volume-Volumes
+# drehen sich in docker-compose.yml um diese Pfade). HF_HOME deckt HuggingFace-Modelle
+# (Embedding-/Reranking-Gewichte, Docling-Layout/TableFormer) ab, FASTEMBED_CACHE_PATH
+# die ONNX-Caches von fastembed.
+ENV HF_HOME=/app/.cache/huggingface
+ENV FASTEMBED_CACHE_PATH=/app/.cache/fastembed
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    gosu \
     tesseract-ocr \
     tesseract-ocr-deu \
     poppler-utils \
@@ -73,7 +81,9 @@ RUN python -c "from langchain_community.embeddings import FastEmbedEmbeddings; \
 # Docling lädt die Gewichte erst beim convert(), nicht beim Instanziieren —
 # deshalb wird hier eine Minimal-PDF (via Pillow, bereits Dep) erzeugt und
 # konvertiert (nutzt die GPU, falls beim Build verfuegbar, sonst CPU).
-# OCR erfolgt über die Tesseract-CLI (apt-Packages oben).
+# OCR-Engine zur Laufzeit wählbar (OCR_ENGINE, siehe app/components/ocr.py). Das Warmup
+# lädt nur die engine-unabhängigen Layout/TableFormer-Gewichte — bei rapidocr/ocrmac/off
+# ändert sich nichts, die Tesseract-Binary bleibt trotzdem installiert.
 RUN python -c "\
 from PIL import Image; \
 Image.new('RGB',(100,100),'white').save('/tmp/_warm.pdf'); \
@@ -109,6 +119,15 @@ RUN mkdir -p /app/data
 # Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+# Laeuft nicht als root (uid 1000, gid 0 fuer Docker-Volume-Kompatibilitaet). Der
+# entrypoint wechselt beim Start mit gosu auf dieses Konto und gibt vorher die
+# Daten-/Cache-Verzeichnisse frei (bestehende Volumes sind root-gehoert).
+ARG APP_UID=1000
+RUN mkdir -p /app/data /app/.cache \
+    && useradd --uid "${APP_UID}" --gid 0 --no-create-home --system --shell /usr/sbin/nologin app \
+    && chown -R "${APP_UID}:0" /app/data /app/.cache \
+    && chmod -R g+rwX /app/data /app/.cache
 
 EXPOSE 5000
 

@@ -1,5 +1,7 @@
 # Open Knowledge UI - A privacy-focused, self-hosted RAG system
-# Copyright (C) 2026 Christopher Abanilla
+# SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 S2A Open Technologies gGmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -51,8 +53,8 @@ from app.rag import model_settings, models_runtime
 from app.utils.phase_logger import phase_logger, Phase
 from app.utils.file_manager import IMAGE_EXTS, read_uploader
 from app.utils.qdrant_client import get_qdrant_client
-from app.database_service import get_db_service
-from app.settings_service import SettingsService
+from app.core.database_service import get_db_service
+from app.core.settings_service import SettingsService
 
 logger = getLogger(__name__)
 
@@ -304,7 +306,7 @@ class DocumentIngestion:
     ):
         """
         Args:
-            knowledge: Knowledge-Bereich (dict aus ``app.knowledge``); ``None``
+            knowledge: Knowledge-Bereich (dict aus ``app.rag.knowledge``); ``None``
                 steht fuer den Standard-Bereich.
             collection_name: ueberschreibt die Collection (z. B. Chat-Anhaenge).
             extra_metadata: wird jedem Chunk-Payload hinzugefuegt (z. B. session_id).
@@ -315,7 +317,7 @@ class DocumentIngestion:
             attachment_markdown_dir: Chat-Anhaenge: hier wird das Markdown abgelegt
                 (``self.last_markdown_path``), sonst nirgends.
         """
-        from app.knowledge import get_knowledge, knowledge_paths
+        from app.rag.knowledge import get_knowledge, knowledge_paths
 
         if knowledge is None:
             knowledge = get_knowledge(None)
@@ -669,7 +671,7 @@ class DocumentIngestion:
             # 6. Dokument-Zuordnung anlegen, damit die Datei-Liste das ingestierte
             # Dokument findet und es per file_group_id gelöscht werden kann.
             try:
-                from app.database_service import get_db_service
+                from app.core.database_service import get_db_service
 
                 get_db_service().add_document(
                     document_id=file_group_id,

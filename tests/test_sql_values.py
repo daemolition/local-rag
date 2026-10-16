@@ -5,14 +5,14 @@ import time
 import pytest
 from flask import Flask
 
-from app import knowledge, retrieval
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.pii_session import PIISession, set_session
-from app.retrieval import RetrievalScope
-from app.routes import bp as main_bp
+from app.chat.pii_session import PIISession, set_session
+from app.rag import knowledge, retrieval
+from app.rag.retrieval import RetrievalScope
 from app.sqlsource import valueindex
 from app.sqlsource.tools import SqlTools
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 from tests.test_pii_tools import FakeFilter
 
@@ -174,7 +174,7 @@ def test_editing_the_source_keeps_the_column_selection_and_deleting_removes_the_
     assert r.status_code == 200
     assert admin.get(f"/api/knowledge/{kid}/sql-values").json["columns"] == {"items": ["name"]}  # Dialog kennt sie nicht
     assert admin.delete(f"/api/knowledge/{kid}").status_code == 200
-    from app.models import SqlValue, SqlValueIndex
+    from app.core.models import SqlValue, SqlValueIndex
 
     s = db.get_session()
     assert s.query(SqlValue).count() == 0 and s.query(SqlValueIndex).count() == 0
@@ -246,7 +246,7 @@ def test_find_values_masks_only_the_values_and_keeps_the_instructions_intact(bui
 
 
 def test_the_chat_hint_mentions_the_value_search_only_when_a_directory_exists(app, db, shop, built, monkeypatch):
-    from app import access
+    from app.auth import access
     from app.toolworker import config as wc
     from tests.test_sanitizer import chat_setup
 
@@ -299,7 +299,7 @@ def test_removing_a_table_from_the_allowed_list_removes_its_values(app, db, shop
 
 def test_search_filters_by_the_current_config_even_if_rows_remain(app, db, shop):
     """Verteidigung in der Tiefe: auch wenn Zeilen im Verzeichnis uebrig blieben, liefert die Suche sie nicht."""
-    from app.knowledge import update_sql_source
+    from app.rag.knowledge import update_sql_source
     from app.sqlsource.config import SqlConfig, parse_config
 
     kid = make_source(app)

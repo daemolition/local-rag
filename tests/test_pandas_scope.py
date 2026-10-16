@@ -3,8 +3,8 @@ import time
 
 import pytest
 
-from app import retrieval
-from app.retrieval import RetrievalScope
+from app.rag import retrieval
+from app.rag.retrieval import RetrievalScope
 from app.tools.custom_tools import CustomTools
 
 

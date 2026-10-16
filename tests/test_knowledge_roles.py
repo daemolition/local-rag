@@ -3,14 +3,15 @@ import pytest
 from flask import Flask
 from qdrant_client import QdrantClient
 
-from app import access, knowledge
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.models import Group, GroupMember
+from app.auth import access
+from app.auth.user_admin_routes import users_bp
+from app.core.models import Group, GroupMember
+from app.rag import knowledge
 from app.rag import models_runtime as mr
 from app.rag.routes import rag_bp
-from app.routes import bp as main_bp
-from app.user_admin_routes import users_bp
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 
@@ -151,7 +152,7 @@ def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_acces
 
 
 def test_a_disabled_index_is_reported_and_remote_sources_have_none(app, db):
-    from app.settings_service import SettingsService
+    from app.core.settings_service import SettingsService
 
     c = client_for(app, {"id": 1, "role": "admin", "username": "admin"})
     kid = c.post("/api/knowledge", json={"name": "K"}).json["id"]

@@ -7,17 +7,18 @@ from flask import Flask
 from qdrant_client import QdrantClient
 from werkzeug.security import generate_password_hash
 
-from app import access, knowledge
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
+from app.auth import access
+from app.auth.user_admin_routes import users_bp
+from app.core.models import User
+from app.core.settings_service import SettingsService
 from app.ingest import indexer
-from app.models import User
-from app.routes import bp as main_bp
-from app.settings_service import SettingsService
-from app.user_admin_routes import users_bp
+from app.rag import knowledge
 from app.vector import ingestion as ingestion_module
 from app.vector.collections import ensure_collection
 from app.vector.ingestion import DocumentIngestion
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 
 VOCAB = ["kuendigung", "kaution", "miete", "dach", "frist", "strom"]
 
@@ -498,8 +499,8 @@ def test_tables_become_csv_files_and_references_in_the_markdown(db, qd, no_enric
 
 
 def test_extracted_tables_have_no_points_of_their_own_but_are_readable_by_the_pandas_tool(db, qd, no_enrichment, tmp_path, worker):
-    from app import retrieval
-    from app.retrieval import RetrievalScope
+    from app.rag import retrieval
+    from app.rag.retrieval import RetrievalScope
     from app.tools.custom_tools import CustomTools
 
     ingest_docx(qd, make_docx_with_tables(tmp_path))
@@ -696,7 +697,7 @@ def test_data_file_can_be_previewed_and_downloaded_but_not_outside_the_folder(db
 
 
 def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):
-    from app import access
+    from app.auth import access
     from tests.test_access import add_user, client_for
 
     ed = add_user(db, "ed", "editor")

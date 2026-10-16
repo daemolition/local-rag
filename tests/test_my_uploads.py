@@ -5,12 +5,13 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
-from app import attachments, knowledge
-from app.admin_routes import admin_bp
-from app.api_routes import api_bp
-from app.database_service import get_db_service
+from app.chat import attachments
+from app.core.database_service import get_db_service
+from app.rag import knowledge
 from app.rag import models_runtime as mr
-from app.routes import bp as main_bp
+from app.web.admin_routes import admin_bp
+from app.web.api_routes import api_bp
+from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 from tests.test_ingest import (  # noqa: F401
     DOC,
@@ -44,8 +45,7 @@ def app(db, qd):
 
 
 def upload_and_ingest(app, qd, user, name, text):
-    from app import access
-
+    from app.auth import access
     access.add_grant("knowledge", knowledge.get_knowledge(None)["id"], "user", user["id"], "write")
     c = client_for(app, user)
     r = c.post(
@@ -87,7 +87,7 @@ def test_uploader_may_delete_own_document_without_write_access_to_the_knowledge_
     stranger = add_user(db, "fremd", "user")
     # der Nutzer verliert die Editor-Rolle, bleibt aber Eigentuemer seiner Datei
     s = db.get_session()
-    from app.models import User
+    from app.core.models import User
 
     s.query(User).filter_by(id=ed["id"]).update({"role": "user"})
     s.commit()
